@@ -1,0 +1,21 @@
+{
+  "name": "moires",
+  "private": true,
+  "scripts": {
+    "dev:api": "pnpm --filter api dev",
+    "dev:web": "pnpm --filter web dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "test:web": "pnpm --filter web test",
+    "test:api": "pnpm --filter api test",
+    "test:api:e2e": "pnpm --filter api test:e2e",
+    "test:e2e": "playwright test",
+    "test": "pnpm test:web && pnpm test:api && pnpm test:api:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

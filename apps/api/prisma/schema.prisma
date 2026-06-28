@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(uuid())
+  azureAdId   String   @unique @map("azure_ad_id")
+  displayName String   @map("display_name")
+  email       String
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  operationsLog OperationsLog[]
+  sessions      PlanningSession[]
+
+  @@map("users")
+}
+
+model PlanningSession {
+  id              String   @id @default(uuid())
+  adoProjectId    String   @map("ado_project_id")
+  adoIterationIds String[] @map("ado_iteration_ids")
+  areaPaths       String[] @map("area_paths")
+  createdBy       String   @map("created_by")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  creator       User            @relation(fields: [createdBy], references: [id])
+  operationsLog OperationsLog[]
+  ticketsCache  TicketsCache[]
+
+  @@map("planning_sessions")
+}
+
+model OperationsLog {
+  id              String   @id @default(uuid())
+  sessionId       String   @map("session_id")
+  ticketId        String   @map("ticket_id")
+  field           String
+  oldValue        String?  @map("old_value")
+  newValue        String?  @map("new_value")
+  performedBy     String   @map("performed_by")
+  performedAt     DateTime @default(now()) @map("performed_at")
+  adoSyncStatus   String   @default("pending") @map("ado_sync_status")
+
+  session   PlanningSession @relation(fields: [sessionId], references: [id])
+  performer User            @relation(fields: [performedBy], references: [id])
+
+  @@index([sessionId])
+  @@index([ticketId])
+  @@map("operations_log")
+}
+
+model TicketsCache {
+  id            String   @id
+  sessionId     String   @map("session_id")
+  title         String
+  assigneeId    String?  @map("assignee_id")
+  areaPath      String   @map("area_path")
+  iterationId   String   @map("iteration_id")
+  startDate     DateTime @map("start_date")
+  endDate       DateTime @map("end_date")
+  estimateHours Float    @default(0) @map("estimate_hours")
+  adoRev        Int      @map("ado_rev")
+  syncStatus    String   @default("synced") @map("sync_status")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  session PlanningSession @relation(fields: [sessionId], references: [id])
+
+  @@index([iterationId])
+  @@map("tickets_cache")
+}
