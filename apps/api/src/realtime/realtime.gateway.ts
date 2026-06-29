@@ -1,6 +1,7 @@
 import {
   WebSocketGateway,
   WebSocketServer,
+  OnGatewayInit,
   OnGatewayConnection,
   OnGatewayDisconnect,
   SubscribeMessage,
@@ -10,18 +11,33 @@ import {
 import { Server, Socket } from "socket.io";
 import type { Operation, PresenceState } from "@moires/shared";
 import { ROOM } from "@moires/shared";
+import { RedisService } from "../database/redis.service";
+import { BroadcastService } from "./broadcast.service";
 import { OperationsHandler } from "./operations.handler";
 import { PresenceHandler } from "./presence.handler";
 
+function parseAdoToken(cookieHeader: string | string[] | undefined): string | undefined {
+  const str = Array.isArray(cookieHeader) ? cookieHeader.join("; ") : cookieHeader;
+  if (!str) return undefined;
+  const match = str.match(/(?:^|;\s*)ado_token=([^;]*)/);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
 @WebSocketGateway({ cors: { origin: "*", credentials: true } })
-export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
 
   constructor(
     private operationsHandler: OperationsHandler,
     private presenceHandler: PresenceHandler,
+    private redis: RedisService,
+    private broadcast: BroadcastService,
   ) {}
+
+  afterInit(server: Server) {
+    this.broadcast.setServer(server);
+  }
 
   async handleConnection(client: Socket) {
     const sessionId = client.handshake.query.sessionId as string;
@@ -33,6 +49,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
     client.data = { sessionId, userId, displayName };
     client.join(ROOM(sessionId));
+
+    const token = parseAdoToken(client.handshake.headers.cookie);
+    if (token) await this.redis.setUserToken(sessionId, userId, token);
+
     await this.presenceHandler.handleJoin(this.server, client);
   }
 

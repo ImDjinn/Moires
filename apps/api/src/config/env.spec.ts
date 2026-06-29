@@ -6,7 +6,6 @@ const required = {
   AZURE_AD_CLIENT_SECRET: "secret",
   AZURE_AD_TENANT_ID: "tid",
   AZURE_AD_REDIRECT_URI: "http://localhost:3000/auth/callback",
-  ADO_ORG_URL: "https://dev.azure.com/org",
   SESSION_SECRET: "shhh",
 };
 

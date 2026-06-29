@@ -14,4 +14,6 @@ export interface ServerToClient {
   "presence:broadcast": (p: PresenceState) => void;
   "presence:user-joined": (p: Pick<PresenceState, "userId" | "displayName" | "color">) => void;
   "presence:user-left": (payload: { userId: string }) => void;
+  "ticket:sync-status": (payload: { ticketId: string; syncStatus: "synced" | "error"; adoRev?: number }) => void;
+  "ticket:updated": (ticket: import("./ticket").Ticket) => void;
 }

@@ -7,10 +7,10 @@ export const envSchema = z.object({
   AZURE_AD_CLIENT_SECRET: z.string(),
   AZURE_AD_TENANT_ID: z.string(),
   AZURE_AD_REDIRECT_URI: z.string(),
-  ADO_ORG_URL: z.string(),
   SESSION_SECRET: z.string(),
   PORT: z.coerce.number().default(3000),
   FRONTEND_URL: z.string().default("http://localhost:5173"),
+  ADO_WEBHOOK_SECRET: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

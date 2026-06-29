@@ -12,16 +12,22 @@ function makeService() {
     addParticipant: jest.fn(),
     getTickets: jest.fn(),
     getPresences: jest.fn(),
+    setIterations: jest.fn().mockResolvedValue(undefined),
+    getIterations: jest.fn().mockResolvedValue([]),
+    setTeamMembers: jest.fn().mockResolvedValue(undefined),
+    getTeamMembers: jest.fn().mockResolvedValue([]),
   };
+  const ado = { getIterations: jest.fn().mockResolvedValue([]) };
   const sync = { syncInitial: jest.fn() };
   const writeback = { enqueue: jest.fn() };
   const service = new SessionsService(
     prisma as any,
     redis as any,
+    ado as any,
     sync as any,
     writeback as any,
   );
-  return { service, prisma, redis, sync, writeback };
+  return { service, prisma, redis, ado, sync, writeback };
 }
 
 const ticket: Ticket = {
@@ -30,6 +36,8 @@ const ticket: Ticket = {
   assigneeId: "m1",
   areaPath: "",
   iterationId: "it1",
+  epicId: null,
+  epicTitle: null,
   startDate: "2026-06-10",
   endDate: "2026-06-11",
   estimateHours: 8,
@@ -38,8 +46,12 @@ const ticket: Ticket = {
 };
 
 describe("SessionsService.createSession", () => {
-  it("crée la session, lance la sync initiale et renvoie le snapshot", async () => {
-    const { service, prisma, redis, sync } = makeService();
+  it("dérive les itérations du projet, lance la sync initiale et renvoie le snapshot", async () => {
+    const { service, prisma, redis, ado, sync } = makeService();
+    ado.getIterations.mockResolvedValue([
+      { id: "it1", name: "Sprint 1", path: "P\\S1", startDate: "2026-06-01", finishDate: "2026-06-14" },
+      { id: "it0", name: "Backlog", path: "P", startDate: undefined, finishDate: undefined },
+    ]);
     prisma.planningSession.create.mockResolvedValue({ id: "s1" });
     sync.syncInitial.mockResolvedValue({
       tickets: [ticket],
@@ -48,15 +60,25 @@ describe("SessionsService.createSession", () => {
     redis.addParticipant.mockResolvedValue(undefined);
 
     const snapshot = await service.createSession(
-      { adoProjectId: "p1", adoIterationIds: ["it1"] },
+      { adoProjectId: "p1" },
       "u1",
+      "orgX",
       "token",
     );
 
     expect(snapshot.sessionId).toBe("s1");
     expect(snapshot.tickets).toEqual([ticket]);
     expect(snapshot.teamMembers).toHaveLength(1);
+    // seule l'itération datée est retenue, et exposée dans le snapshot
+    expect(snapshot.iterations).toEqual([
+      { id: "it1", name: "Sprint 1", path: "P\\S1", startDate: "2026-06-01", finishDate: "2026-06-14" },
+    ]);
+    expect(redis.setIterations).toHaveBeenCalledWith("s1", snapshot.iterations);
     expect(redis.addParticipant).toHaveBeenCalledWith("s1", "u1");
+    expect(prisma.planningSession.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ adoOrg: "orgX", adoIterationIds: ["it1"] }),
+    });
+    expect(sync.syncInitial).toHaveBeenCalledWith("s1", "orgX", "p1", ["it1"], "token", undefined);
   });
 });
 
@@ -119,7 +141,8 @@ describe("SessionsService.getSnapshot", () => {
       sessionId: "s1",
       tickets: [ticket],
       participants: [{ userId: "u1" }],
-      teamMembers: [],
+      teamMembers: [],  // mock retourne [] par défaut
+      iterations: [],
     });
   });
 });

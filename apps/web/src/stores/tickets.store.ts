@@ -6,6 +6,7 @@ interface TicketsState {
   setTickets: (tickets: Ticket[]) => void;
   applyOperation: (op: Operation) => void;
   updateTicket: (ticket: Ticket) => void;
+  updateSyncStatus: (ticketId: string, syncStatus: Ticket["syncStatus"], adoRev?: number) => void;
 }
 
 export const useTicketsStore = create<TicketsState>((set) => ({
@@ -22,5 +23,13 @@ export const useTicketsStore = create<TicketsState>((set) => ({
   updateTicket: (ticket) =>
     set((state) => ({
       tickets: state.tickets.map((t) => (t.id === ticket.id ? ticket : t)),
+    })),
+  updateSyncStatus: (ticketId, syncStatus, adoRev) =>
+    set((state) => ({
+      tickets: state.tickets.map((t) =>
+        t.id === ticketId
+          ? { ...t, syncStatus, ...(adoRev !== undefined ? { adoRev } : {}) }
+          : t,
+      ),
     })),
 }));

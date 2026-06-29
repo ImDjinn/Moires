@@ -1,7 +1,7 @@
 import { Injectable, OnModuleDestroy } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import Redis from "ioredis";
-import type { Ticket, PresenceState } from "@moires/shared";
+import type { Ticket, PresenceState, Iteration, TeamMember } from "@moires/shared";
 
 const TTL = 86400; // 24h
 
@@ -27,6 +27,54 @@ export class RedisService implements OnModuleDestroy {
 
   presenceKey(sessionId: string) {
     return `session:${sessionId}:presence`;
+  }
+
+  iterationsKey(sessionId: string) {
+    return `session:${sessionId}:iterations`;
+  }
+
+  teamMembersKey(sessionId: string) {
+    return `session:${sessionId}:team-members`;
+  }
+
+  tokenKey(sessionId: string, userId: string) {
+    return `session:${sessionId}:token:${userId}`;
+  }
+
+  async setUserToken(sessionId: string, userId: string, token: string): Promise<void> {
+    await this.client.set(this.tokenKey(sessionId, userId), token, "EX", 3600);
+    await this.client.set(`session:${sessionId}:token`, token, "EX", 3600);
+  }
+
+  async getUserToken(sessionId: string, userId: string): Promise<string | null> {
+    return this.client.get(this.tokenKey(sessionId, userId));
+  }
+
+  async getSessionToken(sessionId: string): Promise<string | null> {
+    return this.client.get(`session:${sessionId}:token`);
+  }
+
+  async setTeamMembers(sessionId: string, members: TeamMember[]) {
+    await this.client.set(this.teamMembersKey(sessionId), JSON.stringify(members), "EX", TTL);
+  }
+
+  async getTeamMembers(sessionId: string): Promise<TeamMember[]> {
+    const raw = await this.client.get(this.teamMembersKey(sessionId));
+    return raw ? JSON.parse(raw) : [];
+  }
+
+  async setIterations(sessionId: string, iterations: Iteration[]) {
+    await this.client.set(
+      this.iterationsKey(sessionId),
+      JSON.stringify(iterations),
+      "EX",
+      TTL,
+    );
+  }
+
+  async getIterations(sessionId: string): Promise<Iteration[]> {
+    const raw = await this.client.get(this.iterationsKey(sessionId));
+    return raw ? JSON.parse(raw) : [];
   }
 
   async setTickets(sessionId: string, tickets: Ticket[]) {

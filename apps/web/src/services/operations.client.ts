@@ -20,6 +20,14 @@ export function connectSocket(sessionId: string, userId: string, displayName: st
     console.warn("Operation rejected:", reason, op);
   });
 
+  socket.on("ticket:sync-status", ({ ticketId, syncStatus, adoRev }) => {
+    useTicketsStore.getState().updateSyncStatus(ticketId, syncStatus, adoRev);
+  });
+
+  socket.on("ticket:updated", (ticket) => {
+    useTicketsStore.getState().updateTicket(ticket);
+  });
+
   return socket;
 }
 

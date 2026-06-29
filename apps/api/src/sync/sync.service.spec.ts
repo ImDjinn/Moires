@@ -21,11 +21,14 @@ function makeService() {
   const redis = {
     setTickets: jest.fn().mockResolvedValue(undefined),
     getPresences: jest.fn().mockResolvedValue([]),
+    getIterations: jest.fn().mockResolvedValue([]),
   };
   const ado = {
     queryWorkItemIds: jest.fn(),
     getWorkItemsBatch: jest.fn(),
     getCapacities: jest.fn(),
+    getTeamMembers: jest.fn().mockResolvedValue([]),
+    resolveEpics: jest.fn().mockResolvedValue(new Map()),
   };
   const service = new SyncService(prisma as any, redis as any, ado as any, new AdoMapper());
   return { service, prisma, redis, ado };
@@ -38,7 +41,7 @@ describe("SyncService.syncInitial", () => {
     ado.getWorkItemsBatch.mockResolvedValue([raw]);
     ado.getCapacities.mockResolvedValue([{ id: "m1", displayName: "Alice", capacityHoursPerDay: 8 }]);
 
-    const res = await service.syncInitial("s1", "p1", ["it1"], "tkn");
+    const res = await service.syncInitial("s1", "org1", "p1", ["it1"], "tkn");
 
     expect(res.tickets).toHaveLength(1);
     expect(res.tickets[0].id).toBe("1");
@@ -47,12 +50,25 @@ describe("SyncService.syncInitial", () => {
     expect(prisma.ticketsCache.upsert).toHaveBeenCalledTimes(1);
   });
 
+  it("enrichit les tickets avec l'Epic résolu", async () => {
+    const { service, ado } = makeService();
+    ado.queryWorkItemIds.mockResolvedValue(["1"]);
+    ado.getWorkItemsBatch.mockResolvedValue([raw]);
+    ado.getCapacities.mockResolvedValue([]);
+    ado.resolveEpics.mockResolvedValue(new Map([["1", { id: "100", title: "Epic A" }]]));
+
+    const res = await service.syncInitial("s1", "org1", "p1", ["it1"], "tkn");
+
+    expect(res.tickets[0].epicId).toBe("100");
+    expect(res.tickets[0].epicTitle).toBe("Epic A");
+  });
+
   it("ne charge pas de work items quand la requête ne renvoie aucun id", async () => {
     const { service, ado } = makeService();
     ado.queryWorkItemIds.mockResolvedValue([]);
     ado.getCapacities.mockResolvedValue([]);
 
-    const res = await service.syncInitial("s1", "p1", ["it1"], "tkn");
+    const res = await service.syncInitial("s1", "org1", "p1", ["it1"], "tkn");
 
     expect(res.tickets).toEqual([]);
     expect(ado.getWorkItemsBatch).not.toHaveBeenCalled();
@@ -64,6 +80,7 @@ describe("SyncService.syncIncremental", () => {
     const { service, prisma, ado } = makeService();
     prisma.planningSession.findUniqueOrThrow.mockResolvedValue({
       id: "s1",
+      adoOrg: "org1",
       adoProjectId: "p1",
       adoIterationIds: ["it1"],
       areaPaths: [],

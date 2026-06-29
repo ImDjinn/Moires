@@ -5,6 +5,7 @@ import type { Operation } from "@moires/shared";
 import { PrismaService } from "../database/prisma.service";
 import { RedisService } from "../database/redis.service";
 import { AdoService } from "../ado/ado.service";
+import { BroadcastService } from "../realtime/broadcast.service";
 
 interface WritebackJob {
   sessionId: string;
@@ -19,6 +20,7 @@ export class WritebackProcessor implements OnModuleInit {
     private prisma: PrismaService,
     private redis: RedisService,
     private ado: AdoService,
+    private broadcast: BroadcastService,
   ) {}
 
   onModuleInit() {
@@ -38,11 +40,18 @@ export class WritebackProcessor implements OnModuleInit {
       const ticket = await this.redis.getTicket(sessionId, op.ticketId);
       if (!ticket) throw new Error(`Ticket ${op.ticketId} not found in Redis`);
 
-      // token retrieval: in production this would come from a secure store
-      // For now we use system token from env
-      const token = this.config.get<string>("ADO_SYSTEM_TOKEN") || "";
+      const session = await this.prisma.planningSession.findUnique({
+        where: { id: sessionId },
+      });
+      if (!session) throw new Error(`Session ${sessionId} not found`);
+
+      const token =
+        (await this.redis.getUserToken(sessionId, op.userId)) ??
+        this.config.get<string>("ADO_SYSTEM_TOKEN") ??
+        "";
 
       const newRev = await this.ado.patchWorkItem(
+        session.adoOrg,
         op.ticketId,
         op.field,
         op.value,
@@ -50,6 +59,7 @@ export class WritebackProcessor implements OnModuleInit {
         token,
       );
 
+      (ticket as any)[op.field] = op.value;
       ticket.adoRev = newRev;
       ticket.syncStatus = "synced";
       await this.redis.updateTicket(sessionId, ticket);
@@ -58,7 +68,18 @@ export class WritebackProcessor implements OnModuleInit {
         where: { id: logId },
         data: { adoSyncStatus: "synced" },
       });
+
+      this.broadcast.send(sessionId, "ticket:sync-status", {
+        ticketId: ticket.id,
+        syncStatus: "synced",
+        adoRev: ticket.adoRev,
+      });
     } catch (error) {
+      console.error(
+        `[writeback] échec tentative ${job.attemptsMade + 1}/${job.opts.attempts || 5} —`,
+        `session=${sessionId} ticket=${op.ticketId} field=${op.field}:`,
+        error instanceof Error ? error.message : error,
+      );
       if (job.attemptsMade >= (job.opts.attempts || 5) - 1) {
         await this.prisma.operationsLog.update({
           where: { id: logId },
@@ -69,6 +90,10 @@ export class WritebackProcessor implements OnModuleInit {
         if (ticket) {
           ticket.syncStatus = "error";
           await this.redis.updateTicket(sessionId, ticket);
+          // ponytail: ticket:updated (pas ticket:sync-status) pour que le frontend
+          // revienne à la valeur réelle d'ADO — à ce stade setTickets a déjà
+          // écrasé Redis avec les données fraîches lors du poll de 5s.
+          this.broadcast.send(sessionId, "ticket:updated", ticket);
         }
       }
       throw error;

@@ -9,6 +9,8 @@ import type { SessionSnapshot } from "@moires/shared";
 // --- Mocks à la frontière : aucune dépendance réseau/socket réelle ---
 vi.mock("./services/rest.client", () => ({
   api: {
+    getOrganizations: vi.fn().mockResolvedValue({ organizations: [], selected: null }),
+    selectOrganization: vi.fn(),
     getProjects: vi.fn().mockResolvedValue([]),
     getIterations: vi.fn().mockResolvedValue([]),
     getAreas: vi.fn().mockResolvedValue([]),
@@ -59,6 +61,7 @@ describe("App — rendu des 3 vues (pages)", () => {
       tickets: [],
       participants: [],
       teamMembers: [{ id: "m1", displayName: "Alice", capacityHoursPerDay: 8 }],
+      iterations: [],
     };
     useSessionStore.setState({ snapshot });
     render(<App />);

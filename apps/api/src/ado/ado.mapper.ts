@@ -23,7 +23,11 @@ export class AdoMapper {
       title: f["System.Title"] || "",
       assigneeId: f["System.AssignedTo"]?.uniqueName || f["System.AssignedTo"]?.id || null,
       areaPath: f["System.AreaPath"] || "",
-      iterationId: f["System.IterationId"] || f["System.IterationPath"] || "",
+      // On stocke le chemin d'itération : c'est la clé de jointure avec les
+      // colonnes de sprint et la valeur réécrite dans System.IterationPath.
+      iterationId: f["System.IterationPath"] ?? String(f["System.IterationId"] ?? ""),
+      epicId: null,
+      epicTitle: null,
       startDate: f["Microsoft.VSTS.Scheduling.StartDate"] || new Date().toISOString(),
       endDate: f["Microsoft.VSTS.Scheduling.FinishDate"] || new Date().toISOString(),
       estimateHours: f["Microsoft.VSTS.Scheduling.OriginalEstimate"] || 0,
@@ -32,7 +36,16 @@ export class AdoMapper {
     };
   }
 
-  toJsonPatch(field: OperationField, value: unknown): { op: "replace"; path: string; value: unknown }[] {
-    return [{ op: "replace", path: FIELD_MAP[field], value }];
+  toJsonPatch(
+    field: OperationField,
+    value: unknown,
+  ): ({ op: "replace"; path: string; value: unknown } | { op: "remove"; path: string })[] {
+    const path = FIELD_MAP[field];
+    // ADO refuse `replace` avec null/"" (VssPropertyValidationException
+    // "Value cannot be null"). Le vider = `remove` (ex: désassigner).
+    if (value === null || value === "") {
+      return [{ op: "remove", path }];
+    }
+    return [{ op: "replace", path, value }];
   }
 }

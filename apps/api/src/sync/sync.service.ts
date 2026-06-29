@@ -16,14 +16,24 @@ export class SyncService {
 
   async syncInitial(
     sessionId: string,
+    org: string,
     projectId: string,
     iterationIds: string[],
     token: string,
     areaPaths?: string[],
   ): Promise<{ tickets: Ticket[]; teamMembers: TeamMember[] }> {
-    const ids = await this.ado.queryWorkItemIds(projectId, iterationIds, token, areaPaths);
-    const rawItems = ids.length ? await this.ado.getWorkItemsBatch(ids, token) : [];
+    const ids = await this.ado.queryWorkItemIds(org, projectId, iterationIds, token, areaPaths);
+    const rawItems = ids.length ? await this.ado.getWorkItemsBatch(org, ids, token) : [];
     const tickets = rawItems.map((r) => this.mapper.toTicket(r));
+
+    const epics = rawItems.length ? await this.ado.resolveEpics(org, rawItems, token) : new Map();
+    for (const t of tickets) {
+      const epic = epics.get(t.id);
+      if (epic) {
+        t.epicId = epic.id;
+        t.epicTitle = epic.title;
+      }
+    }
 
     await this.redis.setTickets(sessionId, tickets);
 
@@ -36,6 +46,8 @@ export class SyncService {
           assigneeId: t.assigneeId,
           areaPath: t.areaPath,
           iterationId: t.iterationId,
+          epicId: t.epicId,
+          epicTitle: t.epicTitle,
           startDate: new Date(t.startDate),
           endDate: new Date(t.endDate),
           estimateHours: t.estimateHours,
@@ -49,6 +61,8 @@ export class SyncService {
           assigneeId: t.assigneeId,
           areaPath: t.areaPath,
           iterationId: t.iterationId,
+          epicId: t.epicId,
+          epicTitle: t.epicTitle,
           startDate: new Date(t.startDate),
           endDate: new Date(t.endDate),
           estimateHours: t.estimateHours,
@@ -58,9 +72,14 @@ export class SyncService {
       });
     }
 
-    const teamMembers = iterationIds.length
-      ? await this.ado.getCapacities(projectId, iterationIds[0], token)
+    let teamMembers = iterationIds.length
+      ? await this.ado.getCapacities(org, projectId, iterationIds[0], token)
       : [];
+
+    // ponytail: fallback quand aucune capacité configurée dans ADO
+    if (!teamMembers.length) {
+      teamMembers = await this.ado.getTeamMembers(org, projectId, token);
+    }
 
     return { tickets, teamMembers };
   }
@@ -72,6 +91,7 @@ export class SyncService {
 
     const { tickets, teamMembers } = await this.syncInitial(
       sessionId,
+      session.adoOrg,
       session.adoProjectId,
       session.adoIterationIds,
       token,
@@ -79,7 +99,8 @@ export class SyncService {
     );
 
     const presences = await this.redis.getPresences(sessionId);
+    const iterations = await this.redis.getIterations(sessionId);
 
-    return { sessionId, tickets, participants: presences, teamMembers };
+    return { sessionId, tickets, participants: presences, teamMembers, iterations };
   }
 }

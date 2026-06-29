@@ -1,34 +1,83 @@
-import { Controller, Get, Param, Req, UseGuards } from "@nestjs/common";
-import { Request } from "express";
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  Body,
+  Req,
+  Res,
+  UseGuards,
+  BadRequestException,
+} from "@nestjs/common";
+import { Request, Response } from "express";
 import { AuthGuard } from "../auth/auth.guard";
+import { PrismaService } from "../database/prisma.service";
 import { AdoService } from "./ado.service";
 
 @Controller("ado")
 @UseGuards(AuthGuard)
 export class AdoController {
-  constructor(private ado: AdoService) {}
+  constructor(
+    private ado: AdoService,
+    private prisma: PrismaService,
+  ) {}
 
   private getToken(req: Request): string {
     return req.cookies?.ado_token;
   }
 
+  private getOrg(req: Request): string {
+    const org = req.cookies?.ado_org;
+    if (!org) throw new BadRequestException("No Azure DevOps organization selected");
+    return org;
+  }
+
+  @Get("organizations")
+  async getOrganizations(@Req() req: Request) {
+    const organizations = await this.ado.getOrganizations(this.getToken(req));
+    return { organizations, selected: req.cookies?.ado_org ?? null };
+  }
+
+  @Post("organizations/select")
+  async selectOrganization(
+    @Body() body: { org: string },
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (!body?.org) throw new BadRequestException("org is required");
+    const user = (req as any).user;
+    res.cookie("ado_org", body.org, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 8 * 60 * 60 * 1000, // 8h
+    });
+    if (user?.id) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { defaultAdoOrg: body.org },
+      });
+    }
+    return { selected: body.org };
+  }
+
   @Get("projects")
   getProjects(@Req() req: Request) {
-    return this.ado.getProjects(this.getToken(req));
+    return this.ado.getProjects(this.getOrg(req), this.getToken(req));
   }
 
   @Get("projects/:id/iterations")
   getIterations(@Param("id") id: string, @Req() req: Request) {
-    return this.ado.getIterations(id, this.getToken(req));
+    return this.ado.getIterations(this.getOrg(req), id, this.getToken(req));
   }
 
   @Get("projects/:id/areas")
   getAreas(@Param("id") id: string, @Req() req: Request) {
-    return this.ado.getAreas(id, this.getToken(req));
+    return this.ado.getAreas(this.getOrg(req), id, this.getToken(req));
   }
 
   @Get("projects/:id/team-members")
   getTeamMembers(@Param("id") id: string, @Req() req: Request) {
-    return this.ado.getTeamMembers(id, this.getToken(req));
+    return this.ado.getTeamMembers(this.getOrg(req), id, this.getToken(req));
   }
 }

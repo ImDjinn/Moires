@@ -9,45 +9,46 @@ export function SessionLobby() {
   const setTickets = useTicketsStore((s) => s.setTickets);
   const setPeers = usePresenceStore((s) => s.setPeers);
 
+  const [organizations, setOrganizations] = useState<{ id: string; name: string }[]>([]);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
-  const [iterations, setIterations] = useState<{ id: string; name: string }[]>([]);
-  const [areas, setAreas] = useState<{ path: string }[]>([]);
 
+  const [selectedOrg, setSelectedOrg] = useState("");
   const [selectedProject, setSelectedProject] = useState("");
-  const [selectedIterations, setSelectedIterations] = useState<string[]>([]);
-  const [selectedAreas, setSelectedAreas] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api.getProjects().then(setProjects).catch((e) => setError(e.message));
+    api.getOrganizations()
+      .then(({ organizations, selected }) => {
+        setOrganizations(organizations);
+        if (selected) setSelectedOrg(selected);
+      })
+      .catch((e) => setError(e.message));
   }, []);
 
   useEffect(() => {
-    if (!selectedProject) return;
-    setIterations([]);
-    setAreas([]);
-    setSelectedIterations([]);
-    setSelectedAreas([]);
-    Promise.all([
-      api.getIterations(selectedProject),
-      api.getAreas(selectedProject),
-    ]).then(([iters, areas]) => {
-      setIterations(iters);
-      setAreas(areas);
-    }).catch((e) => setError(e.message));
-  }, [selectedProject]);
+    if (!selectedOrg) return;
+    setProjects([]);
+    setSelectedProject("");
+    api.getProjects().then(setProjects).catch((e) => setError(e.message));
+  }, [selectedOrg]);
+
+  const handleOrgChange = async (org: string) => {
+    setError("");
+    try {
+      await api.selectOrganization(org);
+      setSelectedOrg(org);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
 
   const handleEnter = async () => {
-    if (!selectedProject || !selectedIterations.length) return;
+    if (!selectedProject) return;
     setLoading(true);
     setError("");
     try {
-      const snapshot = await api.createSession({
-        adoProjectId: selectedProject,
-        adoIterationIds: selectedIterations,
-        areaPaths: selectedAreas.length ? selectedAreas : undefined,
-      });
+      const snapshot = await api.createSession({ adoProjectId: selectedProject });
       setTickets(snapshot.tickets);
       setPeers(snapshot.participants);
       setSnapshot(snapshot);
@@ -85,6 +86,20 @@ export function SessionLobby() {
         )}
 
         <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={{ color: "var(--text-muted)", fontSize: 13 }}>Organisation ADO</span>
+          <select
+            style={selectStyle}
+            value={selectedOrg}
+            onChange={(e) => handleOrgChange(e.target.value)}
+          >
+            <option value="">Sélectionner...</option>
+            {organizations.map((o) => (
+              <option key={o.id} value={o.name}>{o.name}</option>
+            ))}
+          </select>
+        </label>
+
+        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <span style={{ color: "var(--text-muted)", fontSize: 13 }}>Projet ADO</span>
           <select
             style={selectStyle}
@@ -98,43 +113,9 @@ export function SessionLobby() {
           </select>
         </label>
 
-        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ color: "var(--text-muted)", fontSize: 13 }}>Itération(s)</span>
-          <select
-            style={selectStyle}
-            multiple
-            size={4}
-            value={selectedIterations}
-            onChange={(e) =>
-              setSelectedIterations(Array.from(e.target.selectedOptions, (o) => o.value))
-            }
-          >
-            {iterations.map((i) => (
-              <option key={i.id} value={i.id}>{i.name}</option>
-            ))}
-          </select>
-        </label>
-
-        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ color: "var(--text-muted)", fontSize: 13 }}>Areas (optionnel)</span>
-          <select
-            style={selectStyle}
-            multiple
-            size={3}
-            value={selectedAreas}
-            onChange={(e) =>
-              setSelectedAreas(Array.from(e.target.selectedOptions, (o) => o.value))
-            }
-          >
-            {areas.map((a) => (
-              <option key={a.path} value={a.path}>{a.path}</option>
-            ))}
-          </select>
-        </label>
-
         <button
           onClick={handleEnter}
-          disabled={loading || !selectedProject || !selectedIterations.length}
+          disabled={loading || !selectedProject}
           style={{
             padding: "12px 0",
             background: "var(--accent)",

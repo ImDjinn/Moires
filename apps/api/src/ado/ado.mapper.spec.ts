@@ -10,7 +10,7 @@ describe("AdoMapper", () => {
       "System.Title": "Faire X",
       "System.AssignedTo": { uniqueName: "alice@corp.com", id: "aid" },
       "System.AreaPath": "Proj\\Team",
-      "System.IterationId": "it1",
+      "System.IterationId": 5,
       "Microsoft.VSTS.Scheduling.StartDate": "2026-06-10T00:00:00Z",
       "Microsoft.VSTS.Scheduling.FinishDate": "2026-06-12T00:00:00Z",
       "Microsoft.VSTS.Scheduling.OriginalEstimate": 16,
@@ -24,7 +24,9 @@ describe("AdoMapper", () => {
         title: "Faire X",
         assigneeId: "alice@corp.com",
         areaPath: "Proj\\Team",
-        iterationId: "it1",
+        iterationId: "5",
+        epicId: null,
+        epicTitle: null,
         startDate: "2026-06-10T00:00:00Z",
         endDate: "2026-06-12T00:00:00Z",
         estimateHours: 16,
@@ -69,6 +71,12 @@ describe("AdoMapper", () => {
       expect(mapper.toJsonPatch("assigneeId", "bob@corp.com")[0].path).toBe(
         "/fields/System.AssignedTo",
       );
+    });
+
+    it("génère un 'remove' quand la valeur est null (désassignation)", () => {
+      expect(mapper.toJsonPatch("assigneeId", null)).toEqual([
+        { op: "remove", path: "/fields/System.AssignedTo" },
+      ]);
     });
   });
 });

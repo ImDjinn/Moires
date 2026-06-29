@@ -23,6 +23,8 @@ const base: Ticket = {
   assigneeId: "m1",
   areaPath: "",
   iterationId: "it1",
+  epicId: null,
+  epicTitle: null,
   startDate: "2026-06-10",
   endDate: "2026-06-11",
   estimateHours: 8,
@@ -68,6 +70,21 @@ describe("operations.client", () => {
     expect(useTicketsStore.getState().tickets[0].endDate).toBe("2026-06-20");
     expect(useTicketsStore.getState().tickets[0].syncStatus).toBe("pending");
     expect(fakeSocket.emit).toHaveBeenCalledWith("operation:submit", op);
+  });
+
+  it("ticket:updated remplace le ticket dans le store", () => {
+    connectSocket("s1", "u1", "Alice");
+    const updated = { ...base, assigneeId: "m3", syncStatus: "synced" as const, adoRev: 9 };
+    handlers["ticket:updated"](updated);
+    expect(useTicketsStore.getState().tickets[0]).toEqual(updated);
+  });
+
+  it("ticket:sync-status met à jour le syncStatus dans le store", () => {
+    useTicketsStore.setState({ tickets: [base] });
+    connectSocket("s1", "u1", "Alice");
+    handlers["ticket:sync-status"]({ ticketId: "t1", syncStatus: "synced", adoRev: 2 });
+    expect(useTicketsStore.getState().tickets[0].syncStatus).toBe("synced");
+    expect(useTicketsStore.getState().tickets[0].adoRev).toBe(2);
   });
 
   it("disconnectSocket ferme la socket", () => {

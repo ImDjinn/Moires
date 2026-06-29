@@ -8,6 +8,8 @@ const base: Ticket = {
   assigneeId: "m1",
   areaPath: "",
   iterationId: "it1",
+  epicId: null,
+  epicTitle: null,
   startDate: "2026-06-10",
   endDate: "2026-06-11",
   estimateHours: 8,
@@ -58,5 +60,21 @@ describe("tickets.store", () => {
     const synced: Ticket = { ...base, assigneeId: "m2", syncStatus: "synced", adoRev: 2 };
     useTicketsStore.getState().updateTicket(synced);
     expect(useTicketsStore.getState().tickets[0]).toEqual(synced);
+  });
+
+  it("updateSyncStatus met à jour le statut et la révision ADO", () => {
+    useTicketsStore.getState().setTickets([base]);
+    useTicketsStore.getState().updateSyncStatus("t1", "synced", 5);
+    const t = useTicketsStore.getState().tickets[0];
+    expect(t.syncStatus).toBe("synced");
+    expect(t.adoRev).toBe(5);
+  });
+
+  it("updateSyncStatus met à jour le statut sans changer adoRev si absent", () => {
+    useTicketsStore.getState().setTickets([base]);
+    useTicketsStore.getState().updateSyncStatus("t1", "error");
+    const t = useTicketsStore.getState().tickets[0];
+    expect(t.syncStatus).toBe("error");
+    expect(t.adoRev).toBe(base.adoRev);
   });
 });

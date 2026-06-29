@@ -35,3 +35,23 @@ export function addDays(date: string, n: number): string {
   d.setDate(d.getDate() + n);
   return d.toISOString().split("T")[0];
 }
+
+/** "29/06 – 12/07" pour l'en-tête d'un sprint. */
+export function formatSprintRange(start: string, finish: string): string {
+  const fmt = (d: string) =>
+    new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+  return `${fmt(start)} – ${fmt(finish)}`;
+}
+
+/** Nombre de jours ouvrés (lun–ven) inclus dans l'intervalle. */
+export function workingDays(start: string, finish: string): number {
+  let count = 0;
+  const d = new Date(start);
+  const end = new Date(finish);
+  while (d <= end) {
+    const wd = d.getDay();
+    if (wd !== 0 && wd !== 6) count++;
+    d.setDate(d.getDate() + 1);
+  }
+  return count;
+}

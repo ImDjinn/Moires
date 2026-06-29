@@ -12,6 +12,7 @@ model User {
   azureAdId   String   @unique @map("azure_ad_id")
   displayName String   @map("display_name")
   email       String
+  defaultAdoOrg String? @map("default_ado_org")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -23,6 +24,7 @@ model User {
 
 model PlanningSession {
   id              String   @id @default(uuid())
+  adoOrg          String   @map("ado_org")
   adoProjectId    String   @map("ado_project_id")
   adoIterationIds String[] @map("ado_iteration_ids")
   areaPaths       String[] @map("area_paths")
@@ -62,6 +64,8 @@ model TicketsCache {
   assigneeId    String?  @map("assignee_id")
   areaPath      String   @map("area_path")
   iterationId   String   @map("iteration_id")
+  epicId        String?  @map("epic_id")
+  epicTitle     String?  @map("epic_title")
   startDate     DateTime @map("start_date")
   endDate       DateTime @map("end_date")
   estimateHours Float    @default(0) @map("estimate_hours")

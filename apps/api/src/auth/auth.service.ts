@@ -6,6 +6,15 @@ import {
 } from "@azure/msal-node";
 import { PrismaService } from "../database/prisma.service";
 
+// Azure DevOps resource (well-known app id) — required so the token can call the ADO REST API.
+const ADO_SCOPES = [
+  "499b84ac-1321-427f-aa17-267ca6975798/user_impersonation",
+  "offline_access",
+  "openid",
+  "profile",
+  "email",
+];
+
 @Injectable()
 export class AuthService {
   private msalClient: ConfidentialClientApplication;
@@ -26,12 +35,7 @@ export class AuthService {
   }
 
   getLoginUrl(): string {
-    const scopes = [
-      "openid",
-      "profile",
-      "email",
-      "499b84ac-1321-427f-aa17-267ca6975798/.default", // ADO
-    ];
+    const scopes = ADO_SCOPES;
     return this.msalClient.getAuthCodeUrl({
       scopes,
       redirectUri: this.redirectUri,
@@ -41,12 +45,7 @@ export class AuthService {
   async handleCallback(code: string) {
     const request: AuthorizationCodeRequest = {
       code,
-      scopes: [
-        "openid",
-        "profile",
-        "email",
-        "499b84ac-1321-427f-aa17-267ca6975798/.default",
-      ],
+      scopes: ADO_SCOPES,
       redirectUri: this.redirectUri,
     };
     const result = await this.msalClient.acquireTokenByCode(request);
@@ -68,7 +67,7 @@ export class AuthService {
 
   async refreshToken(accessToken: string): Promise<string> {
     const result = await this.msalClient.acquireTokenSilent({
-      scopes: ["499b84ac-1321-427f-aa17-267ca6975798/.default"],
+      scopes: ADO_SCOPES,
       account: { homeAccountId: "", environment: "", tenantId: "", username: "", localAccountId: "" },
     });
     return result?.accessToken || accessToken;

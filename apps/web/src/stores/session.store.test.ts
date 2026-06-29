@@ -7,6 +7,7 @@ const snapshot: SessionSnapshot = {
   tickets: [],
   participants: [],
   teamMembers: [],
+  iterations: [],
 };
 
 beforeEach(() => useSessionStore.setState({ snapshot: null }));

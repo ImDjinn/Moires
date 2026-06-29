@@ -14,6 +14,8 @@ jest.mock("ioredis", () => {
     sadd: jest.fn(),
     srem: jest.fn(),
     smembers: jest.fn(),
+    get: jest.fn(),
+    set: jest.fn(),
     expire: jest.fn(),
     disconnect: jest.fn(),
   };
@@ -31,6 +33,8 @@ const ticket: Ticket = {
   assigneeId: "m1",
   areaPath: "",
   iterationId: "it1",
+  epicId: null,
+  epicTitle: null,
   startDate: "2026-06-10",
   endDate: "2026-06-11",
   estimateHours: 8,
@@ -85,5 +89,46 @@ describe("RedisService", () => {
     const presence = { userId: "u1", displayName: "Alice", color: "#FF6B6B", action: "idle", targetTicketId: null };
     (service.client.hgetall as jest.Mock).mockResolvedValue({ u1: JSON.stringify(presence) });
     expect(await service.getPresences("s1")).toEqual([presence]);
+  });
+
+  it("setIterations sérialise la liste avec TTL", async () => {
+    const iterations = [{ id: "it1", name: "Sprint 1", path: "P\\S1", startDate: "2026-06-01", finishDate: "2026-06-14" }];
+    await service.setIterations("s1", iterations);
+    expect(service.client.set).toHaveBeenCalledWith(
+      "session:s1:iterations",
+      JSON.stringify(iterations),
+      "EX",
+      86400,
+    );
+  });
+
+  it("getIterations renvoie [] quand la clé est absente", async () => {
+    (service.client.get as jest.Mock).mockResolvedValue(null);
+    expect(await service.getIterations("s1")).toEqual([]);
+  });
+
+  it("tokenKey compose la clé par session/user", () => {
+    expect(service.tokenKey("s1", "u1")).toBe("session:s1:token:u1");
+  });
+
+  it("setUserToken écrit avec TTL 1h", async () => {
+    await service.setUserToken("s1", "u1", "tok123");
+    expect(service.client.set).toHaveBeenCalledWith("session:s1:token:u1", "tok123", "EX", 3600);
+  });
+
+  it("getUserToken renvoie null si absent", async () => {
+    (service.client.get as jest.Mock).mockResolvedValue(null);
+    expect(await service.getUserToken("s1", "u1")).toBeNull();
+  });
+
+  it("setUserToken écrit aussi le token de session", async () => {
+    await service.setUserToken("s1", "u1", "tok123");
+    expect(service.client.set).toHaveBeenCalledWith("session:s1:token", "tok123", "EX", 3600);
+  });
+
+  it("getSessionToken lit la clé de session", async () => {
+    (service.client.get as jest.Mock).mockResolvedValue("tok123");
+    expect(await service.getSessionToken("s1")).toBe("tok123");
+    expect(service.client.get).toHaveBeenCalledWith("session:s1:token");
   });
 });
