@@ -15,6 +15,8 @@ vi.mock("./services/rest.client", () => ({
     getIterations: vi.fn().mockResolvedValue([]),
     getAreas: vi.fn().mockResolvedValue([]),
     createSession: vi.fn(),
+    getAnnotations: vi.fn().mockResolvedValue({ milestones: [], rowPins: [] }),
+    syncSession: vi.fn().mockResolvedValue({ tickets: [] }),
   },
 }));
 vi.mock("./services/operations.client", () => ({
@@ -62,10 +64,35 @@ describe("App — rendu des 3 vues (pages)", () => {
       participants: [],
       teamMembers: [{ id: "m1", displayName: "Alice", capacityHoursPerDay: 8 }],
       iterations: [],
+      capacities: [],
     };
     useSessionStore.setState({ snapshot });
     render(<App />);
-    expect(await screen.findByText("Moires")).toBeInTheDocument();
-    expect(screen.getByText("0 tickets")).toBeInTheDocument();
+    // Le board Gantt (design Claude Design) expose ses 3 modes en onglets.
+    expect(await screen.findByText("Sprint Planning")).toBeInTheDocument();
+    expect(screen.getByText("Release Planning")).toBeInTheDocument();
+  });
+
+  it("session réelle avec 1 seule itération => board monté sans crash (régression range)", async () => {
+    mockAuthMe({ ok: true, body: { id: "u1", displayName: "Alice" } });
+    const snapshot: SessionSnapshot = {
+      sessionId: "s1",
+      tickets: [
+        {
+          id: "10", title: "US réelle", workItemType: "User Story", parentId: null, state: "Active", tags: [],
+          assigneeId: "u1", areaPath: "P\\A", iterationId: "P\\S1", epicId: null, epicTitle: null,
+          startDate: "2026-06-29", endDate: "2026-07-10", targetDate: null, estimateHours: 0, storyPoints: 5, adoRev: 1, syncStatus: "synced",
+        },
+      ],
+      participants: [],
+      teamMembers: [{ id: "u1", displayName: "Alice", capacityHoursPerDay: 8 }],
+      iterations: [{ id: "1", name: "Sprint 1", path: "P\\S1", startDate: "2026-06-29", finishDate: "2026-07-10" }],
+      capacities: [],
+    };
+    useSessionStore.setState({ snapshot });
+    render(<App />);
+    // Rendu réel (adapter + applyDataset) : le board se monte, le popover d'intervalle
+    // ne référence plus M.iters[2] hors limites.
+    expect(await screen.findByText("Sprint Planning")).toBeInTheDocument();
   });
 });

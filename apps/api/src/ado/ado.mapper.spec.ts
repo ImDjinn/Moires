@@ -14,6 +14,7 @@ describe("AdoMapper", () => {
       "Microsoft.VSTS.Scheduling.StartDate": "2026-06-10T00:00:00Z",
       "Microsoft.VSTS.Scheduling.FinishDate": "2026-06-12T00:00:00Z",
       "Microsoft.VSTS.Scheduling.OriginalEstimate": 16,
+      "Microsoft.VSTS.Scheduling.StoryPoints": 5,
     },
   };
 
@@ -22,6 +23,11 @@ describe("AdoMapper", () => {
       expect(mapper.toTicket(raw)).toEqual({
         id: "42",
         title: "Faire X",
+        workItemType: "",
+        parentId: null,
+        state: "",
+        boardColumn: null,
+        tags: [],
         assigneeId: "alice@corp.com",
         areaPath: "Proj\\Team",
         iterationId: "5",
@@ -29,7 +35,9 @@ describe("AdoMapper", () => {
         epicTitle: null,
         startDate: "2026-06-10T00:00:00Z",
         endDate: "2026-06-12T00:00:00Z",
+        targetDate: null,
         estimateHours: 16,
+        storyPoints: 5,
         adoRev: 3,
         syncStatus: "synced",
       });
@@ -58,6 +66,14 @@ describe("AdoMapper", () => {
       });
       expect(t.estimateHours).toBe(0);
     });
+
+    it("storyPoints = 0 par défaut", () => {
+      const t = mapper.toTicket({
+        ...raw,
+        fields: { ...raw.fields, "Microsoft.VSTS.Scheduling.StoryPoints": undefined },
+      });
+      expect(t.storyPoints).toBe(0);
+    });
   });
 
   describe("toJsonPatch", () => {
@@ -76,6 +92,30 @@ describe("AdoMapper", () => {
     it("génère un 'remove' quand la valeur est null (désassignation)", () => {
       expect(mapper.toJsonPatch("assigneeId", null)).toEqual([
         { op: "remove", path: "/fields/System.AssignedTo" },
+      ]);
+    });
+
+    it("joint les tags avec '; ' vers System.Tags", () => {
+      expect(mapper.toJsonPatch("tags", ["auth", "perf"])).toEqual([
+        { op: "replace", path: "/fields/System.Tags", value: "auth; perf" },
+      ]);
+    });
+
+    it("tableau de tags vide => remove", () => {
+      expect(mapper.toJsonPatch("tags", [])).toEqual([
+        { op: "remove", path: "/fields/System.Tags" },
+      ]);
+    });
+
+    it("story points à 0 reste un replace (0 est valide)", () => {
+      expect(mapper.toJsonPatch("storyPoints", 0)).toEqual([
+        { op: "replace", path: "/fields/Microsoft.VSTS.Scheduling.StoryPoints", value: 0 },
+      ]);
+    });
+
+    it("mappe state vers System.State", () => {
+      expect(mapper.toJsonPatch("state", "Active")).toEqual([
+        { op: "replace", path: "/fields/System.State", value: "Active" },
       ]);
     });
   });

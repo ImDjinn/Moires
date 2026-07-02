@@ -16,6 +16,10 @@ function makeService() {
     getIterations: jest.fn().mockResolvedValue([]),
     setTeamMembers: jest.fn().mockResolvedValue(undefined),
     getTeamMembers: jest.fn().mockResolvedValue([]),
+    getCapacities: jest.fn().mockResolvedValue([]),
+    setCapacities: jest.fn().mockResolvedValue(undefined),
+    getStates: jest.fn().mockResolvedValue([]),
+    setStates: jest.fn().mockResolvedValue(undefined),
   };
   const ado = { getIterations: jest.fn().mockResolvedValue([]) };
   const sync = { syncInitial: jest.fn() };
@@ -38,9 +42,15 @@ const ticket: Ticket = {
   iterationId: "it1",
   epicId: null,
   epicTitle: null,
+  workItemType: "User Story",
+  parentId: null,
+  state: "New",
+  tags: [],
+  targetDate: null,
   startDate: "2026-06-10",
   endDate: "2026-06-11",
   estimateHours: 8,
+  storyPoints: 3,
   adoRev: 1,
   syncStatus: "synced",
 };
@@ -143,6 +153,8 @@ describe("SessionsService.getSnapshot", () => {
       participants: [{ userId: "u1" }],
       teamMembers: [],  // mock retourne [] par défaut
       iterations: [],
+      capacities: [],
+      states: [],
     });
   });
 });

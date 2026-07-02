@@ -22,6 +22,9 @@ function makeService() {
     setTickets: jest.fn().mockResolvedValue(undefined),
     getPresences: jest.fn().mockResolvedValue([]),
     getIterations: jest.fn().mockResolvedValue([]),
+    getCapacities: jest.fn().mockResolvedValue([]),
+    getStates: jest.fn().mockResolvedValue([]),
+    setStates: jest.fn().mockResolvedValue(undefined),
   };
   const ado = {
     queryWorkItemIds: jest.fn(),
@@ -29,6 +32,9 @@ function makeService() {
     getCapacities: jest.fn(),
     getTeamMembers: jest.fn().mockResolvedValue([]),
     resolveEpics: jest.fn().mockResolvedValue(new Map()),
+    getStates: jest.fn().mockResolvedValue([]),
+    getBacklogTypes: jest.fn().mockResolvedValue([]),
+    getBoardColumns: jest.fn().mockResolvedValue([]),
   };
   const service = new SyncService(prisma as any, redis as any, ado as any, new AdoMapper());
   return { service, prisma, redis, ado };

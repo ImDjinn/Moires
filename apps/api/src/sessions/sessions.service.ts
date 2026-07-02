@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { CreateSessionDto, SessionSnapshot, Operation, Ticket, Iteration } from "@moires/shared";
+import type { CreateSessionDto, SessionSnapshot, Operation, Ticket, Iteration, Capacity } from "@moires/shared";
 import { PrismaService } from "../database/prisma.service";
 import { RedisService } from "../database/redis.service";
 import { AdoService } from "../ado/ado.service";
@@ -56,6 +56,8 @@ export class SessionsService {
       participants: [],
       teamMembers,
       iterations,
+      capacities: [],
+      states: await this.redis.getStates(session.id),
     };
   }
 
@@ -79,13 +81,15 @@ export class SessionsService {
   }
 
   async getSnapshot(sessionId: string): Promise<SessionSnapshot> {
-    const [tickets, presences, iterations, teamMembers] = await Promise.all([
+    const [tickets, presences, iterations, teamMembers, capacities, states] = await Promise.all([
       this.redis.getTickets(sessionId),
       this.redis.getPresences(sessionId),
       this.redis.getIterations(sessionId),
       this.redis.getTeamMembers(sessionId),
+      this.redis.getCapacities(sessionId),
+      this.redis.getStates(sessionId),
     ]);
-    return { sessionId, tickets, participants: presences, teamMembers, iterations };
+    return { sessionId, tickets, participants: presences, teamMembers, iterations, capacities, states };
   }
 
   async applyOperation(sessionId: string, op: Operation): Promise<Ticket> {
@@ -112,6 +116,17 @@ export class SessionsService {
     await this.writebackService.enqueue(sessionId, op, log.id);
 
     return ticket;
+  }
+
+  /** Définit la capacité (Story Points) d'un membre pour une itération. */
+  async setCapacity(sessionId: string, cap: Capacity): Promise<Capacity[]> {
+    const capacities = await this.redis.getCapacities(sessionId);
+    const next = capacities.filter(
+      (c) => !(c.memberId === cap.memberId && c.iterationPath === cap.iterationPath),
+    );
+    if (cap.storyPoints > 0) next.push(cap);
+    await this.redis.setCapacities(sessionId, next);
+    return next;
   }
 
   async getAuditLog(sessionId: string) {

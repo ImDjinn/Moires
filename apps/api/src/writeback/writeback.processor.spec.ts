@@ -23,6 +23,7 @@ const ticket = {
   startDate: "2026-06-10",
   endDate: "2026-06-11",
   estimateHours: 8,
+  storyPoints: 3,
   adoRev: 3,
   syncStatus: "pending" as const,
 };

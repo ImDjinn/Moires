@@ -8,6 +8,7 @@ const snapshot: SessionSnapshot = {
   participants: [],
   teamMembers: [],
   iterations: [],
+  capacities: [],
 };
 
 beforeEach(() => useSessionStore.setState({ snapshot: null }));

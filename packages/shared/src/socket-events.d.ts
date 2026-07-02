@@ -18,5 +18,11 @@ export interface ServerToClient {
     "presence:user-left": (payload: {
         userId: string;
     }) => void;
+    "ticket:sync-status": (payload: {
+        ticketId: string;
+        syncStatus: "synced" | "error";
+        adoRev?: number;
+    }) => void;
+    "ticket:updated": (ticket: import("./ticket").Ticket) => void;
 }
 //# sourceMappingURL=socket-events.d.ts.map

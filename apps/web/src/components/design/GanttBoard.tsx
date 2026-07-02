@@ -1,0 +1,1550 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { css } from "./css";
+import { useThemeStore } from "../../stores/theme.store";
+import { useSessionStore } from "../../stores/session.store";
+import { useAuthStore } from "../../stores/auth.store";
+import { useTicketsStore } from "../../stores/tickets.store";
+import { usePresenceStore } from "../../stores/presence.store";
+import { connectSocket, submitOperation } from "../../services/operations.client";
+import { initPresenceListeners, emitPresence } from "../../services/presence.client";
+import { api } from "../../services/rest.client";
+import { buildDataset, UNASSIGNED_ID } from "./adapter";
+import * as M from "./ganttModel";
+import type { Drag, Item, Presence, State, Theme } from "./ganttModel";
+import type { OperationField } from "@moires/shared";
+
+const C = css;
+const mono = "'IBM Plex Mono',monospace";
+const initialsOf = (n: string) =>
+  n.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "?";
+
+interface ScriptAction {
+  id: string;
+  by: Presence;
+  apply: (it: Item) => void;
+  msg: string;
+}
+
+export function GanttBoard() {
+  const theme = useThemeStore((s) => s.theme) as Theme;
+  const toggleTheme = useThemeStore((s) => s.toggle);
+
+  // Données réelles (ADO) si une session est chargée avec des tickets, sinon mock.
+  const snapshot = useSessionStore((s) => s.snapshot);
+  const dataset = useMemo(
+    () => (snapshot && snapshot.tickets.length ? buildDataset(snapshot) : null),
+    [snapshot],
+  );
+  if (dataset) M.applyDataset(dataset);
+
+  const user = useAuthStore((s) => s.user);
+  const realSession = !!dataset && !!snapshot && !!user;
+  const realSessionRef = useRef(realSession);
+  realSessionRef.current = realSession;
+  const sessionIdRef = useRef<string | null>(null);
+  sessionIdRef.current = snapshot?.sessionId ?? null;
+  // Présence temps réel (pairs), hors soi-même.
+  const allPeers = usePresenceStore((s) => s.peers);
+  const peers = realSession ? allPeers.filter((p) => p.userId !== user!.id) : [];
+  const myColor = useMemo(() => M.hashColor(user?.id || "me", "light"), [user]);
+
+  const [state, setSt] = useState<State>(() => M.createInitialState(dataset ? dataset.items : undefined));
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  const setState = useCallback((patch: Partial<State> | ((s: State) => Partial<State>)) => {
+    setSt((s) => ({ ...s, ...(typeof patch === "function" ? patch(s) : patch) }));
+  }, []);
+
+  // ---- refs (instance vars) ----
+  const colwRef = useRef(M.MINCOL);
+  const colsRef = useRef<number[]>([]);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+  const curEls = useRef<(HTMLDivElement | null)[]>([]);
+  const curState = useRef(M.cursorList.map(() => ({ i: 0, t: Math.random() })));
+  const rafRef = useRef(0);
+  const remoteRef = useRef<ReturnType<typeof setInterval>>();
+  const syncT = useRef<ReturnType<typeof setTimeout>>();
+  const toastT = useRef<ReturnType<typeof setTimeout>>();
+  const editT = useRef<ReturnType<typeof setTimeout>>();
+  const scrollRaf = useRef(0);
+  const idc = useRef(1900);
+  const clip = useRef<Item | null>(null);
+  const ai = useRef(0);
+  const scriptActions = useRef<ScriptAction[]>([]);
+
+  // ---- toast / sync ----
+  const toast = useCallback(
+    (msg: string) => {
+      setState({ toast: msg });
+      clearTimeout(toastT.current);
+      toastT.current = setTimeout(() => setState({ toast: null }), 2900);
+    },
+    [setState],
+  );
+  const sync = useCallback(
+    (msg?: string) => {
+      setState({ sync: "syncing" });
+      clearTimeout(syncT.current);
+      syncT.current = setTimeout(() => {
+        setState({ sync: "saved" });
+        if (msg) toast(msg);
+      }, 1000);
+    },
+    [setState, toast],
+  );
+
+  // ---- écriture réelle (writeback ADO via submitOperation) ----
+  // Traduit un champ du modèle board en Operation ADO et l'émet. No-op en mock.
+  const emitOp = useCallback(
+    (itemId: string, boardField: string, value: unknown) => {
+      if (!realSessionRef.current || !user) return;
+      let field: OperationField;
+      let opValue: string | number | string[] | null;
+      switch (boardField) {
+        case "title": field = "title"; opValue = value as string; break;
+        case "state": {
+          field = "state";
+          // La valeur board est une colonne (ex: "Doing") : on écrit l'état
+          // ADO réel mappé (stateMappings), pas le nom de colonne.
+          const lvl = stateRef.current.items.find((x) => x.id === itemId)?.level ?? "story";
+          opValue = M.stateToWrite(lvl, value as string);
+          break;
+        }
+        case "person": field = "assigneeId"; opValue = value === UNASSIGNED_ID ? null : (value as string); break;
+        case "points": field = "storyPoints"; opValue = value as number; break;
+        case "effortDays": field = "estimateHours"; opValue = value as number; break;
+        case "tags": field = "tags"; opValue = value as string[]; break;
+        case "area": field = "areaPath"; opValue = value as string; break;
+        case "startDate": field = "startDate"; opValue = value as string; break;
+        case "targetDate": field = "targetDate"; opValue = value as string; break;
+        case "iter": {
+          const p = M.iters[value as number]?.path;
+          if (!p) return; // backlog / itération sans path ADO → local seulement
+          field = "iterationId";
+          opValue = p;
+          break;
+        }
+        default:
+          return;
+      }
+      submitOperation({ ticketId: itemId, field, value: opValue, userId: user.id, clientTimestamp: Date.now() });
+    },
+    [user],
+  );
+
+  // Émet la position du curseur aux autres participants (throttlé côté client).
+  const emitCursor = useCallback(
+    (e: React.PointerEvent) => {
+      if (!realSessionRef.current || !user) return;
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      emitPresence({
+        userId: user.id,
+        displayName: user.displayName,
+        color: myColor,
+        action: stateRef.current.drag ? "dragging" : "idle",
+        targetTicketId: stateRef.current.selectedId,
+        cursor: { x: e.clientX - rect.left, y: e.clientY - rect.top },
+      });
+    },
+    [user, myColor],
+  );
+
+  // ---- mutations ----
+  const setField = useCallback(
+    (id: string, field: keyof Item, value: unknown) => {
+      const st = stateRef.current;
+      const items = st.items.map((x) => (x.id === id ? { ...x, [field]: value } : x));
+      if (field === "iter") {
+        const it = items.find((x) => x.id === id)!;
+        it.span = 1;
+        it.startISO = M.iters[value as number].iso[0];
+        it.endISO = M.iters[value as number].iso[1];
+      }
+      setState({ items });
+      emitOp(id, field as string, value);
+      const labels: Record<string, string> = {
+        title: "Titre", state: "État", person: "Assignation", iter: "Itération",
+        points: "Story points", effortDays: "Estimation", tags: "Tags", area: "Area Path",
+      };
+      sync(`${labels[field as string] || "Champ"} enregistré dans Azure DevOps`);
+    },
+    [setState, sync, emitOp],
+  );
+
+  const pasteCopy = useCallback(
+    (src: Item) => {
+      const id = "ADO-" + idc.current++;
+      const copy: Item = { ...src, id, ado: id, title: src.title.replace(/ - Copy$/, "") + " - Copy", state: "New", progress: 0, tags: src.tags.slice() };
+      setState((s) => ({ items: [...s.items, copy], selectedId: id, level: src.level }));
+      sync(`Copie créée : ${id}`);
+    },
+    [setState, sync],
+  );
+
+  const toggleNode = useCallback(
+    (key: string, kind: string) => {
+      const st = stateRef.current;
+      const open = M.isOpen(st, key, kind);
+      setState({ expanded: { ...st.expanded, [key]: !open } });
+    },
+    [setState],
+  );
+
+  const addMilestone = useCallback(() => {
+    const st = stateRef.current;
+    const sid = sessionIdRef.current;
+    const draft = { title: "Nouveau jalon", iter: st.releaseStart, color: "#0072B2" };
+    if (realSessionRef.current && sid) {
+      // Persistance : le serveur attribue l'id.
+      api.createMilestone(sid, draft)
+        .then((m) => setState((s) => ({ milestones: [...s.milestones, m], milestoneSel: m.id })))
+        .catch(() => {});
+    } else {
+      const id = "M" + Date.now().toString(36);
+      setState({ milestones: [...st.milestones, { id, ...draft }], milestoneSel: id });
+    }
+    sync("Jalon ajouté");
+  }, [setState, sync]);
+  const setMilestone = useCallback(
+    (id: string, field: string, value: unknown) => {
+      setState((s) => ({ milestones: s.milestones.map((m) => (m.id === id ? { ...m, [field]: value } : m)) }));
+      const sid = sessionIdRef.current;
+      if (realSessionRef.current && sid) api.updateMilestone(sid, id, { [field]: value }).catch(() => {});
+      sync("Jalon mis à jour");
+    },
+    [setState, sync],
+  );
+  const removeMilestone = useCallback(
+    (id: string) => {
+      setState((s) => ({ milestones: s.milestones.filter((m) => m.id !== id), milestoneSel: null }));
+      const sid = sessionIdRef.current;
+      if (realSessionRef.current && sid) api.deleteMilestone(sid, id).catch(() => {});
+      sync("Jalon supprimé");
+    },
+    [setState, sync],
+  );
+
+  // Pose un nouveau flag sur une ligne (plusieurs flags par ligne autorisés).
+  const addFlag = useCallback(
+    (rowKey: string, iter: number) => {
+      const draft = { rowKey, iter, title: "Flag", color: "#E69F00" };
+      const sid = sessionIdRef.current;
+      if (realSessionRef.current && sid) {
+        api.createRowPin(sid, draft)
+          .then((p) => setState((s) => ({ rowPins: [...s.rowPins, p], rowPinSel: p.id, milestoneSel: null })))
+          .catch(() => {});
+      } else {
+        const id = "F" + Date.now().toString(36);
+        setState((s) => ({ rowPins: [...s.rowPins, { id, ...draft }], rowPinSel: id, milestoneSel: null }));
+      }
+      sync("Flag ajouté");
+    },
+    [setState, sync],
+  );
+  const setFlag = useCallback(
+    (id: string, field: string, value: unknown) => {
+      setState((s) => ({ rowPins: s.rowPins.map((p) => (p.id === id ? { ...p, [field]: value } : p)) }));
+      const sid = sessionIdRef.current;
+      if (realSessionRef.current && sid) api.updateRowPin(sid, id, { [field]: value }).catch(() => {});
+      sync("Flag mis à jour");
+    },
+    [setState, sync],
+  );
+  const removeFlag = useCallback(
+    (id: string) => {
+      setState((s) => ({ rowPins: s.rowPins.filter((p) => p.id !== id), rowPinSel: null }));
+      const sid = sessionIdRef.current;
+      if (realSessionRef.current && sid) api.deleteRowPin(sid, id).catch(() => {});
+      sync("Flag supprimé");
+    },
+    [setState, sync],
+  );
+
+  // Redimensionne/déplace une Feature en Release : son intervalle vient de ses
+  // dates Start/Target, qu'on réécrit dans ADO. Les US enfants sont indépendantes.
+  const setFeatRange = useCallback(
+    (fid: string, s0: number, e0: number) => {
+      const st = stateRef.current;
+      const startISO = M.iters[s0].iso[0];
+      const endISO = M.iters[e0].iso[1];
+      const target = st.items.find((x) => x.id === fid)!;
+      // US descendantes : enfants directs d'une Feature, ou via les Features d'une Epic.
+      const featIds = target.level === "epic"
+        ? st.items.filter((x) => x.level === "feature" && x.epicId === fid).map((x) => x.id)
+        : [fid];
+      const moved: { id: string; iter: number }[] = [];
+      const items = st.items.map((x) => {
+        if (x.id === fid) return { ...x, relS: s0, relE: e0, hasDateRange: true, startISO, endISO };
+        // Réduction : rapatrie les US hors du nouvel intervalle vers le sprint le plus proche dans le scope.
+        if (x.level === "story" && x.parent && featIds.includes(x.parent) && x.iter < M.NITER && (x.iter < s0 || x.iter > e0)) {
+          const ni = x.iter < s0 ? s0 : e0;
+          moved.push({ id: x.id, iter: ni });
+          return { ...x, iter: ni, startISO: M.iters[ni].iso[0], endISO: M.iters[ni].iso[1] };
+        }
+        return x;
+      });
+      setState({ items });
+      // writeback ADO : Start/Target de l'élément + itération des US rapatriées.
+      emitOp(fid, "startDate", startISO);
+      emitOp(fid, "targetDate", endISO);
+      moved.forEach((m) => emitOp(m.id, "iter", m.iter));
+      const suffix = moved.length ? ` · ${moved.length} US rapatriée${moved.length > 1 ? "s" : ""}` : "";
+      sync(`${target.ado} replanifié : ${M.iters[s0].short} → ${M.iters[e0].short}${suffix}`);
+    },
+    [setState, sync, emitOp],
+  );
+
+  // ---- drag ----
+  const onMove = useCallback(
+    (e: PointerEvent) => {
+      const d = stateRef.current.drag;
+      if (!d) return;
+      const next: Drag = { ...d, dx: e.clientX - d.sx, ...("sy" in d ? { dy: e.clientY - d.sy } : {}) } as Drag;
+      setState({ drag: next });
+    },
+    [setState],
+  );
+  const hitPerson = useCallback((clientY: number) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const y = clientY - rect.top;
+    const layout = M.computeLayout(stateRef.current, colwRef.current);
+    for (const r of layout.rows) if (r.personId && y >= r.top && y < r.top + r.height) return r.personId;
+    return null;
+  }, []);
+  const hitColIdx = useCallback((clientX: number) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const idx = Math.floor((clientX - rect.left - M.LEFT) / colwRef.current);
+    return Math.max(0, Math.min((colsRef.current.length || 1) - 1, idx));
+  }, []);
+
+  const onUp = useCallback(
+    (e: PointerEvent) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      const st = stateRef.current;
+      const d = st.drag;
+      if (!d) return;
+      if (d.mode === "epic") {
+        const cols = colsRef.current, last = cols[cols.length - 1], first = cols[0];
+        const delta = Math.round(d.dx / colwRef.current);
+        let s0 = d.os, en = d.oe;
+        if (d.side === "R") en = Math.max(s0, Math.min(last, d.oe + delta));
+        else if (d.side === "L") s0 = Math.min(en, Math.max(first, d.os + delta));
+        else {
+          // Déplacement de toute la Feature : décale début+fin en gardant la durée.
+          const span = d.oe - d.os;
+          s0 = Math.max(first, Math.min(last - span, d.os + delta));
+          en = s0 + span;
+        }
+        setState({ drag: null });
+        // Simple clic (sans déplacement) → pas de writeback inutile.
+        if (s0 !== d.os || en !== d.oe) setFeatRange(d.id, s0, en);
+        return;
+      }
+      const items = st.items.map((x) => ({ ...x }));
+      const it = items.find((x) => x.id === d.id)!;
+      const daily = st.board === "daily";
+      let changed = false, msg = "";
+      if (d.mode === "resize" && !daily) {
+        const cols = colsRef.current, vi = cols.indexOf(it.iter);
+        const span = Math.max(1, Math.min(cols.length - vi, Math.round((d.os * colwRef.current + d.dx) / colwRef.current)));
+        if (span !== it.span) { it.span = span; changed = true; msg = `${it.ado} étendu sur ${span} itération${span > 1 ? "s" : ""}`; }
+      } else if (d.mode === "move") {
+        const idx = hitColIdx(e.clientX);
+        const np = hitPerson(e.clientY) || M.people[d.op].id;
+        const movedPerson = np !== it.person;
+        let movedBucket = false;
+        if (daily) {
+          const ns = M.dailyStates(st.level)[idx as number];
+          if (ns && ns !== it.state) { it.state = ns; it.progress = M.stateProgress(ns); movedBucket = true; }
+        } else {
+          const ni = idx != null ? colsRef.current[idx] : it.iter;
+          if (ni !== it.iter) { it.iter = ni; it.span = 1; it.startISO = M.iters[ni].iso[0]; it.endISO = M.iters[ni].iso[1]; movedBucket = true; }
+        }
+        if (movedPerson) it.person = np;
+        if (movedBucket || movedPerson) {
+          changed = true;
+          const who = M.people.find((p) => p.id === it.person)!.name.split(" ")[0];
+          if (daily) msg = movedPerson && movedBucket ? `${it.ado} → ${who} · ${it.state}` : movedPerson ? `${it.ado} réassigné à ${who}` : `${it.ado} → ${it.state}`;
+          else msg = movedPerson && movedBucket ? `${it.ado} → ${who} · ${M.iters[it.iter].label}` : movedPerson ? `${it.ado} réassigné à ${who}` : `${it.ado} → ${M.iters[it.iter].label}`;
+          // writeback ADO : itération (ou état en Daily) + assignation
+          if (movedBucket) emitOp(it.id, daily ? "state" : "iter", daily ? it.state : it.iter);
+          if (movedPerson) emitOp(it.id, "person", it.person);
+        }
+      }
+      setState({ drag: null, items });
+      if (changed) sync(msg);
+    },
+    [onMove, setState, setFeatRange, hitColIdx, hitPerson, sync, emitOp],
+  );
+
+  const startDrag = useCallback(
+    (id: string, mode: "move" | "resize", e: React.PointerEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const it = stateRef.current.items.find((x) => x.id === id)!;
+      const pIdx = M.people.findIndex((p) => p.id === it.person);
+      setState({ selectedId: id, rangeOpen: false, drag: { id, mode, sx: e.clientX, sy: e.clientY, dx: 0, dy: 0, oi: it.iter, op: pIdx, os: it.span || 1 } });
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    },
+    [setState, onMove, onUp],
+  );
+  const startEpicResize = useCallback(
+    (fid: string, side: "L" | "R" | "M", e: React.PointerEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const st = stateRef.current;
+      const f = st.items.find((x) => x.id === fid)!;
+      const [s0, en] = M.featRange(st, f);
+      setState({ drag: { mode: "epic", id: fid, side, sx: e.clientX, dx: 0, os: s0, oe: en } });
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    },
+    [setState, onMove, onUp],
+  );
+
+  // ---- refs callbacks ----
+  const onScrollRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      scrollRef.current = el;
+      const tagged = el as (HTMLDivElement & { _scrollBound?: boolean }) | null;
+      if (tagged && !tagged._scrollBound) {
+        tagged._scrollBound = true;
+        tagged.addEventListener("scroll", () => {
+          // Recale le panneau gauche tout de suite (sans attendre React) → pas de saccade.
+          canvasRef.current?.style.setProperty("--sl", tagged.scrollLeft + "px");
+          if (scrollRaf.current) return;
+          scrollRaf.current = requestAnimationFrame(() => {
+            scrollRaf.current = 0;
+            setState({ scrollLeft: tagged.scrollLeft });
+          });
+        });
+        // Release : la molette verticale pilote le défilement horizontal, sauf au survol du panneau gauche.
+        tagged.addEventListener(
+          "wheel",
+          (e) => {
+            if (stateRef.current.board !== "release" || !e.deltaY) return;
+            if (e.clientX - tagged.getBoundingClientRect().left <= M.LEFT) return;
+            tagged.scrollLeft += e.deltaY;
+            e.preventDefault();
+          },
+          { passive: false },
+        );
+      }
+    },
+    [setState],
+  );
+  const onCanvasRef = useCallback((el: HTMLDivElement | null) => {
+    canvasRef.current = el;
+  }, []);
+
+  // ---- lifecycle ----
+  const measure = useCallback(() => {
+    if (scrollRef.current) setState({ containerW: scrollRef.current.clientWidth });
+  }, [setState]);
+
+  const onKey = useCallback(
+    (e: KeyboardEvent) => {
+      const tag = document.activeElement && document.activeElement.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const st = stateRef.current;
+      const k = e.key.toLowerCase();
+      if (k === "c" && st.selectedId) {
+        const it = st.items.find((x) => x.id === st.selectedId);
+        if (it) { clip.current = { ...it, tags: it.tags.slice() }; toast("Ticket copié — ⌘V pour coller"); e.preventDefault(); }
+      } else if (k === "v" && clip.current) {
+        pasteCopy(clip.current);
+        e.preventDefault();
+      } else if (k === "d" && st.selectedId) {
+        const it = st.items.find((x) => x.id === st.selectedId);
+        if (it) pasteCopy(it);
+        e.preventDefault();
+      }
+    },
+    [toast, pasteCopy],
+  );
+
+  const remoteTick = useCallback(() => {
+    // En session réelle, la collaboration passe par les vrais sockets (pas de simulation).
+    if (realSessionRef.current) return;
+    if (stateRef.current.drag) return;
+    const list = scriptActions.current;
+    const a = list[ai.current % list.length];
+    ai.current++;
+    setState({ editing: { id: a.id, by: a.by }, sync: "syncing" });
+    clearTimeout(editT.current);
+    editT.current = setTimeout(() => {
+      const items = stateRef.current.items.map((x) => {
+        if (x.id === a.id) { const c = { ...x }; a.apply(c); return c; }
+        return x;
+      });
+      setState({ items, editing: null, sync: "saved" });
+      toast(a.msg);
+    }, 1700);
+  }, [setState, toast]);
+
+  const tickCursors = useCallback(() => {
+    curState.current.forEach((cs, k) => {
+      const el = curEls.current[k];
+      if (!el) return;
+      const wps = M.cursorList[k].wps;
+      const a = wps[cs.i], b = wps[(cs.i + 1) % wps.length];
+      cs.t += 0.006;
+      if (cs.t >= 1) { cs.t = 0; cs.i = (cs.i + 1) % wps.length; }
+      const e = cs.t < 0.5 ? 2 * cs.t * cs.t : 1 - Math.pow(-2 * cs.t + 2, 2) / 2;
+      el.style.transform = `translate(${a[0] + (b[0] - a[0]) * e}px,${a[1] + (b[1] - a[1]) * e}px)`;
+    });
+    rafRef.current = requestAnimationFrame(tickCursors);
+  }, []);
+
+  useEffect(() => {
+    measure();
+    requestAnimationFrame(measure);
+    window.addEventListener("resize", measure);
+    window.addEventListener("keydown", onKey);
+    scriptActions.current = [
+      { id: "ADO-1234", by: M.presenceList[1], apply: (it) => { it.iter = 1; it.span = 1; it.startISO = M.iters[1].iso[0]; it.endISO = M.iters[1].iso[1]; }, msg: "Elena a déplacé ADO-1234 vers Itération 2" },
+      { id: "ADO-1227", by: M.presenceList[2], apply: (it) => { it.state = "Active"; it.progress = 0.25; }, msg: "Ivan a passé ADO-1227 à Active" },
+      { id: "ADO-1241", by: M.presenceList[1], apply: (it) => { it.iter = 2; it.span = 1; it.startISO = M.iters[2].iso[0]; it.endISO = M.iters[2].iso[1]; }, msg: "Elena a planifié ADO-1241 en Itération 3" },
+      { id: "ADO-1220", by: M.presenceList[2], apply: (it) => { it.state = "Resolved"; it.progress = 1; }, msg: "Ivan a résolu ADO-1220" },
+    ];
+    ai.current = 0;
+    remoteRef.current = setInterval(remoteTick, 9000);
+    rafRef.current = requestAnimationFrame(tickCursors);
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      clearInterval(remoteRef.current);
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("keydown", onKey);
+      clearTimeout(editT.current);
+      clearTimeout(syncT.current);
+      clearTimeout(toastT.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (state.board === "release" && scrollRef.current) {
+      requestAnimationFrame(() => {
+        if (scrollRef.current) scrollRef.current.scrollLeft = M.CURRENT * (colwRef.current || M.RELCOL);
+      });
+    }
+  }, [state.board]);
+
+  // Session réelle : alimente le store tickets + ouvre le socket collaboratif +
+  // charge les jalons/pins persistés (remplace les valeurs mock par défaut).
+  useEffect(() => {
+    if (!realSession || !snapshot || !user) return;
+    useTicketsStore.getState().setTickets(snapshot.tickets);
+    connectSocket(snapshot.sessionId, user.id, user.displayName);
+    initPresenceListeners();
+    api
+      .getAnnotations(snapshot.sessionId)
+      .then(({ milestones, rowPins }) => {
+        setState({ milestones, rowPins });
+      })
+      .catch(() => {});
+  }, [realSession, snapshot, user, setState]);
+
+  // Réconciliation : toute maj du store tickets (socket distant, sync ADO,
+  // écho de nos propres ops) repatche les champs ADO des items du board.
+  useEffect(() => {
+    if (!realSession) return;
+    const pathIndex = new Map<string, number>();
+    M.iters.forEach((it, i) => { if (it.path) pathIndex.set(it.path, i); });
+    const memberIds = new Set(M.people.map((p) => p.id));
+    const apply = () => {
+      const tickets = useTicketsStore.getState().tickets;
+      const byId = new Map(tickets.map((t) => [t.id, t]));
+      setState((s) => ({
+        items: s.items.map((it) => {
+          const t = byId.get(it.id);
+          if (!t) return it;
+          const iter = t.iterationId && pathIndex.has(t.iterationId) ? pathIndex.get(t.iterationId)! : M.BACKLOG;
+          const person = t.assigneeId && memberIds.has(t.assigneeId) ? t.assigneeId : UNASSIGNED_ID;
+          const st = t.boardColumn || t.state || it.state;
+          return { ...it, title: t.title, state: st, progress: M.stateProgress(st), points: t.storyPoints, effortDays: t.estimateHours, tags: t.tags, area: t.areaPath, epicId: t.epicId, person, iter };
+        }),
+      }));
+    };
+    apply();
+    return useTicketsStore.subscribe(apply);
+  }, [realSession, snapshot, setState]);
+
+  // Poll ADO (5s) — récupère les changements faits hors de la session.
+  useEffect(() => {
+    if (!realSession || !snapshot) return;
+    const id = setInterval(() => {
+      api
+        .syncSession(snapshot.sessionId)
+        .then((fresh: { tickets: import("@moires/shared").Ticket[] }) => {
+          const store = useTicketsStore.getState();
+          const pending = new Set(store.tickets.filter((t) => t.syncStatus !== "synced").map((t) => t.id));
+          fresh.tickets.filter((t) => !pending.has(t.id)).forEach((t) => store.updateTicket(t));
+        })
+        .catch(() => {});
+    }, 5000);
+    return () => clearInterval(id);
+  }, [realSession, snapshot]);
+
+  // ===================== view-model =====================
+  const v = computeView();
+  function computeView() {
+    const lvl = state.level, daily = state.board === "daily", release = state.board === "release";
+    const dailyCols = M.dailyStates(lvl);
+    const cols = daily ? dailyCols.map((_, i) => i) : release ? M.relCols() : M.visibleCols(state);
+    const avail = state.containerW - M.LEFT - 2;
+    const minCol = release ? M.RELCOL : M.MINCOL;
+    const COLW = Math.max(minCol, Math.floor(avail / cols.length));
+    colwRef.current = COLW;
+    colsRef.current = cols;
+    const layout = M.computeLayout(state, COLW);
+    const TW = M.LEFT + cols.length * COLW, TH = layout.totalHeight;
+    const d = state.drag, sel = state.selectedId, edit = state.editing;
+
+    const capUsed: Record<string, number[]> = {};
+    M.people.forEach((p) => (capUsed[p.id] = new Array(M.NITER + 1).fill(0)));
+    state.items.forEach((it) => {
+      if (it.level === lvl && !(state.hideClosed && M.isDone(it.state))) capUsed[it.person][it.iter] += M.effortOf(it);
+    });
+
+    const columns = daily
+      ? dailyCols.map((st, ci) => {
+          const left = M.LEFT + ci * COLW, col = M.stateColors[st];
+          const count = state.items.filter((it) => it.level === lvl && it.iter === M.CURRENT && it.state === st && !(state.hideClosed && M.isDone(st))).length;
+          return {
+            label: st, dates: "", sub: count + " ticket" + (count > 1 ? "s" : ""), tag: "", tagStyle: "display:none",
+            showDot: true, dotColor: col, titleColor: col,
+            bgStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${TH}px;background:${ci % 2 ? "var(--colalt,#fafafc)" : "transparent"};border-right:1px solid var(--gridline,#ececf1)`,
+            headStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${M.HEADER}px;padding:12px 14px;border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:6;box-sizing:border-box;box-shadow:inset 0 -2px 0 ${col}`,
+          };
+        })
+      : cols.map((real, vi) => {
+          const it = M.iters[real], left = M.LEFT + vi * COLW;
+          const current = real === M.CURRENT, past = real < M.CURRENT;
+          let tag = "", tagStyle = "display:none";
+          if (current) { tag = "courante"; tagStyle = "font-size:9px;font-weight:600;padding:1px 6px;border-radius:5px;background:var(--accentsoft,#ececfb);color:var(--accent,#5b5bd6)"; }
+          else if (past) { tag = "passée"; tagStyle = "font-size:9px;font-weight:600;padding:1px 6px;border-radius:5px;background:var(--line2,#f0f0f4);color:var(--faint,#abacb6)"; }
+          return {
+            label: it.label, dates: it.dates, sub: it.sub, tag, tagStyle, showDot: current, dotColor: "var(--accent,#5b5bd6)",
+            titleColor: current ? "var(--accent,#5b5bd6)" : past ? "var(--muted,#86868f)" : "var(--ink,#1a1a20)",
+            bgStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${TH}px;background:${vi % 2 ? "var(--colalt,#fafafc)" : "transparent"};border-right:1px solid var(--gridline,#ececf1)${real === M.BACKLOG ? ";border-left:1px dashed var(--line,#e8e8ee)" : ""}`,
+            headStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${M.HEADER}px;padding:12px 14px;border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:6;box-sizing:border-box${current ? ";box-shadow:inset 0 -2px 0 var(--accent,#5b5bd6)" : ""}`,
+          };
+        });
+
+    const personRows = release
+      ? []
+      : layout.rows.map((r) => {
+          const p = M.people.find((x) => x.id === r.personId)!;
+          const used = capUsed[p.id][M.CURRENT], cap = 10 - p.abs[M.CURRENT], lp = cap ? used / cap : used, lc = M.capColor(lp);
+          return {
+            id: p.id, name: p.name, role: p.role, initials: p.initials, loadShow: daily,
+            loadText: `${M.fmt(used)}/${cap}j · ${Math.round(lp * 100)}%`,
+            loadTextStyle: `font-size:10px;font-family:${mono};color:${lp > 1 ? "#ef4444" : "var(--muted,#86868f)"}`,
+            loadFillStyle: `position:absolute;left:0;top:0;height:100%;width:${Math.min(lp, 1) * 100}%;background:${lc};border-radius:3px`,
+            avatarStyle: `width:30px;height:30px;border-radius:50%;background:${p.color};color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
+            leftStyle: `position:absolute;left:0;top:${r.top}px;width:${M.LEFT}px;height:${r.height}px;background:var(--panel,#fff);border-right:1px solid var(--line,#e8e8ee);padding:0 14px;z-index:7;box-sizing:border-box;display:flex;align-items:center;gap:10px`,
+            sepStyle: `position:absolute;left:0;top:${r.top + r.height}px;width:${TW}px;height:1px;background:var(--gridline,#ececf1);z-index:5`,
+          };
+        });
+
+    const banners: { style: string; fillStyle: string; text: string; textStyle: string; pct: string; pctStyle: string }[] = [];
+    if (!daily && !release)
+      layout.rows.forEach((r) => {
+        const p = M.people.find((x) => x.id === r.personId)!;
+        const by = r.top + M.TOPPAD;
+        cols.forEach((real, vi) => {
+          if (real >= M.NITER) return;
+          const used = capUsed[p.id][real], cap = 10 - p.abs[real], pct = cap ? used / cap : used, c = M.capColor(pct);
+          banners.push({
+            style: `position:absolute;left:${M.LEFT + vi * COLW + 10}px;top:${by}px;width:${COLW - 20}px;height:${M.BANNER}px;display:flex;align-items:center;gap:8px;padding:0 9px;background:var(--panel2,#fafafc);border:1px solid var(--line2,#f0f0f4);border-radius:7px;box-sizing:border-box;z-index:4`,
+            fillStyle: `position:absolute;left:0;top:0;height:100%;width:${Math.min(pct, 1) * 100}%;background:${c};border-radius:3px`,
+            text: `${M.fmt(used)}/${cap}j${p.abs[real] ? " · −" + p.abs[real] + "j abs." : ""}`,
+            textStyle: `font-size:9.5px;font-family:${mono};color:var(--muted,#86868f);white-space:nowrap;flex:0 0 auto`,
+            pct: Math.round(pct * 100) + "%",
+            pctStyle: `font-size:9.5px;font-weight:600;font-family:${mono};color:${pct > 1 ? "#ef4444" : c};flex:0 0 auto`,
+          });
+        });
+      });
+
+    const bars = layout.bars.map((b) => {
+      const it = b.item, cm = M.colorForBar(it, state.colorMode, theme);
+      const isSel = sel === it.id, dragging = !!d && d.id === it.id;
+      let width = b.width, transform = "none";
+      if (dragging && d) { if (d.mode === "resize") width = Math.max(COLW - 20, b.width + d.dx); else transform = `translate(${d.dx}px,${"dy" in d ? d.dy : 0}px)`; }
+      const isEdit = !!edit && edit.id === it.id, editColor = isEdit ? edit!.by.color : null;
+      const outline = isEdit ? `2px solid ${editColor}` : isSel ? `1.5px solid ${cm.accent}` : "1px solid " + cm.border;
+      const showPoints = it.level !== "task";
+      const est = it.level === "task" ? `${M.fmt(it.effortDays)}j` : `${M.fmt(it.points)}p`;
+      const epMeta = M.epics[M.epicOf(it)] || ({} as { color?: string; short?: string }), epColor = epMeta.color || "#888";
+      const prog = M.stateProgress(it.state), sc = M.stateColors[it.state];
+      return {
+        ado: it.ado, typeLabel: M.typeLabels[it.type], title: it.title, showPoints, points: it.points + "p", est, showFooter: !release,
+        accent: cm.accent, epicShort: epMeta.short || "",
+        epicDotStyle: `width:8px;height:8px;border-radius:2px;background:${epColor};flex:0 0 auto`,
+        epicLabelStyle: "font-size:10px;font-weight:500;color:var(--muted,#86868f);white-space:nowrap;overflow:hidden;text-overflow:ellipsis",
+        area: it.area, areaLeaf: (it.area || "").split("\\").pop() || "",
+        editing: isEdit, editInitials: isEdit ? edit!.by.initials : "",
+        editPillStyle: `position:absolute;top:-9px;right:-7px;background:${editColor};color:#fff;font-size:9px;font-weight:700;width:19px;height:19px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid var(--panel,#fff);animation:ggpulse 1.1s ease-in-out infinite`,
+        badgeStyle: `font-size:9.5px;font-weight:600;padding:1px 5px;border-radius:5px;background:${cm.border};color:${cm.text}`,
+        accentStyle: `position:absolute;left:0;top:0;bottom:0;width:4px;background:${epColor};border-radius:9px 0 0 9px`,
+        progressStyle: `height:100%;width:${Math.round(prog * 100)}%;background:${sc};border-radius:0 0 0 9px;transition:width .2s`,
+        handleStyle: `width:3px;height:22px;border-radius:2px;background:${isSel ? cm.accent : "var(--faint,#abacb6)"};opacity:${isSel || dragging ? 0.9 : 0.35}`,
+        resizable: !daily,
+        style: `position:absolute;left:${b.left}px;top:${b.top}px;width:${width}px;height:${b.height}px;background:${cm.bg};border:${outline};border-radius:9px;padding:7px 12px 9px 14px;cursor:${dragging ? "grabbing" : "grab"};box-shadow:${isSel || dragging ? "0 8px 24px rgba(20,20,40,.16)" : "var(--shadow)"};overflow:visible;user-select:none;display:flex;flex-direction:column;transform:${transform};transition:${dragging ? "none" : "box-shadow .14s,border-color .14s"};z-index:${dragging ? 40 : isSel ? 30 : isEdit ? 28 : 12};box-sizing:border-box;outline-offset:1px`,
+        onDown: (e: React.PointerEvent) => startDrag(it.id, "move", e),
+        onResize: (e: React.PointerEvent) => startDrag(it.id, "resize", e),
+        onClick: (e: React.MouseEvent) => e.stopPropagation(),
+      };
+    });
+
+    const cursors = M.cursorList.map((c, k) => ({
+      name: c.name, color: c.color,
+      labelStyle: `margin:-3px 0 0 13px;background:${c.color};color:#fff;font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:9px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.25)`,
+      setRef: (el: HTMLDivElement | null) => { if (el) curEls.current[k] = el; },
+    }));
+    const presenceSrc = realSession
+      ? [
+          { initials: initialsOf(user!.displayName), name: `${user!.displayName} (vous)`, color: myColor },
+          ...peers.map((p) => ({ initials: initialsOf(p.displayName), name: p.displayName, color: p.color })),
+        ]
+      : M.presenceList;
+    const presence = presenceSrc.map((p, i) => ({
+      initials: p.initials, name: p.name,
+      style: `width:26px;height:26px;border-radius:50%;background:${p.color};color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;border:2px solid var(--panel,#fff);margin-left:${i ? -7 : 0}px`,
+    }));
+    const onlineLabel = realSession ? `${peers.length + 1} en ligne` : "3 en ligne";
+
+    const syncing = state.sync === "syncing";
+    const syncStyle = `display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:500;color:${syncing ? "var(--accent,#5b5bd6)" : "#2b9d68"}`;
+    const syncDotStyle = syncing
+      ? "width:11px;height:11px;border-radius:50%;border:2px solid var(--accent,#5b5bd6);border-top-color:transparent;animation:ggspin .7s linear infinite"
+      : "width:8px;height:8px;border-radius:50%;background:#2bbf73";
+
+    const levels = M.levelDefs.map((l) => {
+      const active = state.level === l.key;
+      return {
+        label: l.label, onClick: () => setState({ level: l.key, selectedId: null }),
+        style: `padding:5px 13px;border-radius:6px;border:none;font-size:12px;font-weight:${active ? 600 : 500};cursor:pointer;background:${active ? "var(--panel,#fff)" : "transparent"};color:${active ? "var(--ink,#1a1a20)" : "var(--muted,#86868f)"};box-shadow:${active ? "0 1px 2px rgba(20,20,40,.12)" : "none"}`,
+      };
+    });
+
+    const rl = state.rangeFrom === state.rangeTo ? M.iters[state.rangeFrom].short : `${M.iters[state.rangeFrom].short} → ${M.iters[state.rangeTo].short}`;
+    const rangeLabel = release ? "Toutes les itérations" : daily ? M.iters[M.CURRENT].short : rl + (state.backlog ? " + Backlog" : "");
+    const range = {
+      showRange: !daily && !release, isRelease: release,
+      from: String(state.rangeFrom), to: String(state.rangeTo), backlog: state.backlog,
+      options: Array.from({ length: M.NITER }, (_, i) => i).map((i) => ({ value: String(i), label: M.iters[i].label + (i === M.CURRENT ? " (courante)" : i < M.CURRENT ? " (passée)" : "") })),
+      onFrom: (e: React.ChangeEvent<HTMLSelectElement>) => { const val = Number(e.target.value); setState((s) => ({ rangeFrom: val, rangeTo: Math.max(val, s.rangeTo) })); },
+      onTo: (e: React.ChangeEvent<HTMLSelectElement>) => { const val = Number(e.target.value); setState((s) => ({ rangeTo: val, rangeFrom: Math.min(val, s.rangeFrom) })); },
+      onBacklog: (e: React.ChangeEvent<HTMLInputElement>) => setState({ backlog: e.target.checked }),
+      onGoCurrent: () => { if (scrollRef.current) scrollRef.current.scrollLeft = M.CURRENT * (colwRef.current || M.RELCOL); setState({ rangeOpen: false }); },
+      hasPast: release ? state.releaseStart < M.CURRENT : !daily && state.rangeFrom < M.CURRENT,
+      onReset: release ? () => setState({ releaseStart: M.CURRENT }) : () => setState((s) => ({ rangeFrom: M.CURRENT, rangeTo: Math.max(M.CURRENT, s.rangeTo) })),
+      hideClosed: state.hideClosed, onHideClosed: (e: React.ChangeEvent<HTMLInputElement>) => setState({ hideClosed: e.target.checked }),
+    };
+
+    const legendShow = state.colorMode !== "type";
+    let legendBase: { label: string; color: string }[] = [];
+    if (state.colorMode === "state") legendBase = Object.keys(M.stateColors).map((k) => ({ label: k, color: M.stateColors[k] }));
+    else if (state.colorMode === "epic") legendBase = Object.keys(M.epics).map((k) => ({ label: M.epics[k].label, color: M.epics[k].color }));
+    const legendItems = legendBase.map((l) => ({ label: l.label, swatchStyle: `width:11px;height:11px;border-radius:3px;background:${l.color};flex:0 0 auto` }));
+
+    // inspector
+    let insp: ReturnType<typeof buildInsp> | null = null;
+    const item = state.items.find((x) => x.id === sel);
+    function buildInsp(item: Item) {
+      const cm = M.colorMap(item.type, theme);
+      const isTask = item.level === "task";
+      return {
+        ado: item.ado, typeLabel: M.typeLabels[item.type], accent: cm.accent,
+        badgeStyle: `font-size:10px;font-weight:600;padding:2px 7px;border-radius:6px;background:${cm.border};color:${cm.text}`,
+        title: item.title, onTitle: (e: React.ChangeEvent<HTMLTextAreaElement>) => setField(item.id, "title", e.target.value),
+        hasParent: !!item.parent, parentLabel: item.parent ? `${item.parent} · ${M.titleOf[item.parent] || ""}` : "",
+        states: M.dailyStates(item.level).map((k) => {
+          const active = item.state === k, col = M.stateColors[k];
+          return { label: k, onClick: () => setField(item.id, "state", k), style: `flex:1;padding:7px 0;border-radius:7px;border:1px solid ${active ? col : "var(--line,#e8e8ee)"};background:${active ? col : "var(--panel2,#fafafc)"};color:${active ? "#fff" : "var(--muted,#86868f)"};font-size:10.5px;font-weight:600;cursor:pointer` };
+        }),
+        assignee: item.person, onAssignee: (e: React.ChangeEvent<HTMLSelectElement>) => setField(item.id, "person", e.target.value),
+        people: M.people.map((p) => ({ value: p.id, label: p.name })),
+        iter: String(item.iter), onIter: (e: React.ChangeEvent<HTMLSelectElement>) => setField(item.id, "iter", Number(e.target.value)),
+        iterOptions: M.iters.map((it, i) => ({ value: String(i), label: it.label })),
+        area: item.area, onArea: (e: React.ChangeEvent<HTMLSelectElement>) => setField(item.id, "area", e.target.value),
+        areaOptions: M.areaOptions.map((a) => ({ value: a, label: a })),
+        onDup: () => pasteCopy(item),
+        notTask: !isTask, isTask,
+        points: item.points, incPoints: () => setField(item.id, "points", item.points + 1), decPoints: () => setField(item.id, "points", Math.max(0, item.points - 1)),
+        effort: isTask ? M.fmt(item.effortDays) : M.fmt(item.points),
+        incEffort: () => setField(item.id, "effortDays", (item.effortDays || 0) + 0.5),
+        decEffort: () => setField(item.id, "effortDays", Math.max(0, (item.effortDays || 0) - 0.5)),
+        tags: item.tags.map((t, i) => ({ label: t, onRemove: () => setField(item.id, "tags", item.tags.filter((_, j) => j !== i)) })),
+        tagDraft: state.tagDraft, onTagInput: (e: React.ChangeEvent<HTMLInputElement>) => setState({ tagDraft: e.target.value }),
+        onTagKey: (e: React.KeyboardEvent) => { if (e.key === "Enter" && state.tagDraft.trim()) { setField(item.id, "tags", [...item.tags, state.tagDraft.trim()]); setState({ tagDraft: "" }); } },
+        onClose: () => setState({ selectedId: null }),
+        footDotStyle: syncing ? `width:9px;height:9px;border-radius:50%;border:2px solid var(--accent,#5b5bd6);border-top-color:transparent;animation:ggspin .7s linear infinite` : "width:7px;height:7px;border-radius:50%;background:#2bbf73",
+        footLabel: syncing ? "Écriture dans Azure DevOps…" : "Synchronisé · write-back par champ",
+      };
+    }
+    if (item) insp = buildInsp(item);
+
+    // release-only
+    type TreeRow = Record<string, unknown>;
+    let treeRows: TreeRow[] = [], loadBand: Record<string, unknown>[] = [], milestones: Record<string, unknown>[] = [],
+      relCards: Record<string, unknown>[] = [], relBands: { style: string }[] = [], relEpics: Record<string, unknown>[] = [], relRowPins: Record<string, unknown>[] = [];
+    if (release) {
+      const SL = state.scrollLeft;
+      treeRows = layout.rows.map((r) => {
+        const indent = 12 + (r.depth || 0) * 16;
+        if (r.kind === "band") {
+          return {
+            isArea: false, key: r.key, hasChildren: false, name: "", sub: "", ado: "", badge: "", title: "", chevron: "",
+            chevStyle: "display:none", adoStyle: "display:none", badgeStyle: "display:none", dotColor: "transparent",
+            statusStyle: "display:none", pinStyle: "display:none",
+            leftStyle: `position:absolute;left:0;top:${r.top}px;width:${M.LEFT}px;height:${r.height}px;background:var(--colalt,#fafafc);border-right:1px solid var(--line,#e8e8ee);z-index:32;box-sizing:border-box;transform:translateX(var(--sl,0px));will-change:transform`,
+            sepStyle: `position:absolute;left:0;top:${r.top + r.height}px;width:${TW}px;height:1px;background:var(--gridline,#ececf1);z-index:5`,
+          };
+        }
+        const ch = M.parentCharge(state, r.us || []);
+        const isFeat = r.kind === "feature";
+        const rg = r.range || null;
+        const rangeSub = rg ? `${M.iters[rg[0]].short} → ${M.iters[rg[1]].short}` : "";
+        const sub = ch.total > 0 ? `${rangeSub ? rangeSub + " · " : ""}Σ ${ch.total} pts` : rangeSub || "aucune US planifiée";
+        // Double-clic sur une epic/feature → pose un flag au début de son sprint.
+        const flagIter = rg ? rg[0] : M.CURRENT;
+        let statusTag = "", statusStyle = "display:none";
+        if (rg) {
+          const [s0, e0] = rg;
+          if (s0 <= M.CURRENT && e0 >= M.CURRENT) { statusTag = "en cours"; statusStyle = "font-size:8.5px;font-weight:600;padding:1px 6px;border-radius:5px;background:#0072B222;color:#0072B2;flex:0 0 auto"; }
+          else if (s0 > M.CURRENT) { statusTag = "à venir"; statusStyle = "font-size:8.5px;font-weight:600;padding:1px 6px;border-radius:5px;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);flex:0 0 auto"; }
+          else { statusTag = "terminé"; statusStyle = "font-size:8.5px;font-weight:600;padding:1px 6px;border-radius:5px;background:#009E7322;color:#009E73;flex:0 0 auto"; }
+        }
+        const prio = !isFeat && r.item?.priority != null ? `P${r.item.priority}` : "";
+        return {
+          isArea: true, isFeat, key: r.key, hasChildren: r.hasChildren, open: r.open, statusTag, statusStyle, prio,
+          chevron: r.open ? "▾" : r.hasChildren ? "▸" : "", onToggle: () => { if (r.hasChildren) toggleNode(r.key!, r.kind!); },
+          name: isFeat ? r.item!.ado + "  " + r.item!.title : r.epicName || "(Sans epic)",
+          sub, dotColor: r.accent,
+          onDoubleClick: () => addFlag(r.key!, flagIter),
+          ado: "", badge: "", title: "", adoStyle: "display:none", badgeStyle: "display:none",
+          chevStyle: `font-size:9px;color:var(--muted,#86868f);width:14px;flex:0 0 auto;cursor:${r.hasChildren ? "pointer" : "default"};text-align:center`,
+          leftStyle: `position:absolute;left:0;top:${r.top}px;width:${M.LEFT}px;height:${r.height}px;background:${isFeat ? "var(--panel,#fff)" : "var(--panel2,#fafafc)"};border-right:1px solid var(--line,#e8e8ee);border-bottom:1px solid var(--line2,#f0f0f4);padding:0 12px 0 ${indent}px;z-index:32;box-sizing:border-box;display:flex;align-items:center;gap:8px;transform:translateX(var(--sl,0px));will-change:transform`,
+          sepStyle: `position:absolute;left:0;top:${r.top + r.height}px;width:${TW}px;height:1px;background:var(--gridline,#ececf1);z-index:5`,
+          onClick: () => { if (r.hasChildren) toggleNode(r.key!, r.kind!); },
+        };
+      });
+
+      relCards = (layout.cards || []).map((c) => {
+        const it = c.item, cm = M.colorForBar(it, state.colorMode, theme), isTask = c.level === "task";
+        const isSel = sel === it.id, dragging = !!d && d.id === it.id;
+        const ep = M.epics[M.epicOf(it)] || ({} as { color?: string });
+        let transform = "none";
+        if (dragging && d && d.mode === "move") transform = `translate(${d.dx}px,${"dy" in d ? d.dy : 0}px)`;
+        const sc = M.stateColors[it.state];
+        return {
+          isTask, hasChildren: c.hasChildren, chevron: c.open ? "▾" : "▸",
+          ado: it.ado, title: it.title, points: it.points + "p", badge: M.typeLabels[it.type], showPoints: !isTask,
+          adoStyle: `font-size:9.5px;font-weight:600;font-family:${mono};color:${cm.accent}`,
+          badgeStyle: `font-size:8.5px;font-weight:600;padding:1px 5px;border-radius:4px;background:${cm.border};color:${cm.text}`,
+          chevStyle: `font-size:8px;color:var(--muted,#86868f);cursor:pointer;flex:0 0 auto;width:12px;text-align:center`,
+          onToggle: (e: React.MouseEvent) => { e.stopPropagation(); if (c.hasChildren) toggleNode(it.id, "story"); },
+          onDown: (e: React.PointerEvent) => startDrag(it.id, "move", e),
+          onClick: (e: React.MouseEvent) => { e.stopPropagation(); setState({ selectedId: it.id }); },
+          dotStyle: `width:6px;height:6px;border-radius:50%;background:${sc};flex:0 0 auto`,
+          style: `position:absolute;left:${c.left}px;top:${c.top}px;width:${c.width}px;height:${c.height}px;background:${cm.bg};border:${isSel ? "1.5px solid " + cm.accent : "1px solid " + cm.border};border-left:3px solid ${ep.color || cm.accent};border-radius:7px;padding:${isTask ? "5px 9px" : "6px 10px"};cursor:${dragging ? "grabbing" : "grab"};box-shadow:${isSel || dragging ? "0 6px 18px rgba(20,20,40,.16)" : "var(--shadow)"};user-select:none;display:flex;flex-direction:column;gap:2px;transform:${transform};transition:${dragging ? "none" : "box-shadow .12s"};z-index:${dragging ? 40 : isSel ? 30 : 13};box-sizing:border-box;overflow:hidden`,
+        };
+      });
+
+      layout.rows.forEach((r) => {
+        if (r.kind === "band") relBands.push({ style: `position:absolute;left:${M.LEFT}px;top:${r.top}px;width:${cols.length * COLW}px;height:${r.height}px;background:var(--colalt,#fafafc);opacity:.45;z-index:3` });
+      });
+
+      const first = cols[0], last = cols[cols.length - 1];
+      layout.rows.forEach((r) => {
+        if (r.kind !== "epic" && r.kind !== "feature") return;
+        const isFeat = r.kind === "feature";
+        // Epic ou Feature avec un vrai work item ADO → intervalle éditable (Start/Target).
+        const editable = !!r.item;
+        const ch = M.parentCharge(state, r.us || []);
+        const rg = r.range;
+        if (!rg) return;
+        let sReal = rg[0], eReal = rg[1];
+        // Aperçu du drag (L/R = redimensionner, M = déplacer).
+        if (editable && d && d.mode === "epic" && d.id === r.item!.id) {
+          const delta = Math.round(d.dx / COLW);
+          if (d.side === "R") eReal = Math.max(sReal, Math.min(last, d.oe + delta));
+          else if (d.side === "L") sReal = Math.min(eReal, Math.max(first, d.os + delta));
+          else { const span = d.oe - d.os; sReal = Math.max(first, Math.min(last - span, d.os + delta)); eReal = sReal + span; }
+        }
+        const visS = Math.max(sReal, first), visE = Math.min(eReal, last);
+        if (visS > visE) return;
+        const leftCol = cols.indexOf(visS), n = visE - visS + 1;
+        const barLeft = M.LEFT + leftCol * COLW + 6, barW = n * COLW - 12, barH = 26, barTop = r.top + Math.round((r.height - barH) / 2);
+        const segs = [];
+        for (let real = visS; real <= visE; real++) {
+          const val = ch.per[real] || 0;
+          segs.push({
+            segStyle: `flex:1;position:relative;border-right:1px solid ${theme === "dark" ? "rgba(255,255,255,.18)" : "rgba(255,255,255,.45)"};display:flex;align-items:center;justify-content:center;background:${r.accent};opacity:${val > 0 ? 1 : 0.32}`,
+            fillStyle: "display:none", label: val > 0 ? String(val) : "",
+            labelStyle: `position:relative;z-index:1;font-size:10px;font-weight:600;font-family:${mono};color:#fff`,
+          });
+        }
+        relEpics.push({
+          containerStyle: `position:absolute;left:${barLeft}px;top:${barTop}px;width:${barW}px;height:${barH}px;border:1px solid ${r.accent};border-radius:7px;overflow:hidden;display:flex;z-index:6${editable ? ";cursor:grab" : ""}`,
+          segs,
+          // Epic/Feature : la barre entière est déplaçable pour décaler l'intervalle.
+          onDown: editable ? (e: React.PointerEvent) => startEpicResize(r.item!.id, "M", e) : undefined,
+          // Double-clic → pose un flag sur le sprint survolé (colonne sous le curseur).
+          onDoubleClick: (e: React.MouseEvent) => { const vi = hitColIdx(e.clientX); addFlag(r.key!, vi != null ? colsRef.current[vi] : rg[0]); },
+        });
+        if (editable) {
+          const HW = 15, VW = state.containerW || 1100;
+          const barRight = barLeft + barW, vpL = SL + M.LEFT + 6, vpR = SL + VW - 6;
+          let rx = Math.min(barRight - HW, vpR - HW); rx = Math.max(rx, barLeft + 30); rx = Math.min(rx, barRight - HW);
+          const showR = barLeft < vpR && barRight > vpL;
+          const showL = sReal >= first && barLeft + barW > vpL;
+          let lx = Math.max(barLeft - 2, vpL); lx = Math.min(lx, barRight - 30 - HW);
+          relEpics.push({
+            containerStyle: "display:none", segs: [], showL, showR,
+            lHandleStyle: `position:absolute;left:${lx}px;top:${barTop}px;width:11px;height:${barH}px;cursor:ew-resize;z-index:18;display:flex;align-items:center;justify-content:center;background:transparent`,
+            rHandleStyle: `position:absolute;left:${rx}px;top:${barTop}px;width:11px;height:${barH}px;cursor:ew-resize;z-index:18;display:flex;align-items:center;justify-content:center;background:transparent`,
+            gripStyle: `width:3px;height:${barH - 8}px;border-radius:2px;background:${theme === "dark" ? "rgba(255,255,255,.55)" : "rgba(0,0,0,.32)"}`,
+            gripChar: "",
+            onLeftDown: (e: React.PointerEvent) => startEpicResize(r.item!.id, "L", e),
+            onRightDown: (e: React.PointerEvent) => startEpicResize(r.item!.id, "R", e),
+          });
+        }
+      });
+
+      // Plusieurs flags par ligne : on les place chacun sur son sprint (empilés si même sprint).
+      const rowByKey = new Map(layout.rows.filter((r) => r.kind === "epic" || r.kind === "feature").map((r) => [r.key, r]));
+      const flagStack = new Map<string, number>();
+      state.rowPins.forEach((pin) => {
+        const r = rowByKey.get(pin.rowKey);
+        if (!r) return;
+        const vi = cols.indexOf(pin.iter);
+        if (vi < 0) return;
+        const stackKey = pin.rowKey + ":" + pin.iter;
+        const off = flagStack.get(stackKey) || 0;
+        flagStack.set(stackKey, off + 1);
+        const x = M.LEFT + vi * COLW;
+        relRowPins.push({
+          title: pin.title,
+          lineStyle: `position:absolute;left:${x}px;top:${r.top}px;width:0;height:${r.height}px;border-left:2px solid ${pin.color};z-index:15;pointer-events:none`,
+          flagStyle: `position:absolute;left:${x + 3}px;top:${r.top + 6 + off * 20}px;z-index:31;display:flex;align-items:center;gap:4px;background:${pin.color};color:#fff;padding:2px 7px 2px 6px;border-radius:5px;font-size:10px;font-weight:600;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.2);max-width:${COLW - 10}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis`,
+          onClick: (e: React.MouseEvent) => { e.stopPropagation(); setState({ rowPinSel: pin.id, milestoneSel: null }); },
+        });
+      });
+
+      loadBand = M.relLoadBand(state, cols, theme).map((b, vi) => {
+        const left = M.LEFT + vi * COLW, over = b.total > b.cap;
+        const denom = Math.max(b.cap, b.total, 1);
+        const segs = b.segs.map((s) => ({ style: `width:${(s.val / denom) * 100}%;height:100%;background:${s.color}`, title: `${s.label} · ${M.fmt(s.val)}j` }));
+        return {
+          wrapStyle: `position:absolute;left:${left}px;top:${M.HEADER}px;width:${COLW}px;height:${M.RELBAND}px;padding:9px 12px;border-right:1px solid var(--gridline,#ececf1);border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);box-sizing:border-box;z-index:5`,
+          total: `${M.fmt(b.total)}j`, cap: `/ ${b.cap}j`,
+          totalStyle: `font-size:12px;font-weight:600;font-family:${mono};color:${over ? "#ef4444" : "var(--ink,#1a1a20)"}`,
+          capStyle: `font-size:10px;font-family:${mono};color:var(--faint,#abacb6)`,
+          pct: Math.round((b.total / (b.cap || 1)) * 100) + "%",
+          pctStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${over ? "#ef4444" : "var(--muted,#86868f)"}`,
+          trackStyle: `margin-top:7px;height:9px;border-radius:5px;background:var(--line2,#f0f0f4);overflow:hidden;display:flex;gap:1px;${over ? "box-shadow:0 0 0 1px #ef4444" : ""}`,
+          segs,
+        };
+      });
+
+      state.milestones.forEach((m) => {
+        const vi = cols.indexOf(m.iter);
+        if (vi < 0) return;
+        const x = M.LEFT + vi * COLW;
+        const selM = state.milestoneSel === m.id;
+        milestones.push({
+          title: m.title,
+          lineStyle: `position:absolute;left:${x}px;top:${M.HEADER}px;width:0;height:${TH - M.HEADER}px;border-left:2px dashed ${m.color};z-index:14;pointer-events:none`,
+          flagStyle: `position:absolute;left:${x + 4}px;top:${M.HEADER + 6}px;z-index:30;display:flex;align-items:center;gap:5px;background:${m.color};color:#fff;padding:3px 8px 3px 7px;border-radius:6px;font-size:10.5px;font-weight:600;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.18);${selM ? "outline:2px solid var(--panel,#fff);outline-offset:1px" : ""}`,
+          onClick: (e: React.MouseEvent) => { e.stopPropagation(); setState({ milestoneSel: selM ? null : m.id, rangeOpen: false, peopleOpen: false }); },
+        });
+      });
+    }
+
+    const milestoneSelObj = release ? state.milestones.find((m) => m.id === state.milestoneSel) : null;
+    const milestoneEditor = milestoneSelObj
+      ? {
+          title: milestoneSelObj.title, onTitle: (e: React.ChangeEvent<HTMLInputElement>) => setMilestone(milestoneSelObj.id, "title", e.target.value),
+          iter: String(milestoneSelObj.iter), onIter: (e: React.ChangeEvent<HTMLSelectElement>) => setMilestone(milestoneSelObj.id, "iter", Number(e.target.value)),
+          iterOptions: M.iters.slice(0, M.NITER).map((it, i) => ({ value: String(i), label: it.label })),
+          colors: ["#D55E00", "#0072B2", "#009E73", "#CC79A7", "#E69F00"].map((c) => ({ onClick: () => setMilestone(milestoneSelObj.id, "color", c), style: `width:22px;height:22px;border-radius:6px;background:${c};cursor:pointer;border:2px solid ${c === milestoneSelObj.color ? "var(--ink,#1a1a20)" : "transparent"}` })),
+          onRemove: () => removeMilestone(milestoneSelObj.id),
+          onClose: () => setState({ milestoneSel: null }),
+        }
+      : null;
+    const rowPinSrc = release && state.rowPinSel ? state.rowPins.find((p) => p.id === state.rowPinSel) : null;
+    const rowPinEditor = rowPinSrc
+      ? {
+          title: rowPinSrc.title, onTitle: (e: React.ChangeEvent<HTMLInputElement>) => setFlag(rowPinSrc.id, "title", e.target.value),
+          iter: String(rowPinSrc.iter), onIter: (e: React.ChangeEvent<HTMLSelectElement>) => setFlag(rowPinSrc.id, "iter", Number(e.target.value)),
+          iterOptions: M.iters.slice(0, M.NITER).map((it, i) => ({ value: String(i), label: it.label })),
+          colors: ["#E69F00", "#D55E00", "#0072B2", "#009E73", "#CC79A7"].map((c) => ({ onClick: () => setFlag(rowPinSrc.id, "color", c), style: `width:22px;height:22px;border-radius:6px;background:${c};cursor:pointer;border:2px solid ${c === rowPinSrc.color ? "var(--ink,#1a1a20)" : "transparent"}` })),
+          onRemove: () => removeFlag(rowPinSrc.id),
+          onClose: () => setState({ rowPinSel: null }),
+        }
+      : null;
+
+    const visiblePeople = M.people.length - Object.keys(state.hidden).length;
+    return {
+      rootStyle: { position: "relative" as const, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" as const, fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "var(--canvas)", color: "var(--ink)", overflow: "hidden" },
+      totalWidth: TW, totalHeight: TH, columns, personRows, banners, bars, cursors, presence, onlineLabel,
+      leftHeaderStyle: `position:absolute;top:0;left:0;width:${M.LEFT}px;height:${release ? M.HEADER + M.RELBAND : M.HEADER}px;padding:11px 14px;border-bottom:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:${release ? 34 : 8};box-sizing:border-box;transform:${release ? "translateX(var(--sl,0px))" : "none"};will-change:transform`,
+      currentLabel: M.iters[M.CURRENT].label, currentDates: M.iters[M.CURRENT].dates,
+      levels,
+      legendShow, legendItems, isDaily: daily,
+      sortValue: state.sort,
+      sortOptions: [{ value: "az", label: "Nom A→Z" }, { value: "za", label: "Nom Z→A" }, { value: "loadDesc", label: "Charge ↓" }, { value: "loadAsc", label: "Charge ↑" }, { value: "random", label: "Aléatoire" }],
+      onSort: (e: React.ChangeEvent<HTMLSelectElement>) => { const val = e.target.value; if (val === "random") M.resetRandOrder(); setState({ sort: val }); },
+      onShuffle: () => { M.resetRandOrder(); setState({ sort: "random" }); },
+      shuffleStyle: `width:28px;height:28px;flex:0 0 auto;border-radius:6px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center`,
+      peopleOpen: state.peopleOpen,
+      onPeopleToggle: (e: React.MouseEvent) => { e.stopPropagation(); setState((s) => ({ peopleOpen: !s.peopleOpen, rangeOpen: false })); },
+      peopleLabel: `${M.people.length - Object.keys(state.hidden).length}/${M.people.length}`,
+      peopleList: M.people.map((p) => ({
+        name: p.name, role: p.role, checked: !state.hidden[p.id],
+        dotStyle: `width:24px;height:24px;border-radius:50%;background:${p.color};color:#fff;font-size:9px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
+        initials: p.initials,
+        onToggle: (e: React.ChangeEvent<HTMLInputElement>) => { const h = { ...state.hidden }; if (e.target.checked) delete h[p.id]; else h[p.id] = true; setState({ hidden: h }); },
+      })),
+      onShowAllPeople: () => setState({ hidden: {} }),
+      boardTabs: [{ key: "sprint", label: "Sprint Planning" }, { key: "daily", label: "Daily" }, { key: "release", label: "Release Planning" }].map((t) => {
+        const active = state.board === t.key;
+        return { label: t.label, onClick: () => setState({ board: t.key as State["board"], selectedId: null, rangeOpen: false, peopleOpen: false }), style: `padding:6px 14px;border-radius:6px;border:none;font-size:12.5px;font-weight:${active ? 600 : 500};cursor:pointer;white-space:nowrap;background:${active ? "var(--panel,#fff)" : "transparent"};color:${active ? "var(--ink,#1a1a20)" : "var(--muted,#86868f)"};box-shadow:${active ? "0 1px 2px rgba(20,20,40,.12)" : "none"}` };
+      }),
+      isRelease: release, showSort: !release, showGranularity: !release,
+      leftKicker: release ? "Projet" : "Équipe",
+      leftTitle: release ? "Arborescence" : `${visiblePeople} personne${visiblePeople > 1 ? "s" : ""}`,
+      leftSub: release ? "Epic › Feature › US › Tâche" : "",
+      loadByValue: state.loadBy,
+      loadByOptions: [{ value: "person", label: "Personne" }, { value: "role", label: "Type de poste" }, { value: "tag", label: "Tag" }],
+      onLoadBy: (e: React.ChangeEvent<HTMLSelectElement>) => setState({ loadBy: e.target.value as State["loadBy"] }),
+      treeRows, loadBand, milestones, milestoneEditor,
+      relCards, relBands, relEpics, relRowPins, rowPinEditor,
+      onAddMilestone: () => addMilestone(),
+      epicSort: state.epicSort,
+      epicSortOptions: [{ value: "priority", label: "Priorité" }, { value: "name", label: "Nom" }, { value: "effort", label: "Somme de l'effort" }],
+      onEpicSort: (e: React.ChangeEvent<HTMLSelectElement>) => setState({ epicSort: e.target.value as State["epicSort"] }),
+      epicFilter: state.epicFilter,
+      epicFilterOptions: [{ value: "all", label: "Tous les epics" }, { value: "hideDone", label: "Masquer terminés" }, { value: "activeOnly", label: "Actifs seulement" }],
+      onEpicFilter: (e: React.ChangeEvent<HTMLSelectElement>) => setState({ epicFilter: e.target.value as State["epicFilter"] }),
+      rangeLabel, range, rangeOpen: state.rangeOpen,
+      rangeBtnStyle: `height:30px;padding:0 12px;border-radius:7px;border:1px solid ${state.rangeOpen ? "var(--accent,#5b5bd6)" : "var(--line,#e9e9ef)"};background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:7px`,
+      onRangeToggle: (e: React.MouseEvent) => { e.stopPropagation(); setState((s) => ({ rangeOpen: !s.rangeOpen, peopleOpen: false })); },
+      syncLabel: syncing ? "Synchronisation…" : "Azure DevOps synchronisé", syncStyle, syncDotStyle,
+      themeLabel: theme === "dark" ? "Clair" : "Sombre", themeIcon: theme === "dark" ? "☀" : "☾",
+      onToggleTheme: () => toggleTheme(),
+      onScrollRef, onCanvasRef,
+      onBgClick: () => setState({ selectedId: null, rangeOpen: false, peopleOpen: false }),
+      stop: (e: React.MouseEvent) => e.stopPropagation(),
+      selected: !!item, insp, toast: state.toast,
+      labelCss: "font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6);margin-bottom:7px",
+      selectCss: "width:100%;height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;outline:none",
+      inputCss: `width:100%;height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12.5px;font-family:${mono};outline:none;box-sizing:border-box`,
+      stepperCss: "display:flex;align-items:center;height:36px;border:1px solid var(--line,#e8e8ee);border-radius:8px;background:var(--panel2,#fafafc);overflow:hidden",
+      stepBtnCss: "width:34px;height:100%;border:none;background:transparent;color:var(--muted,#86868f);font-size:17px;cursor:pointer;flex:0 0 auto",
+    };
+  }
+
+  // ===================== render =====================
+  return (
+    <div style={v.rootStyle}>
+      {/* Header row 1 */}
+      <div style={C("height:54px;flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:0 18px;border-bottom:1px solid var(--line,#e9e9ef);background:var(--panel,#fff);position:relative;z-index:70")}>
+        <div style={C("width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#0078d4,#3b8df0);display:flex;align-items:center;justify-content:center;flex:0 0 auto;box-shadow:0 1px 3px rgba(0,90,200,.35)")}>
+          <div style={C("width:11px;height:11px;border:2px solid #fff;border-radius:3px")} />
+        </div>
+        <div style={C("display:flex;background:var(--panel2,#fafafc);border:1px solid var(--line,#e9e9ef);border-radius:8px;padding:2px;gap:2px")}>
+          {v.boardTabs.map((t) => (
+            <button key={t.label} onClick={t.onClick} style={C(t.style)}>{t.label}</button>
+          ))}
+        </div>
+        <div style={C("width:1px;height:22px;background:var(--line,#e9e9ef)")} />
+        <div style={C("display:flex;align-items:center;gap:8px")}>
+          <div style={C("width:7px;height:7px;border-radius:50%;background:var(--accent,#5b5bd6);box-shadow:0 0 0 3px var(--accentsoft,#ececfb)")} />
+          <div style={C("line-height:1.2")}>
+            <div style={C("font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Itération courante</div>
+            <div style={C("font-size:12.5px;font-weight:600;color:var(--ink,#1a1a20)")}>{v.currentLabel} <span style={C("font-weight:400;color:var(--muted,#86868f);font-family:'IBM Plex Mono',monospace;font-size:11px")}>· {v.currentDates}</span></div>
+          </div>
+        </div>
+        <div style={{ flex: 1 }} />
+        <div style={C(v.syncStyle)}>
+          <div style={C(v.syncDotStyle)} />
+          <span>{v.syncLabel}</span>
+        </div>
+        <div style={C("width:1px;height:22px;background:var(--line,#e9e9ef)")} />
+        <div style={C("display:flex;align-items:center;gap:9px")}>
+          <div style={{ display: "flex" }}>
+            {v.presence.map((p) => (
+              <div key={p.name} style={C(p.style)} title={p.name}>{p.initials}</div>
+            ))}
+          </div>
+          <span style={C("font-size:11.5px;color:var(--muted,#86868f)")}>{v.onlineLabel}</span>
+        </div>
+        <div style={C("width:1px;height:22px;background:var(--line,#e9e9ef)")} />
+        <button onClick={v.onToggleTheme} style={C("height:30px;padding:0 12px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px")}>{v.themeIcon} {v.themeLabel}</button>
+      </div>
+
+      {/* Header row 2 */}
+      <div style={C("height:46px;flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:0 18px;border-bottom:1px solid var(--line,#e9e9ef);background:var(--panel,#fff);position:relative;z-index:60")}>
+        {v.showGranularity && (
+          <>
+            <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Granularité</span>
+            <div style={C("display:flex;background:var(--panel2,#fafafc);border:1px solid var(--line,#e9e9ef);border-radius:8px;padding:2px;gap:2px")}>
+              {v.levels.map((l) => (
+                <button key={l.label} onClick={l.onClick} style={C(l.style)}>{l.label}</button>
+              ))}
+            </div>
+          </>
+        )}
+        {v.isRelease && (
+          <>
+            <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Charge par</span>
+            <select value={v.loadByValue} onChange={v.onLoadBy} style={C("height:30px;padding:0 8px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
+              {v.loadByOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </>
+        )}
+        {v.isRelease && (
+          <>
+            <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Filtre</span>
+            <select value={v.epicFilter} onChange={v.onEpicFilter} style={C("height:30px;padding:0 8px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
+              {v.epicFilterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </>
+        )}
+        <div style={{ flex: 1 }} />
+        <button onClick={v.onPeopleToggle} style={C("height:30px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px")}>
+          <span style={C("opacity:.7")}>☷</span> Personnes {v.peopleLabel} <span style={C("opacity:.5;font-size:9px")}>▾</span>
+        </button>
+        {v.isRelease && (
+          <>
+            <div style={C("width:1px;height:20px;background:var(--line,#e9e9ef)")} />
+            <button onClick={v.onAddMilestone} style={C("height:30px;padding:0 12px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px")}>◆ Jalon</button>
+          </>
+        )}
+        {!v.isRelease && !v.isDaily && (
+          <>
+            <div style={C("width:1px;height:20px;background:var(--line,#e9e9ef)")} />
+            <button onClick={v.onRangeToggle} style={C(v.rangeBtnStyle)}>
+              <span style={C("opacity:.7")}>⊟</span> {v.rangeLabel} <span style={C("opacity:.5;font-size:9px")}>▾</span>
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Range popover */}
+      {v.rangeOpen && (
+        <div onClick={v.stop} style={C("position:absolute;top:104px;right:18px;width:296px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:15px 16px;animation:ggdrop .14s ease")}>
+          {v.range.showRange && (
+            <>
+              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6);margin-bottom:11px")}>Intervalle d'itérations affiché</div>
+              <div style={C("display:flex;gap:10px")}>
+                <div style={{ flex: 1 }}>
+                  <div style={C("font-size:10.5px;color:var(--muted,#86868f);margin-bottom:5px")}>De</div>
+                  <select value={v.range.from} onChange={v.range.onFrom} style={C(v.selectCss)}>
+                    {v.range.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={C("font-size:10.5px;color:var(--muted,#86868f);margin-bottom:5px")}>À</div>
+                  <select value={v.range.to} onChange={v.range.onTo} style={C(v.selectCss)}>
+                    {v.range.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <label style={C("display:flex;align-items:center;gap:8px;margin-top:13px;cursor:pointer;font-size:12.5px;color:var(--ink,#1a1a20)")}>
+                <input type="checkbox" checked={v.range.backlog} onChange={v.range.onBacklog} style={C("width:15px;height:15px;accent-color:var(--accent,#5b5bd6);cursor:pointer")} />
+                Inclure le backlog
+              </label>
+            </>
+          )}
+          {v.range.isRelease && (
+            <>
+              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6);margin-bottom:9px")}>Vue long terme</div>
+              <div style={C("font-size:11.5px;line-height:1.45;color:var(--muted,#86868f);margin-bottom:11px")}>Toutes les itérations sont affichées. Défilez horizontalement pour naviguer ; la vue démarre sur l'itération courante.</div>
+              <button onClick={v.range.onGoCurrent} style={C("width:100%;height:32px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:11.5px;font-weight:500;cursor:pointer")}>Aller à l'itération courante</button>
+            </>
+          )}
+          <label style={C("display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;font-size:12.5px;color:var(--ink,#1a1a20)")}>
+            <input type="checkbox" checked={v.range.hideClosed} onChange={v.range.onHideClosed} style={C("width:15px;height:15px;accent-color:var(--accent,#5b5bd6);cursor:pointer")} />
+            Masquer les tickets fermés
+          </label>
+          {v.range.hasPast && (
+            <button onClick={v.range.onReset} style={C("margin-top:10px;width:100%;height:32px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--muted,#86868f);font-size:11.5px;font-weight:500;cursor:pointer")}>Revenir à l'itération courante</button>
+          )}
+        </div>
+      )}
+
+      {/* People popover */}
+      {v.peopleOpen && (
+        <div onClick={v.stop} style={C("position:absolute;top:104px;right:18px;width:266px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:14px 15px;animation:ggdrop .14s ease")}>
+          <div style={C("display:flex;align-items:center;justify-content:space-between;margin-bottom:9px")}>
+            <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Personnes affichées</span>
+            <button onClick={v.onShowAllPeople} style={C("border:none;background:none;color:var(--accent,#5b5bd6);font-size:11px;font-weight:500;cursor:pointer;padding:0")}>Tout afficher</button>
+          </div>
+          {v.peopleList.map((p) => (
+            <label key={p.name} style={C("display:flex;align-items:center;gap:10px;padding:5px 0;cursor:pointer")}>
+              <input type="checkbox" checked={p.checked} onChange={p.onToggle} style={C("width:15px;height:15px;accent-color:var(--accent,#5b5bd6);cursor:pointer;flex:0 0 auto")} />
+              <div style={C(p.dotStyle)}>{p.initials}</div>
+              <div style={C("line-height:1.2;min-width:0")}>
+                <div style={C("font-size:12.5px;font-weight:500;color:var(--ink,#1a1a20)")}>{p.name}</div>
+                <div style={C("font-size:10.5px;color:var(--muted,#86868f)")}>{p.role}</div>
+              </div>
+            </label>
+          ))}
+        </div>
+      )}
+
+      {/* Flag editor */}
+      {v.rowPinEditor && (
+        <div onClick={v.stop} style={C("position:absolute;top:104px;right:18px;width:288px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:92;padding:15px 16px;animation:ggdrop .14s ease")}>
+          <div style={C("display:flex;align-items:center;justify-content:space-between;margin-bottom:11px")}>
+            <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6)")}>⚑ Flag</span>
+            <button onClick={v.rowPinEditor.onClose} style={C("width:24px;height:24px;border-radius:6px;border:none;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;font-size:14px;line-height:1")}>✕</button>
+          </div>
+          <div style={C("font-size:10.5px;color:var(--muted,#86868f);margin-bottom:5px")}>Libellé</div>
+          <input value={v.rowPinEditor.title} onChange={v.rowPinEditor.onTitle} style={C(v.inputCss)} />
+          <div style={C("font-size:10.5px;color:var(--muted,#86868f);margin:11px 0 5px")}>Sprint</div>
+          <select value={v.rowPinEditor.iter} onChange={v.rowPinEditor.onIter} style={C(v.selectCss)}>
+            {v.rowPinEditor.iterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <div style={C("font-size:10.5px;color:var(--muted,#86868f);margin:11px 0 6px")}>Couleur</div>
+          <div style={C("display:flex;gap:8px")}>
+            {v.rowPinEditor.colors.map((c, i) => <div key={i} onClick={c.onClick} style={C(c.style)} />)}
+          </div>
+          <button onClick={v.rowPinEditor.onRemove} style={C("margin-top:14px;width:100%;height:32px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:#e5484d;font-size:11.5px;font-weight:500;cursor:pointer")}>Supprimer le flag</button>
+        </div>
+      )}
+
+      {/* Milestone editor */}
+      {v.milestoneEditor && (
+        <div onClick={v.stop} style={C("position:absolute;top:104px;right:18px;width:288px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:92;padding:15px 16px;animation:ggdrop .14s ease")}>
+          <div style={C("display:flex;align-items:center;justify-content:space-between;margin-bottom:11px")}>
+            <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6)")}>◆ Jalon</span>
+            <button onClick={v.milestoneEditor.onClose} style={C("width:24px;height:24px;border-radius:6px;border:none;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;font-size:14px;line-height:1")}>✕</button>
+          </div>
+          <div style={C("font-size:10.5px;color:var(--muted,#86868f);margin-bottom:5px")}>Titre</div>
+          <input value={v.milestoneEditor.title} onChange={v.milestoneEditor.onTitle} style={C(v.inputCss)} />
+          <div style={C("font-size:10.5px;color:var(--muted,#86868f);margin:11px 0 5px")}>À partir de l'itération</div>
+          <select value={v.milestoneEditor.iter} onChange={v.milestoneEditor.onIter} style={C(v.selectCss)}>
+            {v.milestoneEditor.iterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <div style={C("font-size:10.5px;color:var(--muted,#86868f);margin:11px 0 6px")}>Couleur</div>
+          <div style={C("display:flex;gap:8px")}>
+            {v.milestoneEditor.colors.map((c, i) => <div key={i} onClick={c.onClick} style={C(c.style)} />)}
+          </div>
+          <button onClick={v.milestoneEditor.onRemove} style={C("margin-top:14px;width:100%;height:32px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:#e5484d;font-size:11.5px;font-weight:500;cursor:pointer")}>Supprimer le jalon</button>
+        </div>
+      )}
+
+      {/* Canvas */}
+      <div ref={v.onScrollRef} style={C("flex:1;position:relative;overflow:auto;background:var(--canvas,#f6f6f8)")}>
+        <div ref={v.onCanvasRef} onClick={v.onBgClick} onPointerMove={emitCursor} style={C(`position:relative;width:${v.totalWidth}px;height:${v.totalHeight}px;min-height:100%`)}>
+          {v.columns.map((col, i) => <div key={"bg" + i} style={C(col.bgStyle)} />)}
+
+          <div style={C(v.leftHeaderStyle)}>
+            <div style={C("font-size:10px;font-weight:600;letter-spacing:.08em;color:var(--faint,#aeaeb8);text-transform:uppercase")}>{v.leftKicker}</div>
+            <div style={C("font-size:12.5px;font-weight:600;color:var(--ink,#1a1a20);margin-top:3px")}>{v.leftTitle}</div>
+            {v.leftSub && <div style={C("font-size:10.5px;color:var(--muted,#86868f);margin-top:1px")}>{v.leftSub}</div>}
+            {v.showSort && (
+              <div style={C("display:flex;align-items:center;gap:6px;margin-top:8px")}>
+                <select value={v.sortValue} onChange={v.onSort} style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:6px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:11.5px;cursor:pointer;outline:none")}>
+                  {v.sortOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                <button onClick={v.onShuffle} title="Tri aléatoire (relance à chaque clic)" style={C(v.shuffleStyle)}>🎲</button>
+              </div>
+            )}
+            {v.isRelease && (
+              <div style={C("display:flex;align-items:center;gap:6px;margin-top:9px")}>
+                <span style={C("font-size:9.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#abacb6);flex:0 0 auto")}>Trier</span>
+                <select value={v.epicSort} onChange={v.onEpicSort} style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:6px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:11.5px;cursor:pointer;outline:none")}>
+                  {v.epicSortOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {v.columns.map((col, i) => (
+            <div key={"head" + i} style={C(col.headStyle)}>
+              <div style={C("display:flex;align-items:center;gap:7px")}>
+                {col.showDot && <div style={C(`width:7px;height:7px;border-radius:50%;background:${col.dotColor}`)} />}
+                <span style={C(`font-size:13px;font-weight:600;color:${col.titleColor};letter-spacing:-.01em`)}>{col.label}</span>
+                <span style={C(col.tagStyle)}>{col.tag}</span>
+              </div>
+              <div style={C("font-size:11px;color:var(--muted,#86868f);font-family:'IBM Plex Mono',monospace;margin-top:5px")}>{col.dates}</div>
+              <div style={C("font-size:10.5px;color:var(--faint,#aeaeb8);margin-top:2px")}>{col.sub}</div>
+            </div>
+          ))}
+
+          {(v.loadBand as Record<string, any>[]).map((b, i) => (
+            <div key={"lb" + i} style={C(b.wrapStyle)}>
+              <div style={C("display:flex;align-items:baseline;gap:5px")}>
+                <span style={C(b.totalStyle)}>{b.total}</span>
+                <span style={C(b.capStyle)}>{b.cap}</span>
+                <div style={{ flex: 1 }} />
+                <span style={C(b.pctStyle)}>{b.pct}</span>
+              </div>
+              <div style={C(b.trackStyle)}>
+                {b.segs.map((s: any, j: number) => <div key={j} title={s.title} style={C(s.style)} />)}
+              </div>
+            </div>
+          ))}
+
+          {(v.treeRows as Record<string, any>[]).map((row, i) => (
+            <div key={"tr" + i}>
+              <div style={C(row.sepStyle)} />
+              <div onClick={row.onClick} onDoubleClick={row.onDoubleClick} title={row.onDoubleClick ? "Double-cliquer pour poser un flag" : undefined} style={C(row.leftStyle)}>
+                <span onClick={row.onToggle} style={C(row.chevStyle)}>{row.chevron}</span>
+                {row.isArea && (
+                  <>
+                    <div style={C(`width:9px;height:9px;border-radius:3px;background:${row.dotColor};flex:0 0 auto`)} />
+                    <div style={C("min-width:0")}>
+                      <div style={C("font-size:12px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{row.name}</div>
+                      <div style={C("font-size:10px;color:var(--muted,#86868f);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:'IBM Plex Mono',monospace")}>{row.sub}</div>
+                    </div>
+                    {row.prio && <span style={C("font-size:8.5px;font-weight:600;padding:1px 5px;border-radius:5px;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);flex:0 0 auto;font-family:'IBM Plex Mono',monospace")}>{row.prio}</span>}
+                    <span style={C(row.statusStyle)}>{row.statusTag}</span>
+                  </>
+                )}
+                <span style={C(row.adoStyle)}>{row.ado}</span>
+                <span style={C(row.badgeStyle)}>{row.badge}</span>
+                <span style={C("font-size:11.5px;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0")}>{row.title}</span>
+              </div>
+            </div>
+          ))}
+
+          {v.personRows.map((row, i) => (
+            <div key={"pr" + i}>
+              <div style={C(row.sepStyle)} />
+              <div style={C(row.leftStyle)}>
+                <div style={C(row.avatarStyle)}>{row.initials}</div>
+                <div style={C("line-height:1.25;min-width:0")}>
+                  <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{row.name}</div>
+                  <div style={C("font-size:11px;color:var(--muted,#86868f)")}>{row.role}</div>
+                  {row.loadShow && (
+                    <div style={C("display:flex;align-items:center;gap:6px;margin-top:5px")}>
+                      <div style={C("width:46px;height:5px;border-radius:3px;background:var(--line2,#f0f0f4);position:relative;overflow:hidden;flex:0 0 auto")}><div style={C(row.loadFillStyle)} /></div>
+                      <span style={C(row.loadTextStyle)}>{row.loadText}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {v.banners.map((b, i) => (
+            <div key={"bn" + i} style={C(b.style)}>
+              <span style={C("font-size:9.5px;color:var(--faint,#abacb6);font-weight:500;flex:0 0 auto")}>charge</span>
+              <div style={C("flex:1;height:5px;border-radius:3px;background:var(--line2,#f0f0f4);overflow:hidden;position:relative")}>
+                <div style={C(b.fillStyle)} />
+              </div>
+              <span style={C(b.textStyle)}>{b.text}</span>
+              <span style={C(b.pctStyle)}>{b.pct}</span>
+            </div>
+          ))}
+
+          {v.bars.map((bar) => (
+            <div key={bar.ado} onPointerDown={bar.onDown} onClick={bar.onClick} style={C(bar.style)}>
+              <div style={C(bar.accentStyle)} />
+              <div style={C("display:flex;align-items:center;gap:6px;margin-bottom:3px")}>
+                <span style={C(`font-size:10.5px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:${bar.accent}`)}>{bar.ado}</span>
+                <span style={C(bar.badgeStyle)}>{bar.typeLabel}</span>
+                <div style={{ flex: 1 }} />
+                {bar.showPoints && <span style={C("font-size:10.5px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f);background:var(--line2,#f0f0f4);padding:1px 6px;border-radius:5px")}>{bar.points}</span>}
+              </div>
+              <div style={C("font-size:12.5px;font-weight:530;line-height:1.25;color:var(--ink,#1a1a20);display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden")}>{bar.title}</div>
+              {bar.showFooter && (
+                <div style={C("display:flex;align-items:center;gap:6px;margin-top:auto;padding-top:6px")}>
+                  <div style={C(bar.epicDotStyle)} />
+                  <span style={C(bar.epicLabelStyle)}>{bar.epicShort}</span>
+                  <div style={C("flex:1;min-width:6px")} />
+                  <span title={bar.area} style={C("font-size:9.5px;color:var(--faint,#aeaeb8);font-family:'IBM Plex Mono',monospace;flex:0 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:3px")}><span style={C("opacity:.7")}>▤</span>{bar.areaLeaf}</span>
+                </div>
+              )}
+              <div style={C("position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--line2,#f0f0f4)")}>
+                <div style={C(bar.progressStyle)} />
+              </div>
+              {bar.editing && <div style={C(bar.editPillStyle)}>{bar.editInitials}</div>}
+              {bar.resizable && (
+                <div onPointerDown={bar.onResize} style={C("position:absolute;top:0;right:0;width:12px;height:100%;cursor:ew-resize;display:flex;align-items:center;justify-content:center")}>
+                  <div style={C(bar.handleStyle)} />
+                </div>
+              )}
+            </div>
+          ))}
+
+          {(v.relBands as { style: string }[]).map((b, i) => <div key={"rb" + i} style={C(b.style)} />)}
+
+          {(v.relEpics as Record<string, any>[]).map((e, i) => (
+            <div key={"re" + i}>
+              <div onPointerDown={e.onDown} onDoubleClick={e.onDoubleClick} title={e.onDown ? "Glisser pour déplacer · double-clic pour un flag" : undefined} style={C(e.containerStyle)}>
+                {(e.segs || []).map((s: any, j: number) => (
+                  <div key={j} style={C(s.segStyle)}><div style={C(s.fillStyle)} /><span style={C(s.labelStyle)}>{s.label}</span></div>
+                ))}
+              </div>
+              {e.showL && <div onPointerDown={e.onLeftDown} title="Étirer/réduire le début" style={C(e.lHandleStyle)}><span style={C(e.gripStyle)}>{e.gripChar}</span></div>}
+              {e.showR && <div onPointerDown={e.onRightDown} title="Étirer/réduire la fin" style={C(e.rHandleStyle)}><span style={C(e.gripStyle)}>{e.gripChar}</span></div>}
+            </div>
+          ))}
+
+          {(v.relRowPins as Record<string, any>[]).map((p, i) => (
+            <div key={"rp" + i}>
+              <div style={C(p.lineStyle)} />
+              <div onClick={p.onClick} style={C(p.flagStyle)}>⚑ {p.title}</div>
+            </div>
+          ))}
+
+          {(v.milestones as Record<string, any>[]).map((m, i) => (
+            <div key={"ms" + i}>
+              <div style={C(m.lineStyle)} />
+              <div onClick={m.onClick} style={C(m.flagStyle)}>◆ {m.title}</div>
+            </div>
+          ))}
+
+          {(v.relCards as Record<string, any>[]).map((c, i) => (
+            <div key={"rc" + i} onPointerDown={c.onDown} onClick={c.onClick} style={C(c.style)}>
+              <div style={C("display:flex;align-items:center;gap:5px")}>
+                {c.hasChildren && <span onClick={c.onToggle} style={C(c.chevStyle)}>{c.chevron}</span>}
+                <span style={C(c.adoStyle)}>{c.ado}</span>
+                <span style={C(c.badgeStyle)}>{c.badge}</span>
+                <div style={C("flex:1;min-width:4px")} />
+                {c.showPoints && <span style={C("font-size:9.5px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f)")}>{c.points}</span>}
+              </div>
+              <div style={C("display:flex;align-items:center;gap:5px;min-width:0")}>
+                <div style={C(c.dotStyle)} />
+                <span style={C("font-size:11.5px;font-weight:500;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{c.title}</span>
+              </div>
+            </div>
+          ))}
+
+          {/* Curseurs simulés (mock uniquement) */}
+          {!realSession && v.cursors.map((cur, i) => (
+            <div key={"cur" + i} ref={cur.setRef} style={C("position:absolute;top:0;left:0;pointer-events:none;z-index:55;will-change:transform")}>
+              <svg width="20" height="22" viewBox="0 0 20 22" fill="none" style={{ display: "block", filter: "drop-shadow(0 1px 2px rgba(0,0,0,.25))" }}>
+                <path d="M2 2 L2 16 L6 12.5 L9 19 L12 17.7 L9 11.3 L14.5 11 Z" fill={cur.color} stroke="#fff" strokeWidth="1.3" strokeLinejoin="round" />
+              </svg>
+              <div style={C(cur.labelStyle)}>{cur.name}</div>
+            </div>
+          ))}
+          {/* Curseurs réels des participants (présence temps réel) */}
+          {realSession && peers.filter((p) => p.cursor).map((p) => (
+            <div key={"peer" + p.userId} style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none", zIndex: 55, transform: `translate(${p.cursor!.x}px,${p.cursor!.y}px)` }}>
+              <svg width="20" height="22" viewBox="0 0 20 22" fill="none" style={{ display: "block", filter: "drop-shadow(0 1px 2px rgba(0,0,0,.25))" }}>
+                <path d="M2 2 L2 16 L6 12.5 L9 19 L12 17.7 L9 11.3 L14.5 11 Z" fill={p.color} stroke="#fff" strokeWidth="1.3" strokeLinejoin="round" />
+              </svg>
+              <div style={C(`margin:-3px 0 0 13px;background:${p.color};color:#fff;font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:9px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.25)`)}>{p.displayName}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Inspector */}
+      {v.selected && v.insp && (
+        <div onClick={v.stop} style={C("position:absolute;right:0;top:100px;bottom:0;width:330px;background:var(--panel,#fff);border-left:1px solid var(--line,#e9e9ef);z-index:65;box-shadow:-8px 0 26px rgba(20,20,40,.07);display:flex;flex-direction:column;animation:ggpop .16s ease")}>
+          <div style={C("padding:16px 18px 13px;border-bottom:1px solid var(--line2,#f0f0f4)")}>
+            <div style={C("display:flex;align-items:center;gap:8px")}>
+              <span style={C(`font-size:12px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:${v.insp.accent}`)}>{v.insp.ado}</span>
+              <span style={C(v.insp.badgeStyle)}>{v.insp.typeLabel}</span>
+              <div style={{ flex: 1 }} />
+              <button onClick={v.insp.onDup} title="Dupliquer (⌘D)" style={C("width:26px;height:26px;border-radius:6px;border:none;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;font-size:13px;line-height:1")}>⧉</button>
+              <button onClick={v.insp.onClose} style={C("width:26px;height:26px;border-radius:6px;border:none;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;font-size:15px;line-height:1")}>✕</button>
+            </div>
+            <textarea value={v.insp.title} onChange={v.insp.onTitle} rows={2} style={C("margin-top:11px;width:100%;border:none;background:transparent;resize:none;font-size:16px;font-weight:600;line-height:1.3;color:var(--ink,#1a1a20);outline:none;padding:0")} />
+            {v.insp.hasParent && <div style={C("margin-top:6px;font-size:11px;color:var(--muted,#86868f);display:flex;align-items:center;gap:5px")}>↳ {v.insp.parentLabel}</div>}
+          </div>
+          <div style={C("flex:1;overflow:auto;padding:16px 18px;display:flex;flex-direction:column;gap:17px")}>
+            <div>
+              <div style={C(v.labelCss)}>État</div>
+              <div style={C("display:flex;gap:5px")}>
+                {v.insp.states.map((s) => <button key={s.label} onClick={s.onClick} style={C(s.style)}>{s.label}</button>)}
+              </div>
+            </div>
+            <div>
+              <div style={C(v.labelCss)}>Assigné à</div>
+              <select value={v.insp.assignee} onChange={v.insp.onAssignee} style={C(v.selectCss)}>
+                {v.insp.people.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={C(v.labelCss)}>Itération</div>
+              <select value={v.insp.iter} onChange={v.insp.onIter} style={C(v.selectCss)}>
+                {v.insp.iterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={C(v.labelCss)}>Area Path</div>
+              <select value={v.insp.area} onChange={v.insp.onArea} style={C(v.selectCss)}>
+                {v.insp.areaOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            {v.insp.notTask && (
+              <div>
+                <div style={C(v.labelCss)}>Story Points</div>
+                <div style={C(v.stepperCss)}>
+                  <button onClick={v.insp.decPoints} style={C(v.stepBtnCss)}>−</button>
+                  <span style={C("flex:1;text-align:center;font-size:14px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--ink,#1a1a20)")}>{v.insp.points}</span>
+                  <button onClick={v.insp.incPoints} style={C(v.stepBtnCss)}>+</button>
+                </div>
+              </div>
+            )}
+            {v.insp.isTask && (
+              <div>
+                <div style={C(v.labelCss)}>Estimation</div>
+                <div style={C(v.stepperCss)}>
+                  <button onClick={v.insp.decEffort} style={C(v.stepBtnCss)}>−</button>
+                  <span style={C("flex:1;text-align:center;font-size:14px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--ink,#1a1a20)")}>{v.insp.effort} j</span>
+                  <button onClick={v.insp.incEffort} style={C(v.stepBtnCss)}>+</button>
+                </div>
+              </div>
+            )}
+            <div>
+              <div style={C(v.labelCss)}>Tags</div>
+              <div style={C("display:flex;flex-wrap:wrap;gap:6px;align-items:center")}>
+                {v.insp.tags.map((t, i) => (
+                  <span key={i} style={C("display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--ink,#1a1a20);background:var(--line2,#f0f0f4);padding:3px 5px 3px 9px;border-radius:6px")}>{t.label}<button onClick={t.onRemove} style={C("border:none;background:none;color:var(--faint,#aeaeb8);cursor:pointer;font-size:13px;line-height:1;padding:0")}>×</button></span>
+                ))}
+                <input value={v.insp.tagDraft} onChange={v.insp.onTagInput} onKeyDown={v.insp.onTagKey} placeholder="+ tag" style={C("border:1px dashed var(--line,#e9e9ef);background:transparent;border-radius:6px;padding:3px 8px;font-size:11px;color:var(--ink,#1a1a20);outline:none;width:64px")} />
+              </div>
+            </div>
+          </div>
+          <div style={C("padding:12px 18px;border-top:1px solid var(--line2,#f0f0f4);display:flex;align-items:center;gap:8px")}>
+            <div style={C(v.insp.footDotStyle)} />
+            <span style={C("font-size:11px;color:var(--muted,#86868f)")}>{v.insp.footLabel}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Legend */}
+      {v.legendShow && (
+        <div style={C("position:absolute;left:18px;bottom:18px;z-index:75;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:9px;box-shadow:var(--shadow,0 2px 8px rgba(0,0,0,.1));padding:9px 13px;display:flex;align-items:center;gap:15px;flex-wrap:wrap;max-width:62vw")}>
+          <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Légende</span>
+          {v.legendItems.map((l, i) => (
+            <div key={i} style={C("display:flex;align-items:center;gap:6px")}>
+              <div style={C(l.swatchStyle)} />
+              <span style={C("font-size:11.5px;color:var(--ink,#1a1a20)")}>{l.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Toast */}
+      {v.toast && (
+        <div style={C("position:absolute;bottom:22px;left:50%;z-index:80;background:var(--ink,#1a1a20);color:var(--panel,#fff);padding:9px 16px;border-radius:9px;font-size:12.5px;font-weight:500;box-shadow:0 8px 28px rgba(0,0,0,.28);animation:ggtoast .22s ease;display:flex;align-items:center;gap:9px;transform:translateX(-50%)")}>
+          <div style={C("width:7px;height:7px;border-radius:50%;background:#2bbf73")} />{v.toast}
+        </div>
+      )}
+    </div>
+  );
+}

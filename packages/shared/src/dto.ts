@@ -14,6 +14,13 @@ export interface TeamMember {
   capacityHoursPerDay: number;
 }
 
+/** Capacité d'un membre pour une itération, en Story Points. */
+export interface Capacity {
+  memberId: string;
+  iterationPath: string;
+  storyPoints: number;
+}
+
 export interface Iteration {
   id: string;
   name: string;
@@ -23,12 +30,43 @@ export interface Iteration {
   finishDate: string;
 }
 
+/** État ADO d'un type de work item (colonne possible du board), avec son ordre. */
+export interface AdoState {
+  name: string;
+  category: string;
+  color: string;
+  /** Type de work item ADO d'où vient l'état ("Epic", "Feature", "User Story"…). */
+  type?: string;
+  /** Entrées issues des colonnes de board : état ADO réel à écrire quand une carte est déposée dans cette colonne. */
+  state?: string;
+}
+
 export interface SessionSnapshot {
   sessionId: string;
   tickets: Ticket[];
   participants: PresenceState[];
   teamMembers: TeamMember[];
   iterations: Iteration[];
+  capacities: Capacity[];
+  /** États réels ordonnés du projet (pour la vue Daily). */
+  states?: AdoState[];
+}
+
+/** Jalon de release (entité propre, absente d'ADO). */
+export interface Milestone {
+  id: string;
+  title: string;
+  iter: number;
+  color: string;
+}
+
+/** Flag posé sur une ligne (epic/feature) du Release planning. Plusieurs par ligne. */
+export interface RowPin {
+  id: string;
+  rowKey: string;
+  iter: number;
+  title: string;
+  color: string;
 }
 
 export interface AuditEntry {

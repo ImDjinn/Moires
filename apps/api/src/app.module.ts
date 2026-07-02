@@ -6,6 +6,7 @@ import { DatabaseModule } from "./database/database.module";
 import { AuthModule } from "./auth/auth.module";
 import { AdoModule } from "./ado/ado.module";
 import { SessionsModule } from "./sessions/sessions.module";
+import { AnnotationsModule } from "./annotations/annotations.module";
 import { SyncModule } from "./sync/sync.module";
 import { WritebackModule } from "./writeback/writeback.module";
 import { BroadcastModule } from "./realtime/broadcast.module";
@@ -22,6 +23,7 @@ import { RealtimeModule } from "./realtime/realtime.module";
     AuthModule,
     AdoModule,
     SessionsModule,
+    AnnotationsModule,
     SyncModule,
     BroadcastModule,
     WritebackModule,

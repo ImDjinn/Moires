@@ -28,6 +28,21 @@ describe("rest.client", () => {
     await expect(api.getProjects()).rejects.toThrow("404 Not Found");
   });
 
+  it("sur 401 : tente /auth/refresh puis rejoue la requête une fois", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce({ ok: true, status: 204, json: () => Promise.reject(new Error("no body")) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve([{ id: "p1", name: "P" }]) });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const projects = await api.getProjects();
+
+    expect(projects).toEqual([{ id: "p1", name: "P" }]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[1][0]).toBe("/auth/refresh");
+  });
+
   it("POST /sessions envoie le corps sérialisé", async () => {
     mockFetch(() => ({ ok: true, status: 200, json: () => Promise.resolve({ sessionId: "s1" }) }));
     await api.createSession({ adoProjectId: "p1", adoIterationIds: ["it1"] });

@@ -35,6 +35,15 @@ export class SyncService {
       }
     }
 
+    // Récupère les Epics complets (dates/état/priorité) pour les afficher comme
+    // niveau racine du Release planning, s'ils ne sont pas déjà dans le lot.
+    const present = new Set(tickets.map((t) => t.id));
+    const epicIds = [...new Set([...epics.values()].map((e: { id: string }) => e.id))].filter((id) => !present.has(id));
+    if (epicIds.length) {
+      const rawEpics = await this.ado.getWorkItemsBatch(org, epicIds, token);
+      tickets.push(...rawEpics.map((r) => this.mapper.toTicket(r)));
+    }
+
     await this.redis.setTickets(sessionId, tickets);
 
     for (const t of tickets) {
@@ -43,6 +52,10 @@ export class SyncService {
         update: {
           sessionId,
           title: t.title,
+          workItemType: t.workItemType,
+          parentId: t.parentId,
+          state: t.state,
+          tags: t.tags,
           assigneeId: t.assigneeId,
           areaPath: t.areaPath,
           iterationId: t.iterationId,
@@ -50,7 +63,9 @@ export class SyncService {
           epicTitle: t.epicTitle,
           startDate: new Date(t.startDate),
           endDate: new Date(t.endDate),
+          targetDate: t.targetDate ? new Date(t.targetDate) : null,
           estimateHours: t.estimateHours,
+          storyPoints: t.storyPoints,
           adoRev: t.adoRev,
           syncStatus: t.syncStatus,
         },
@@ -58,6 +73,10 @@ export class SyncService {
           id: t.id,
           sessionId,
           title: t.title,
+          workItemType: t.workItemType,
+          parentId: t.parentId,
+          state: t.state,
+          tags: t.tags,
           assigneeId: t.assigneeId,
           areaPath: t.areaPath,
           iterationId: t.iterationId,
@@ -65,7 +84,9 @@ export class SyncService {
           epicTitle: t.epicTitle,
           startDate: new Date(t.startDate),
           endDate: new Date(t.endDate),
+          targetDate: t.targetDate ? new Date(t.targetDate) : null,
           estimateHours: t.estimateHours,
+          storyPoints: t.storyPoints,
           adoRev: t.adoRev,
           syncStatus: t.syncStatus,
         },
@@ -80,6 +101,18 @@ export class SyncService {
     if (!teamMembers.length) {
       teamMembers = await this.ado.getTeamMembers(org, projectId, token);
     }
+
+    // Colonnes Daily : les vraies colonnes des boards d'équipe ADO (avec leur
+    // mapping colonne → état pour le writeback). Les types sans board (Task :
+    // taskboard) retombent sur leurs états.
+    const boardCols = await this.ado.getBoardColumns(org, projectId, token);
+    const covered = new Set(boardCols.map((c) => c.type));
+    const backlogTypes = await this.ado.getBacklogTypes(org, projectId, token);
+    const rest = [
+      ...new Set([...backlogTypes, ...tickets.map((t) => t.workItemType)]),
+    ].filter((t) => t && !covered.has(t));
+    const states = rest.length ? await this.ado.getStates(org, projectId, rest, token) : [];
+    await this.redis.setStates(sessionId, [...boardCols, ...states]);
 
     return { tickets, teamMembers };
   }
@@ -100,7 +133,9 @@ export class SyncService {
 
     const presences = await this.redis.getPresences(sessionId);
     const iterations = await this.redis.getIterations(sessionId);
+    const capacities = await this.redis.getCapacities(sessionId);
+    const states = await this.redis.getStates(sessionId);
 
-    return { sessionId, tickets, participants: presences, teamMembers, iterations };
+    return { sessionId, tickets, participants: presences, teamMembers, iterations, capacities, states };
   }
 }

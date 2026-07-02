@@ -3,11 +3,13 @@ import { api } from "../../services/rest.client";
 import { useSessionStore } from "../../stores/session.store";
 import { useTicketsStore } from "../../stores/tickets.store";
 import { usePresenceStore } from "../../stores/presence.store";
+import { useCapacitiesStore } from "../../stores/capacities.store";
 
 export function SessionLobby() {
   const setSnapshot = useSessionStore((s) => s.setSnapshot);
   const setTickets = useTicketsStore((s) => s.setTickets);
   const setPeers = usePresenceStore((s) => s.setPeers);
+  const setCapacities = useCapacitiesStore((s) => s.setCapacities);
 
   const [organizations, setOrganizations] = useState<{ id: string; name: string }[]>([]);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
@@ -51,6 +53,7 @@ export function SessionLobby() {
       const snapshot = await api.createSession({ adoProjectId: selectedProject });
       setTickets(snapshot.tickets);
       setPeers(snapshot.participants);
+      setCapacities(snapshot.capacities ?? []);
       setSnapshot(snapshot);
     } catch (e: any) {
       setError(e.message);

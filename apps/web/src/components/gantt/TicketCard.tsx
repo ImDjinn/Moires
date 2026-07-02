@@ -8,7 +8,10 @@ interface Props {
   peerEditing?: { color: string; displayName: string } | null;
 }
 
+const mono = "'IBM Plex Mono', monospace";
+
 export function TicketCard({ ticket, onMove, peerEditing }: Props) {
+  const isError = ticket.syncStatus === "error";
   return (
     <div
       draggable
@@ -31,46 +34,78 @@ export function TicketCard({ ticket, onMove, peerEditing }: Props) {
       style={{
         position: "relative",
         display: "flex",
-        alignItems: "center",
-        gap: 4,
-        padding: "4px 6px",
-        background: "var(--surface-alt)",
-        borderTop: ticket.syncStatus === "error" ? "1px solid var(--color-error)" : "1px solid var(--border)",
-        borderRight: ticket.syncStatus === "error" ? "1px solid var(--color-error)" : "1px solid var(--border)",
-        borderBottom: ticket.syncStatus === "error" ? "1px solid var(--color-error)" : "1px solid var(--border)",
-        borderLeft: "3px solid var(--accent)",
+        flexDirection: "column",
+        gap: 3,
+        padding: "6px 10px 6px 12px",
+        background: "var(--panel)",
+        border: isError ? "1px solid var(--color-error)" : "1px solid var(--line)",
+        borderLeft: `3px solid ${isError ? "var(--color-error)" : "var(--accent)"}`,
         borderRadius: "var(--radius-bar)",
-        fontSize: 12,
+        boxShadow: peerEditing ? `0 0 0 2px ${peerEditing.color}` : "var(--shadow)",
         cursor: "grab",
-        boxShadow: peerEditing ? `0 0 0 2px ${peerEditing.color}` : "none",
         overflow: "hidden",
-        whiteSpace: "nowrap",
+        userSelect: "none",
       }}
     >
-      <SyncStatusIndicator status={ticket.syncStatus} />
-      <span style={{ color: "var(--text-muted)", flexShrink: 0 }}>#{ticket.id}</span>
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{ticket.title}</span>
-      {ticket.estimateHours > 0 && (
-        <span style={{ marginLeft: "auto", flexShrink: 0, color: "var(--text-muted)", fontSize: 11 }}>
-          {ticket.estimateHours}h
+      {/* Ligne 1 : id · points */}
+      <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
+        <span style={{ fontSize: 9.5, fontWeight: 600, fontFamily: mono, color: "var(--accent)", flexShrink: 0 }}>
+          #{ticket.id}
         </span>
-      )}
+        <div style={{ flex: 1, minWidth: 4 }} />
+        {ticket.storyPoints > 0 && (
+          <span
+            style={{
+              flexShrink: 0,
+              fontSize: 9.5,
+              fontWeight: 600,
+              fontFamily: mono,
+              color: "var(--muted)",
+              background: "var(--line2)",
+              padding: "1px 6px",
+              borderRadius: 5,
+            }}
+          >
+            {ticket.storyPoints}p
+          </span>
+        )}
+      </div>
+
+      {/* Ligne 2 : état sync · titre */}
+      <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
+        <SyncStatusIndicator status={ticket.syncStatus} />
+        <span
+          style={{
+            fontSize: 11.5,
+            fontWeight: 500,
+            color: "var(--ink)",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {ticket.title}
+        </span>
+      </div>
+
       {peerEditing && (
         <span
           style={{
             position: "absolute",
             top: -8,
             right: -4,
-            width: 16,
-            height: 16,
+            width: 18,
+            height: 18,
             borderRadius: "50%",
             background: peerEditing.color,
-            fontSize: 8,
+            fontSize: 9,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             color: "#fff",
             fontWeight: 700,
+            border: "2px solid var(--panel)",
+            animation: "ggpulse 1.1s ease-in-out infinite",
           }}
         >
           {peerEditing.displayName[0]}

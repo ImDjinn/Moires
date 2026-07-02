@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Param, Body, Req, UseGuards, BadRequestException } from "@nestjs/common";
+import { Controller, Get, Post, Put, Param, Body, Req, UseGuards, BadRequestException } from "@nestjs/common";
 import { Request } from "express";
-import type { CreateSessionDto } from "@moires/shared";
+import type { CreateSessionDto, Capacity } from "@moires/shared";
 import { AuthGuard } from "../auth/auth.guard";
 import { SessionsService } from "./sessions.service";
 import { SyncService } from "../sync/sync.service";
@@ -37,6 +37,11 @@ export class SessionsController {
     // writeback BullMQ ait toujours un token valide, même après reconnexion WS.
     if (token && user?.id) void this.redis.setUserToken(id, user.id, token);
     return this.syncService.syncIncremental(id, token);
+  }
+
+  @Put(":id/capacities")
+  setCapacity(@Param("id") id: string, @Body() cap: Capacity) {
+    return this.sessions.setCapacity(id, cap);
   }
 
   @Get(":id/audit-log")
