@@ -1,0 +1,17 @@
+# Front Vite (statique) servi par Caddy, qui fait aussi le reverse-proxy vers l'API
+# et gère le HTTPS (Let's Encrypt) automatiquement.
+# Contexte de build = racine du repo.
+
+# ---- build des assets statiques ----
+FROM node:22-slim AS build
+RUN corepack enable
+WORKDIR /repo
+COPY . .
+RUN pnpm install --frozen-lockfile \
+ && pnpm --filter @moirai/shared build \
+ && pnpm --filter web build
+
+# ---- serveur statique + proxy + TLS ----
+FROM caddy:2-alpine
+COPY --from=build /repo/apps/web/dist /srv
+COPY deploy/Caddyfile /etc/caddy/Caddyfile

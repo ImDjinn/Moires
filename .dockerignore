@@ -1,0 +1,19 @@
+# Rien du host qui doit finir dans l'image : on réinstalle/rebuild dans le conteneur
+**/node_modules
+**/dist
+**/dist-node
+**/*.tsbuildinfo
+.git
+.github
+.vscode
+.claude
+
+# Jamais copier de secrets dans l'image (fournis au runtime via env_file)
+.env
+.env.*
+
+# Artefacts de test
+coverage
+test-results
+playwright-report
+e2e

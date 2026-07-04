@@ -1,0 +1,13 @@
+# HTTPS auto (Let's Encrypt) pour le domaine. Front statique + proxy vers l'API.
+themoirai.net {
+	encode gzip zstd
+	root * /srv
+
+	# Routes back-end (NestJS) + WebSocket Socket.io → conteneur `api`
+	@api path /auth/* /sessions/* /ado/* /socket.io/*
+	reverse_proxy @api api:3000
+
+	# SPA : tout le reste sert les fichiers statiques, fallback index.html
+	try_files {path} /index.html
+	file_server
+}
