@@ -45,6 +45,7 @@ services:
     depends_on:
       - api
     volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
 

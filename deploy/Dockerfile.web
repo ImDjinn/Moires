@@ -12,6 +12,7 @@ RUN pnpm install --frozen-lockfile \
  && pnpm --filter web build
 
 # ---- serveur statique + proxy + TLS ----
+# Le Caddyfile n'est PAS copié ici : il est monté en volume par docker-compose
+# (permet de l'ajuster sans reconstruire l'image).
 FROM caddy:2-alpine
 COPY --from=build /repo/apps/web/dist /srv
-COPY deploy/Caddyfile /etc/caddy/Caddyfile

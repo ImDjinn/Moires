@@ -1,13 +1,20 @@
 # HTTPS auto (Let's Encrypt) pour le domaine. Front statique + proxy vers l'API.
 themoirai.net {
 	encode gzip zstd
-	root * /srv
 
-	# Routes back-end (NestJS) + WebSocket Socket.io → conteneur `api`
-	@api path /auth/* /sessions/* /ado/* /socket.io/*
-	reverse_proxy @api api:3000
+	# Routes back-end (NestJS) + WebSocket Socket.io → conteneur `api`.
+	# `handle` = blocs mutuellement exclusifs : évite que try_files (exécuté avant
+	# reverse_proxy dans l'ordre auto de Caddy) réécrive les routes API vers index.html.
+	# `/sessions` nu = POST de création de session (non couvert par /sessions/*).
+	@api path /auth/* /sessions /sessions/* /ado/* /socket.io/*
+	handle @api {
+		reverse_proxy api:3000
+	}
 
 	# SPA : tout le reste sert les fichiers statiques, fallback index.html
-	try_files {path} /index.html
-	file_server
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
 }
