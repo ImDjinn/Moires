@@ -20,7 +20,7 @@ describe("OperationsHandler", () => {
     const sessions = { applyOperation: jest.fn().mockResolvedValue(undefined) };
     const handler = new OperationsHandler(sessions as any);
     const { server, emit } = makeServer();
-    const client = { data: { sessionId: "s1" }, emit: jest.fn() };
+    const client = { data: { sessionId: "s1", userId: "u1" }, emit: jest.fn() };
 
     await handler.handle(server as any, client as any, op);
 
@@ -36,10 +36,26 @@ describe("OperationsHandler", () => {
     const sessions = { applyOperation: jest.fn().mockRejectedValue(new Error("conflit")) };
     const handler = new OperationsHandler(sessions as any);
     const { server } = makeServer();
-    const client = { data: { sessionId: "s1" }, emit: jest.fn() };
+    const client = { data: { sessionId: "s1", userId: "u1" }, emit: jest.fn() };
 
     await handler.handle(server as any, client as any, op);
 
     expect(client.emit).toHaveBeenCalledWith("operation:rejected", { op, reason: "conflit" });
+  });
+
+  it("écrase op.userId falsifié par l'identité de la socket", async () => {
+    const sessions = { applyOperation: jest.fn().mockResolvedValue(undefined) };
+    const handler = new OperationsHandler(sessions as any);
+    const { server } = makeServer();
+    const client = { data: { sessionId: "s1", userId: "real-user" }, emit: jest.fn() };
+    const spoofed: Operation = { ...op, userId: "victim" };
+
+    await handler.handle(server as any, client as any, spoofed);
+
+    expect(spoofed.userId).toBe("real-user");
+    expect(sessions.applyOperation).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ userId: "real-user" }),
+    );
   });
 });

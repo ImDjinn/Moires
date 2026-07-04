@@ -136,14 +136,17 @@ export class AdoService {
   ): Promise<string[]> {
     const iterations = await this.getIterations(org, projectId, token);
     const pathById = new Map(iterations.map((i) => [i.id, i.path]));
+    // WIQL : littéraux entre apostrophes, échappées en doublant ('') — évite
+    // qu'un chemin contenant une apostrophe casse ou injecte la requête.
+    const q = (s: string) => `'${s.replace(/'/g, "''")}'`;
     const iterationClauses = iterationIds
       .map((id) => pathById.get(id))
       .filter((path): path is string => !!path)
-      .map((path) => `[System.IterationPath] = '${path}'`)
+      .map((path) => `[System.IterationPath] = ${q(path)}`)
       .join(" OR ");
     let wiql = `SELECT [System.Id] FROM WorkItems WHERE (${iterationClauses})`;
     if (areaPaths?.length) {
-      const areaClauses = areaPaths.map((p) => `[System.AreaPath] = '${p}'`).join(" OR ");
+      const areaClauses = areaPaths.map((p) => `[System.AreaPath] = ${q(p)}`).join(" OR ");
       wiql += ` AND (${areaClauses})`;
     }
     const data = await this.adoFetch(

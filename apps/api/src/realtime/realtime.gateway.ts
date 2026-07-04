@@ -9,9 +9,13 @@ import {
   MessageBody,
 } from "@nestjs/websockets";
 import { Server, Socket } from "socket.io";
+import { ConfigService } from "@nestjs/config";
 import type { Operation, PresenceState } from "@moirai/shared";
 import { ROOM } from "@moirai/shared";
 import { RedisService } from "../database/redis.service";
+import { PrismaService } from "../database/prisma.service";
+import { readSignedCookie } from "../auth/cookies";
+import { isSessionMember } from "../sessions/session-access";
 import { BroadcastService } from "./broadcast.service";
 import { OperationsHandler } from "./operations.handler";
 import { PresenceHandler } from "./presence.handler";
@@ -23,7 +27,11 @@ function parseAdoToken(cookieHeader: string | string[] | undefined): string | un
   return match ? decodeURIComponent(match[1]) : undefined;
 }
 
-@WebSocketGateway({ cors: { origin: "*", credentials: true } })
+// Origine restreinte au front (identique au CORS HTTP) : empêche un site tiers
+// d'ouvrir une socket authentifiée par le cookie d'un utilisateur connecté.
+@WebSocketGateway({
+  cors: { origin: process.env.FRONTEND_URL || "http://localhost:5173", credentials: true },
+})
 export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
@@ -33,6 +41,8 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     private presenceHandler: PresenceHandler,
     private redis: RedisService,
     private broadcast: BroadcastService,
+    private prisma: PrismaService,
+    private config: ConfigService,
   ) {}
 
   afterInit(server: Server) {
@@ -41,17 +51,30 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
 
   async handleConnection(client: Socket) {
     const sessionId = client.handshake.query.sessionId as string;
-    const userId = client.handshake.query.userId as string;
-    const displayName = client.handshake.query.displayName as string;
-    if (!sessionId || !userId) {
+    // Identité dérivée du cookie signé — jamais des query params (falsifiables).
+    const secret = this.config.get<string>("SESSION_SECRET")!;
+    const raw = readSignedCookie(client.handshake.headers.cookie, "session_user", secret);
+    let identity: { id: string; displayName: string } | undefined;
+    if (raw) {
+      try {
+        identity = JSON.parse(raw);
+      } catch {
+        /* cookie illisible */
+      }
+    }
+    if (!sessionId || !identity?.id) {
       client.disconnect();
       return;
     }
-    client.data = { sessionId, userId, displayName };
+    if (!(await isSessionMember(this.prisma, this.redis, sessionId, identity.id))) {
+      client.disconnect();
+      return;
+    }
+    client.data = { sessionId, userId: identity.id, displayName: identity.displayName };
     client.join(ROOM(sessionId));
 
     const token = parseAdoToken(client.handshake.headers.cookie);
-    if (token) await this.redis.setUserToken(sessionId, userId, token);
+    if (token) await this.redis.setUserToken(sessionId, identity.id, token);
 
     await this.presenceHandler.handleJoin(this.server, client);
   }

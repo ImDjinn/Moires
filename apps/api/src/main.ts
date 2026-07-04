@@ -4,7 +4,8 @@ import { AppModule } from "./app.module";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.use(cookieParser());
+  // Secret requis (validé par le schéma env) : signe les cookies d'identité.
+  app.use(cookieParser(process.env.SESSION_SECRET));
   app.enableCors({
     origin: process.env.FRONTEND_URL || "http://localhost:5173",
     credentials: true,

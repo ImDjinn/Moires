@@ -54,7 +54,9 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 ### Remplir `.env.production`
 - `AZURE_AD_CLIENT_ID` / `_SECRET` / `_TENANT_ID` : depuis le portail Azure.
 - `POSTGRES_PASSWORD` **et** le mot de passe dans `DATABASE_URL` : identiques, forts.
-- `SESSION_SECRET` : générer avec `openssl rand -hex 32`.
+- `REDIS_PASSWORD` **et** le mot de passe dans `REDIS_URL` : identiques, forts (`openssl rand -hex 32`).
+- `SESSION_SECRET` : générer avec `openssl rand -hex 32` (signe les cookies de session).
+- `ADO_WEBHOOK_SECRET` : requis si les webhooks ADO sont configurés — sans lui, l'endpoint est refusé.
 - Laisser les hôtes `postgres` / `redis` (noms de service Docker), **pas** `localhost`.
 
 ---
@@ -72,6 +74,25 @@ Puis ouvrir **https://themoirai.net**.
 
 ## Mettre à jour (nouvelle version)
 
+Automatique via GitHub Actions : à chaque commit sur `main`, la CI (build +
+tests) tourne ; **si elle réussit**, `.github/workflows/deploy.yml` se déclenche,
+se connecte en SSH au VPS et rejoue le build + redémarrage ci-dessous. Un commit
+qui casse les tests ne déploie donc pas. Déclenchable aussi à la main (onglet
+**Actions → Deploy → Run workflow**).
+
+### Secrets à configurer (Settings → Secrets and variables → Actions)
+| Secret | Valeur |
+|--------|--------|
+| `DEPLOY_HOST` | IP publique du VPS (ou `themoirai.net`) |
+| `DEPLOY_USER` | utilisateur SSH (`root` selon ce guide) |
+| `DEPLOY_SSH_KEY` | **clé privée** SSH dont la clé publique est autorisée sur le VPS |
+| `DEPLOY_PATH` | chemin du repo cloné sur le VPS (ex. `/root/moirai`) |
+| `DEPLOY_PORT` | *(optionnel)* port SSH, défaut `22` |
+
+> Le workflow fait `git reset --hard origin/main` : tout changement local non
+> commité sur le VPS est écrasé. `.env.production` est hors git → préservé.
+
+### À la main (équivalent)
 ```bash
 git pull
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build

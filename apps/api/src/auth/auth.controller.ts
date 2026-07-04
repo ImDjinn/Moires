@@ -2,6 +2,9 @@ import { Controller, Get, Post, Query, Req, Res, HttpCode } from "@nestjs/common
 import { ConfigService } from "@nestjs/config";
 import { Request, Response } from "express";
 import { AuthService } from "./auth.service";
+import { signedCookieOpts, plainCookieOpts } from "./cookies";
+
+const H = 60 * 60 * 1000;
 
 @Controller("auth")
 export class AuthController {
@@ -12,14 +15,13 @@ export class AuthController {
 
   @Get("me")
   me(@Req() req: Request, @Res() res: Response) {
-    const cookie = req.cookies?.session_user;
-    if (!cookie) {
+    const cookie = req.signedCookies?.session_user;
+    if (typeof cookie !== "string") {
       res.status(401).send();
       return;
     }
     try {
-      const user = typeof cookie === "string" ? JSON.parse(cookie) : cookie;
-      res.json(user);
+      res.json(JSON.parse(cookie));
     } catch {
       res.status(401).send();
     }
@@ -52,25 +54,14 @@ export class AuthController {
       this.redirectWithError(res, this.extractAadCode(message) ?? "auth_failed");
       return;
     }
-    res.cookie("session_user", JSON.stringify({ id: user.id, displayName: user.displayName }), {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 8 * 60 * 60 * 1000, // 8h
-    });
-    res.cookie("ado_token", accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 60 * 60 * 1000, // 1h
-    });
+    res.cookie(
+      "session_user",
+      JSON.stringify({ id: user.id, displayName: user.displayName }),
+      signedCookieOpts(8 * H),
+    );
+    res.cookie("ado_token", accessToken, plainCookieOpts(H));
     if (user.defaultAdoOrg) {
-      res.cookie("ado_org", user.defaultAdoOrg, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        maxAge: 8 * 60 * 60 * 1000, // 8h
-      });
+      res.cookie("ado_org", user.defaultAdoOrg, signedCookieOpts(8 * H));
     }
     res.redirect(this.config.get<string>("FRONTEND_URL")!);
   }
@@ -94,12 +85,7 @@ export class AuthController {
       return;
     }
     const newToken = await this.authService.refreshToken(token);
-    res.cookie("ado_token", newToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 60 * 60 * 1000,
-    });
+    res.cookie("ado_token", newToken, plainCookieOpts(H));
     res.status(204).send();
   }
 }

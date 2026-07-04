@@ -1,8 +1,10 @@
 import { ExecutionContext, UnauthorizedException } from "@nestjs/common";
 import { AuthGuard } from "./auth.guard";
 
-function contextWithCookies(cookies: Record<string, unknown>): ExecutionContext {
-  const req: any = { cookies };
+// Le guard ne lit QUE req.signedCookies : un cookie non signé (forgé) n'y figure
+// jamais, cookie-parser ne l'y place que si sa signature est valide.
+function contextWithSignedCookies(signedCookies: Record<string, unknown>): ExecutionContext {
+  const req: any = { signedCookies };
   return {
     switchToHttp: () => ({ getRequest: () => req }),
   } as unknown as ExecutionContext;
@@ -11,8 +13,8 @@ function contextWithCookies(cookies: Record<string, unknown>): ExecutionContext 
 describe("AuthGuard", () => {
   const guard = new AuthGuard();
 
-  it("autorise et attache l'utilisateur depuis un cookie JSON", () => {
-    const ctx = contextWithCookies({
+  it("autorise et attache l'utilisateur depuis un cookie signé JSON", () => {
+    const ctx = contextWithSignedCookies({
       session_user: JSON.stringify({ id: "u1", displayName: "Alice" }),
     });
     expect(guard.canActivate(ctx)).toBe(true);
@@ -20,18 +22,25 @@ describe("AuthGuard", () => {
     expect(req.user).toEqual({ id: "u1", displayName: "Alice" });
   });
 
-  it("accepte un cookie déjà désérialisé (objet)", () => {
-    const ctx = contextWithCookies({ session_user: { id: "u2", displayName: "Bob" } });
-    expect(guard.canActivate(ctx)).toBe(true);
+  it("refuse un cookie non signé (forgé) — absent de signedCookies", () => {
+    const req: any = { cookies: { session_user: JSON.stringify({ id: "attacker" }) }, signedCookies: {} };
+    const ctx = { switchToHttp: () => ({ getRequest: () => req }) } as unknown as ExecutionContext;
+    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
   });
 
   it("refuse si le cookie est absent", () => {
-    expect(() => guard.canActivate(contextWithCookies({}))).toThrow(UnauthorizedException);
+    expect(() => guard.canActivate(contextWithSignedCookies({}))).toThrow(UnauthorizedException);
   });
 
-  it("refuse si le cookie est un JSON invalide", () => {
+  it("refuse une signature invalide (cookie-parser met false)", () => {
     expect(() =>
-      guard.canActivate(contextWithCookies({ session_user: "{not-json" })),
+      guard.canActivate(contextWithSignedCookies({ session_user: false })),
+    ).toThrow(UnauthorizedException);
+  });
+
+  it("refuse si le cookie signé est un JSON invalide", () => {
+    expect(() =>
+      guard.canActivate(contextWithSignedCookies({ session_user: "{not-json" })),
     ).toThrow(UnauthorizedException);
   });
 });

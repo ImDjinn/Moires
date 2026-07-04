@@ -2,6 +2,17 @@
 themoirai.net {
 	encode gzip zstd
 
+	# En-têtes de sécurité. HSTS (Caddy sert déjà en HTTPS), anti-sniffing,
+	# anti-clickjacking, et fuite de referer limitée. Pas de CSP : l'app utilise
+	# massivement des styles inline (styles React) qu'une CSP stricte casserait.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
 	# Routes back-end (NestJS) + WebSocket Socket.io → conteneur `api`.
 	# `handle` = blocs mutuellement exclusifs : évite que try_files (exécuté avant
 	# reverse_proxy dans l'ordre auto de Caddy) réécrive les routes API vers index.html.

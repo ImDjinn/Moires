@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, BadRequestException, UseGuards } from "@nestjs/common";
 import { AuthGuard } from "../auth/auth.guard";
+import { SessionMemberGuard } from "../sessions/session-access";
 import { AnnotationsService } from "./annotations.service";
 
 interface MilestoneBody {
@@ -22,7 +23,7 @@ function int(v: unknown, field: string): number {
 }
 
 @Controller("sessions/:id")
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, SessionMemberGuard)
 export class AnnotationsController {
   constructor(private svc: AnnotationsService) {}
 

@@ -21,6 +21,9 @@ services:
   redis:
     image: redis:7
     restart: unless-stopped
+    # Redis n'est pas exposé hors du réseau compose, mais on exige un mot de passe
+    # (les tokens ADO y transitent). Doit correspondre à celui de REDIS_URL.
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD manquant}"]
 
   api:
     build:

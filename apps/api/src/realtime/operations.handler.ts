@@ -9,7 +9,10 @@ export class OperationsHandler {
   constructor(private sessions: SessionsService) {}
 
   async handle(server: Server, client: Socket, op: Operation) {
-    const { sessionId } = client.data;
+    const { sessionId, userId } = client.data;
+    // L'auteur est l'identité authentifiée de la socket, jamais celle du payload
+    // (sinon le journal d'audit et le choix du token ADO seraient falsifiables).
+    op.userId = userId;
     try {
       await this.sessions.applyOperation(sessionId, op);
       server.to(ROOM(sessionId)).emit("operation:applied", {

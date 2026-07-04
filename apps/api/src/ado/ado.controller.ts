@@ -11,6 +11,7 @@ import {
 } from "@nestjs/common";
 import { Request, Response } from "express";
 import { AuthGuard } from "../auth/auth.guard";
+import { signedCookieOpts } from "../auth/cookies";
 import { PrismaService } from "../database/prisma.service";
 import { AdoService } from "./ado.service";
 
@@ -27,7 +28,7 @@ export class AdoController {
   }
 
   private getOrg(req: Request): string {
-    const org = req.cookies?.ado_org;
+    const org = req.signedCookies?.ado_org;
     if (!org) throw new BadRequestException("No Azure DevOps organization selected");
     return org;
   }
@@ -35,7 +36,7 @@ export class AdoController {
   @Get("organizations")
   async getOrganizations(@Req() req: Request) {
     const organizations = await this.ado.getOrganizations(this.getToken(req));
-    return { organizations, selected: req.cookies?.ado_org ?? null };
+    return { organizations, selected: req.signedCookies?.ado_org ?? null };
   }
 
   @Post("organizations/select")
@@ -46,12 +47,7 @@ export class AdoController {
   ) {
     if (!body?.org) throw new BadRequestException("org is required");
     const user = (req as any).user;
-    res.cookie("ado_org", body.org, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 8 * 60 * 60 * 1000, // 8h
-    });
+    res.cookie("ado_org", body.org, signedCookieOpts(8 * 60 * 60 * 1000));
     if (user?.id) {
       await this.prisma.user.update({
         where: { id: user.id },

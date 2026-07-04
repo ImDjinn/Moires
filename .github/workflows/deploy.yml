@@ -1,0 +1,44 @@
+name: Deploy
+
+# Déploiement prod déclenché seulement quand la CI (build + tests) réussit sur
+# main. workflow_run se déclenche à chaque fin du workflow "CI" ; on filtre
+# ensuite sur succès + branche main. Déclenchement manuel toujours possible.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  workflow_dispatch:
+
+# Un seul déploiement à la fois ; on ne coupe pas un build docker en cours.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Reload VPS (docker compose)
+    runs-on: ubuntu-latest
+    # Manuel : on déploie. Sinon : uniquement si la CI a réussi sur main
+    # (les CI de PR ont head_branch = branche source, donc exclues).
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.head_branch == 'main') }}
+    steps:
+      # Se connecte au VPS et rejoue la mise à jour décrite dans deploy/README.md :
+      # récupère main, reconstruit les images changées, relance les conteneurs.
+      # (.env.production vit sur le serveur, hors git — non touché par le reset.)
+      - name: SSH deploy
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script_stop: true
+          script: |
+            cd ${{ secrets.DEPLOY_PATH }}
+            git fetch --all
+            git reset --hard origin/main
+            docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+            docker image prune -f

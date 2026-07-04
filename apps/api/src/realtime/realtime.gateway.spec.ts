@@ -1,68 +1,103 @@
+import { createHmac } from "crypto";
 import { RealtimeGateway } from "./realtime.gateway";
 import type { Operation, PresenceState } from "@moirai/shared";
 
-function makeGateway() {
+const SECRET = "test-secret";
+
+// Reproduit cookie-signature.sign : val + "." + HMAC-SHA256 base64 sans '=' final.
+function signedCookie(name: string, value: string): string {
+  const mac = createHmac("sha256", SECRET).update(value).digest("base64").replace(/=+$/, "");
+  return `${name}=${encodeURIComponent("s:" + value + "." + mac)}`;
+}
+
+const aliceCookie = signedCookie("session_user", JSON.stringify({ id: "u1", displayName: "Alice" }));
+
+function makeGateway(createdBy = "u1") {
   const operationsHandler = { handle: jest.fn() };
   const presenceHandler = { handleJoin: jest.fn(), handleLeave: jest.fn(), handleUpdate: jest.fn() };
-  const redis = { setUserToken: jest.fn().mockResolvedValue(undefined) };
+  const redis = {
+    setUserToken: jest.fn().mockResolvedValue(undefined),
+    getParticipants: jest.fn().mockResolvedValue([]),
+  };
   const broadcast = { setServer: jest.fn(), send: jest.fn() };
+  const prisma = { planningSession: { findUnique: jest.fn().mockResolvedValue({ createdBy }) } };
+  const config = { get: (k: string) => (k === "SESSION_SECRET" ? SECRET : undefined) };
   const gateway = new RealtimeGateway(
     operationsHandler as any,
     presenceHandler as any,
     redis as any,
     broadcast as any,
+    prisma as any,
+    config as any,
   );
   gateway.server = {} as any;
-  return { gateway, operationsHandler, presenceHandler, redis, broadcast };
+  return { gateway, operationsHandler, presenceHandler, redis, broadcast, prisma };
+}
+
+function makeClient(cookie: string | undefined, query: Record<string, string>): any {
+  return {
+    handshake: { query, headers: cookie ? { cookie } : {} },
+    join: jest.fn(),
+    disconnect: jest.fn(),
+    data: {},
+  };
 }
 
 describe("RealtimeGateway", () => {
-  it("handleConnection rejoint la room et déclenche la présence", async () => {
+  it("dérive l'identité du cookie signé, rejoint la room et déclenche la présence", async () => {
     const { gateway, presenceHandler } = makeGateway();
-    const client: any = {
-      handshake: { query: { sessionId: "s1", userId: "u1", displayName: "Alice" }, headers: {} },
-      join: jest.fn(),
-      disconnect: jest.fn(),
-      data: {},
-    };
+    const client = makeClient(aliceCookie, { sessionId: "s1", userId: "SPOOF", displayName: "SPOOF" });
 
     await gateway.handleConnection(client);
 
+    // userId/displayName viennent du cookie, jamais des query params falsifiés.
     expect(client.data).toEqual({ sessionId: "s1", userId: "u1", displayName: "Alice" });
     expect(client.join).toHaveBeenCalledWith("session:s1");
     expect(presenceHandler.handleJoin).toHaveBeenCalled();
     expect(client.disconnect).not.toHaveBeenCalled();
   });
 
-  it("handleConnection stocke le token ADO issu du cookie", async () => {
+  it("stocke le token ADO issu du cookie", async () => {
     const { gateway, redis } = makeGateway();
-    const client: any = {
-      handshake: {
-        query: { sessionId: "s1", userId: "u1", displayName: "Alice" },
-        headers: { cookie: "session_user=...; ado_token=tok123; ado_org=myorg" },
-      },
-      join: jest.fn(),
-      disconnect: jest.fn(),
-      data: {},
-    };
+    const client = makeClient(`${aliceCookie}; ado_token=tok123`, { sessionId: "s1" });
 
     await gateway.handleConnection(client);
 
     expect(redis.setUserToken).toHaveBeenCalledWith("s1", "u1", "tok123");
   });
 
-  it("handleConnection déconnecte si sessionId/userId manquants", async () => {
+  it("déconnecte sans cookie de session valide", async () => {
     const { gateway, presenceHandler } = makeGateway();
-    const client: any = {
-      handshake: { query: { sessionId: "s1" }, headers: {} },
-      join: jest.fn(),
-      disconnect: jest.fn(),
-    };
+    const client = makeClient(undefined, { sessionId: "s1", userId: "u1" });
 
     await gateway.handleConnection(client);
 
     expect(client.disconnect).toHaveBeenCalled();
     expect(client.join).not.toHaveBeenCalled();
+    expect(presenceHandler.handleJoin).not.toHaveBeenCalled();
+  });
+
+  it("déconnecte si sessionId manquant", async () => {
+    const { gateway } = makeGateway();
+    const client = makeClient(aliceCookie, {});
+    await gateway.handleConnection(client);
+    expect(client.disconnect).toHaveBeenCalled();
+  });
+
+  it("déconnecte un cookie signé avec une signature invalide", async () => {
+    const { gateway } = makeGateway();
+    const forged = "session_user=" + encodeURIComponent("s:" + JSON.stringify({ id: "attacker" }) + ".badsig");
+    const client = makeClient(forged, { sessionId: "s1" });
+    await gateway.handleConnection(client);
+    expect(client.disconnect).toHaveBeenCalled();
+    expect(client.join).not.toHaveBeenCalled();
+  });
+
+  it("déconnecte un utilisateur qui n'est pas membre de la session", async () => {
+    const { gateway, presenceHandler } = makeGateway("someone-else");
+    const client = makeClient(aliceCookie, { sessionId: "s1" });
+    await gateway.handleConnection(client);
+    expect(client.disconnect).toHaveBeenCalled();
     expect(presenceHandler.handleJoin).not.toHaveBeenCalled();
   });
 

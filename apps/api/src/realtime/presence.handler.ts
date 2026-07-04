@@ -39,7 +39,9 @@ export class PresenceHandler {
   }
 
   async handleUpdate(server: Server, client: Socket, p: PresenceState) {
-    const { sessionId } = client.data;
+    const { sessionId, userId } = client.data;
+    // Identité imposée par la socket : empêche d'usurper la présence d'autrui.
+    p.userId = userId;
     await this.redis.setPresence(sessionId, p);
     client.to(ROOM(sessionId)).emit("presence:broadcast", p);
   }

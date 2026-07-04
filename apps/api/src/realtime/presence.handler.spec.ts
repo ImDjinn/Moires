@@ -32,12 +32,12 @@ describe("PresenceHandler", () => {
     );
   });
 
-  it("handleUpdate persiste et diffuse presence:broadcast aux autres", async () => {
+  it("handleUpdate persiste et diffuse presence:broadcast, en imposant l'identité de la socket", async () => {
     const redis = makeRedis();
     const handler = new PresenceHandler(redis as any);
-    const { client, emit } = makeClient({ sessionId: "s1" });
+    const { client, emit } = makeClient({ sessionId: "s1", userId: "u1" });
     const p: PresenceState = {
-      userId: "u1",
+      userId: "victim", // usurpation tentée
       displayName: "Alice",
       color: "#FF6B6B",
       action: "dragging",
@@ -46,6 +46,7 @@ describe("PresenceHandler", () => {
 
     await handler.handleUpdate({} as any, client as any, p);
 
+    expect(p.userId).toBe("u1");
     expect(redis.setPresence).toHaveBeenCalledWith("s1", p);
     expect(emit).toHaveBeenCalledWith("presence:broadcast", p);
   });

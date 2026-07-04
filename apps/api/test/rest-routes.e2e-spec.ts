@@ -2,21 +2,34 @@ import { INestApplication } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Test } from "@nestjs/testing";
 import cookieParser from "cookie-parser";
+import { createHmac } from "crypto";
 import request from "supertest";
 
 import { AdoController } from "../src/ado/ado.controller";
 import { AdoService } from "../src/ado/ado.service";
 import { SessionsController } from "../src/sessions/sessions.controller";
 import { SessionsService } from "../src/sessions/sessions.service";
+import { SessionMemberGuard } from "../src/sessions/session-access";
 import { SyncService } from "../src/sync/sync.service";
 import { AuthController } from "../src/auth/auth.controller";
 import { AuthService } from "../src/auth/auth.service";
 import { AuthGuard } from "../src/auth/auth.guard";
+import { PrismaService } from "../src/database/prisma.service";
+import { RedisService } from "../src/database/redis.service";
 
-// Cookie de session authentifiée, tel que posé par /auth/callback.
-const authCookie = `session_user=${encodeURIComponent(
-  JSON.stringify({ id: "u1", displayName: "Alice" }),
-)}`;
+const SECRET = "test-secret";
+
+// Reproduit cookie-signature.sign, tel que cookie-parser le vérifie.
+function sign(name: string, value: string): string {
+  const mac = createHmac("sha256", SECRET).update(value).digest("base64").replace(/=+$/, "");
+  return `${name}=${encodeURIComponent("s:" + value + "." + mac)}`;
+}
+
+// Cookie d'une session authentifiée : identité signée + org sélectionnée signée.
+const authCookie = [
+  sign("session_user", JSON.stringify({ id: "u1", displayName: "Alice" })),
+  sign("ado_org", "myorg"),
+].join("; ");
 
 const snapshot = {
   sessionId: "s1",
@@ -42,12 +55,22 @@ describe("Routes REST (e2e, services mockés)", () => {
     getAuditLog: jest.fn().mockResolvedValue([]),
   };
   const sync = { syncIncremental: jest.fn().mockResolvedValue(snapshot) };
+  // u1 est le créateur de s1 → membre autorisé.
+  const prisma = {
+    planningSession: { findUnique: jest.fn().mockResolvedValue({ createdBy: "u1" }) },
+    user: { update: jest.fn().mockResolvedValue({}) },
+  };
+  const redis = {
+    getParticipants: jest.fn().mockResolvedValue([]),
+    setUserToken: jest.fn().mockResolvedValue(undefined),
+  };
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       controllers: [AdoController, SessionsController, AuthController],
       providers: [
         AuthGuard,
+        SessionMemberGuard,
         { provide: AdoService, useValue: ado },
         { provide: SessionsService, useValue: sessions },
         { provide: SyncService, useValue: sync },
@@ -56,11 +79,13 @@ describe("Routes REST (e2e, services mockés)", () => {
           useValue: { getLoginUrl: jest.fn(), refreshToken: jest.fn().mockResolvedValue("new-token") },
         },
         { provide: ConfigService, useValue: { get: () => "http://localhost:5173" } },
+        { provide: PrismaService, useValue: prisma },
+        { provide: RedisService, useValue: redis },
       ],
     }).compile();
 
     app = moduleRef.createNestApplication();
-    app.use(cookieParser());
+    app.use(cookieParser(SECRET));
     await app.init();
   });
 
@@ -74,6 +99,18 @@ describe("Routes REST (e2e, services mockés)", () => {
     it("401 sur /ado/projects sans cookie", () => http().get("/ado/projects").expect(401));
     it("401 sur /sessions sans cookie", () =>
       http().post("/sessions").send({ adoProjectId: "p1", adoIterationIds: ["it1"] }).expect(401));
+    it("refuse un cookie de session non signé (forgé)", () =>
+      http()
+        .get("/ado/projects")
+        .set("Cookie", `session_user=${encodeURIComponent(JSON.stringify({ id: "attacker" }))}`)
+        .expect(401));
+  });
+
+  describe("autorisation de session", () => {
+    it("403 sur /sessions/:id si l'utilisateur n'est pas membre", async () => {
+      prisma.planningSession.findUnique.mockResolvedValueOnce({ createdBy: "someone-else" });
+      await http().get("/sessions/s1").set("Cookie", authCookie).expect(403);
+    });
   });
 
   describe("/auth/me", () => {
