@@ -1,6 +1,8 @@
 // Modèle + données mock + helpers purs, traduits du prototype Claude Design
 // "Gantt Sprint Collaboratif". Aucune dépendance React : tout est pur.
 
+import { workingDays } from "../../utils/dates";
+
 export type Theme = "light" | "dark";
 export type Level = "epic" | "feature" | "story" | "task";
 export type Board = "sprint" | "daily" | "release";
@@ -8,11 +10,26 @@ export type Board = "sprint" | "daily" | "release";
 export interface Person {
   id: string;
   name: string;
+  /** Poste / métier (ex. "Backend Lead") — sert aussi à la couleur et au regroupement de charge. */
   role: string;
+  /** Rôle dans l'équipe/sprint (ex. "Tech Lead", "Développeur"). Optionnel. */
+  teamRole?: string;
   initials: string;
   color: string;
-  abs: number[];
+  /** Capacité par itération (jours). Absente = jours ouvrés du sprint. */
+  cap: number[];
+  /** Ligne "Non assigné" (pas un membre réel) : exclue des totaux de capacité. */
+  unassigned?: boolean;
 }
+
+/** Repli ultime si la période du sprint est inconnue (backlog…). */
+export const DEFAULT_CAP = 10;
+/** Capacité par défaut d'un sprint = ses jours ouvrés (lun–ven). */
+export const iterCap = (iter: number): number => {
+  const it = iters[iter];
+  return (it && workingDays(it.iso[0], it.iso[1])) || DEFAULT_CAP;
+};
+export const capOf = (p: Person, iter: number) => p.cap[iter] ?? iterCap(iter);
 
 export interface Item {
   id: string;
@@ -38,6 +55,10 @@ export interface Item {
   hasDateRange?: boolean;
   /** Microsoft.VSTS.Common.Priority (1 = plus prioritaire). */
   priority?: number;
+  /** Champs ADO custom (non mappés) — affichage lecture seule dans le panneau. */
+  custom?: Record<string, string | number | boolean>;
+  /** Type de work item ADO réel ("User Story", "Bug"…) — clé des prefs du panneau. */
+  wit?: string;
   relS?: number;
   relE?: number;
 }
@@ -91,12 +112,13 @@ export interface State {
   rangeTo: number;
   backlog: boolean;
   rangeOpen: boolean;
+  prefsOpen: boolean;
   items: Item[];
   hidden: Record<string, boolean>;
   peopleOpen: boolean;
   sort: string;
   expanded: Record<string, boolean>;
-  loadBy: "person" | "role" | "tag";
+  loadBy: "person" | "role" | "none";
   releaseStart: number;
   rowPins: RowPin[];
   rowPinSel: string | null;
@@ -108,7 +130,6 @@ export interface State {
   editing: { id: string; by: Presence } | null;
   sync: "saved" | "syncing";
   toast: string | null;
-  tagDraft: string;
 }
 
 // ---- Constantes de layout ----
@@ -123,7 +144,7 @@ export const BOTPAD = 12;
 export const MINCOL = 252;
 export let CURRENT = 1;
 export const RELCOL = 184;
-export const RELBAND = 84;
+export const RELBAND = 40;
 export const RELPARENT = 58;
 export const CUS = 58;
 export const CTASK = 44;
@@ -135,11 +156,11 @@ export let NITER = 12;
 export let BACKLOG = 12;
 
 export let people: Person[] = [
-  { id: "alice", name: "Alice Beaumont", role: "Backend Lead", initials: "AB", color: "#6366f1", abs: [0, 2, 0] },
-  { id: "romain", name: "Romain Duval", role: "Frontend", initials: "RD", color: "#14b8a6", abs: [0, 0, 2] },
-  { id: "yuki", name: "Yuki Tanaka", role: "Backend", initials: "YT", color: "#f97316", abs: [3, 0, 0] },
-  { id: "sofia", name: "Sofia Mendes", role: "QA / Tests", initials: "SM", color: "#ec4899", abs: [0, 0, 0] },
-  { id: "marcus", name: "Marcus Wei", role: "DevOps", initials: "MW", color: "#0ea5e9", abs: [4, 0, 0] },
+  { id: "alice", name: "Alice Beaumont", role: "Backend Lead", teamRole: "Tech Lead", initials: "AB", color: "#6366f1", cap: [10, 8, 10] },
+  { id: "romain", name: "Romain Duval", role: "Frontend", teamRole: "Développeur", initials: "RD", color: "#14b8a6", cap: [10, 10, 8] },
+  { id: "yuki", name: "Yuki Tanaka", role: "Backend", teamRole: "Développeur", initials: "YT", color: "#f97316", cap: [7, 10, 10] },
+  { id: "sofia", name: "Sofia Mendes", role: "QA / Tests", teamRole: "Testeur", initials: "SM", color: "#ec4899", cap: [10, 10, 10] },
+  { id: "marcus", name: "Marcus Wei", role: "DevOps", teamRole: "Développeur", initials: "MW", color: "#0ea5e9", cap: [6, 10, 10] },
 ];
 
 export const MONTHS_FR = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
@@ -154,15 +175,14 @@ export let iters: Iter[] = (() => {
     s.setUTCDate(start.getUTCDate() + i * 14);
     const e = new Date(s);
     e.setUTCDate(s.getUTCDate() + 11);
+    const isoS = `${s.getUTCFullYear()}-${pad(s.getUTCMonth() + 1)}-${pad(s.getUTCDate())}`;
+    const isoE = `${e.getUTCFullYear()}-${pad(e.getUTCMonth() + 1)}-${pad(e.getUTCDate())}`;
     arr.push({
       label: "Itération " + (i + 1),
       short: "It." + (i + 1),
       dates: `${s.getUTCDate()} ${M[s.getUTCMonth()]} – ${e.getUTCDate()} ${M[e.getUTCMonth()]}`,
-      sub: "10j ouvrés / pers.",
-      iso: [
-        `${s.getUTCFullYear()}-${pad(s.getUTCMonth() + 1)}-${pad(s.getUTCDate())}`,
-        `${e.getUTCFullYear()}-${pad(e.getUTCMonth() + 1)}-${pad(e.getUTCDate())}`,
-      ],
+      sub: `${workingDays(isoS, isoE)}j ouvrés / pers.`,
+      iso: [isoS, isoE],
     });
   }
   arr.push({ label: "Backlog", short: "Backlog", dates: "Non planifié", sub: "à prioriser", iso: ["", ""] });
@@ -270,6 +290,12 @@ export function dailyStates(level: string): string[] {
 // Colonne de board → état ADO à écrire (vide en mock : colonne = état).
 let stateWrite: Record<string, Record<string, string>> = {};
 export const stateToWrite = (level: string, column: string) => stateWrite[level]?.[column] ?? column;
+/** Niveau adossé à un board ADO (colonnes Kanban) — le drop Daily écrit alors la colonne, pas l'état. */
+export const hasBoardColumns = (level: string) => !!Object.keys(stateWrite[level] ?? {}).length;
+// État ADO → colonne de board (inverse). Placement Daily piloté par l'état
+// (toujours à jour) plutôt que par System.BoardColumn (recalculé par ADO, en retard).
+let stateColumn: Record<string, Record<string, string>> = {};
+export const columnForState = (level: string, state: string): string | undefined => stateColumn[level]?.[state];
 /** Ticket "fermé" : catégorie ADO Completed (colonne "Done", "Closed"…). */
 export const isDone = (s: string) => (stateCat[s] ? stateCat[s] === "Completed" : s === "Closed");
 export const roleColors: Record<string, string> = { "Backend Lead": "#0072B2", Frontend: "#009E73", Backend: "#56B4E9", "QA / Tests": "#CC79A7", DevOps: "#E69F00" };
@@ -329,7 +355,7 @@ export function buildInitialItems(): Item[] {
 export function createInitialState(items: Item[] = buildInitialItems()): State {
   return {
     board: "sprint", level: "story", colorMode: "epic", hideClosed: false, epicFilter: "all", epicSort: "priority", containerW: 1100,
-    rangeFrom: CURRENT, rangeTo: Math.min(CURRENT + 1, NITER - 1), backlog: true, rangeOpen: false,
+    rangeFrom: CURRENT, rangeTo: Math.min(CURRENT + 1, NITER - 1), backlog: true, rangeOpen: false, prefsOpen: false,
     items, hidden: {}, peopleOpen: false, sort: "az",
     expanded: {}, loadBy: "person", releaseStart: CURRENT, rowPins: [], rowPinSel: null, scrollLeft: 0,
     milestones: [
@@ -337,7 +363,7 @@ export function createInitialState(items: Item[] = buildInitialItems()): State {
       { id: "M2", title: "Gel de code v2.4", iter: 5, color: "#0072B2" },
     ],
     milestoneSel: null,
-    drag: null, selectedId: null, editing: null, sync: "saved", toast: null, tagDraft: "",
+    drag: null, selectedId: null, editing: null, sync: "saved", toast: null,
   };
 }
 
@@ -358,6 +384,8 @@ export interface Dataset {
   stateCat: Record<string, string>;
   /** Par niveau : colonne de board → état ADO réel à écrire au drop. */
   stateWrite: Record<string, Record<string, string>>;
+  /** Par niveau : état ADO → colonne de board (inverse de stateWrite). */
+  stateToColumn: Record<string, Record<string, string>>;
 }
 
 // ponytail: état module mutable — OK car un seul GanttBoard est monté à la fois.
@@ -377,13 +405,24 @@ export function applyDataset(ds: Dataset) {
   stateColors = { New: "#8a8f98", Active: "#0072B2", Resolved: "#CC79A7", Closed: "#009E73", ...ds.stateColors };
   stateCat = ds.stateCat;
   stateWrite = ds.stateWrite;
+  stateColumn = ds.stateToColumn;
 }
 
 // ---- helpers purs ----
 export const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
-// Effort = valeur brute : jours pour une tâche, story points sinon (plus de
-// conversion SP ↔ j/homme — chaque équipe définit ce que vaut 1 point).
-export const effortOf = (it: Item) => (it.level === "task" ? it.effortDays : it.points);
+// Champ utilisé pour le calcul de charge (et le tri par charge) — configurable
+// via les préférences d'affichage. Toujours mappé sur un champ ADO réel :
+// Story Points, estimation en jours, ou le referenceName d'un champ custom
+// numérique (Item.custom).
+export type LoadField = "points" | "effortDays" | (string & {});
+export let loadField: LoadField = "points";
+export const setLoadField = (f: LoadField) => { loadField = f; };
+// Effort = valeur brute du champ choisi (pas de conversion SP ↔ j/homme —
+// chaque équipe définit ce que vaut 1 point).
+export const effortOf = (it: Item) =>
+  loadField === "points" ? it.points
+  : loadField === "effortDays" ? it.effortDays
+  : Number(it.custom?.[loadField]) || 0;
 export const stateProgress = (s: string) => {
   // Données réelles : progression dérivée de la catégorie ADO de l'état.
   const cat = stateCat[s];
@@ -435,14 +474,17 @@ export function colorForBar(it: Item, colorMode: State["colorMode"], theme: Them
   return colorMap(it.type, theme);
 }
 export function loadColor(by: string, key: string, theme: Theme): string {
+  if (by === "none") return "#5b5bd6"; // Global : barre unique, couleur accent
   if (by === "person") {
     const p = people.find((x) => x.id === key);
     return p ? p.color : "#888";
   }
-  if (by === "role") return roleColors[key] || "#888";
-  return hashColor(key, theme);
+  // Poste : couleur fixe pour les postes mock connus, sinon dérivée du libellé
+  // (postes saisis librement dans le panneau utilisateur).
+  return roleColors[key] || hashColor(key, theme);
 }
 export function loadKeyLabel(by: string, key: string): string {
+  if (by === "none") return "Charge totale";
   if (by === "person") {
     const p = people.find((x) => x.id === key);
     return p ? p.name : key;
@@ -462,10 +504,11 @@ export const relCols = (): number[] => {
   return a;
 };
 
-export function isOpen(s: State, key: string, kind: string): boolean {
+// Release planning : tout replié par défaut, l'utilisateur déplie à la demande.
+export function isOpen(s: State, key: string): boolean {
   const e = s.expanded;
   if (key in e) return e[key];
-  return kind !== "story";
+  return false;
 }
 
 export const storiesOfFeature = (s: State, fid: string) => s.items.filter((x) => x.level === "story" && x.parent === fid);
@@ -529,7 +572,7 @@ export interface TreeNode {
 }
 
 const nodeName = (n: TreeNode) => (n.epic ? n.epic.title : "(Sans epic)");
-const nodeEffort = (n: TreeNode) => n.features.reduce((s, f) => s + f.stories.reduce((ss, st) => ss + st.item.points, 0), 0);
+const nodeEffort = (n: TreeNode) => n.features.reduce((s, f) => s + f.stories.reduce((ss, st) => ss + effortOf(st.item), 0), 0);
 
 function statusBucket(range: [number, number] | null): number {
   if (!range) return 3;
@@ -591,8 +634,8 @@ export function parentCharge(s: State, usList: Item[]) {
   usList.forEach((sx) => {
     if (s.hideClosed && isDone(sx.state)) return;
     if (s.hidden[sx.person]) return;
-    per[sx.iter] = (per[sx.iter] || 0) + sx.points;
-    total += sx.points;
+    per[sx.iter] = (per[sx.iter] || 0) + effortOf(sx);
+    total += effortOf(sx);
     if (sx.iter < NITER) {
       if (sx.iter < minIter) minIter = sx.iter;
       if (sx.iter > maxIter) maxIter = sx.iter;
@@ -620,6 +663,18 @@ export function personLoad(s: State): Record<string, number> {
   return L;
 }
 
+/** Écart absolu |charge − capacité| par personne, sur les itérations visibles (Daily : la courante). */
+export function personGap(s: State): Record<string, number> {
+  const L = personLoad(s);
+  const cols = s.board === "daily" ? [CURRENT] : visibleCols(s).filter((c) => c < NITER);
+  const G: Record<string, number> = {};
+  people.forEach((p) => {
+    const cap = cols.reduce((sum, c) => sum + capOf(p, c), 0);
+    G[p.id] = Math.abs(L[p.id] - cap);
+  });
+  return G;
+}
+
 let _randOrder: string[] | null = null;
 export function resetRandOrder() {
   _randOrder = null;
@@ -634,6 +689,10 @@ export function sortedPeople(s: State, list: Person[]): Person[] {
     const L = personLoad(s);
     a.sort((x, y) => L[x.id] - L[y.id]);
     if (sort === "loadDesc") a.reverse();
+  } else if (sort === "gapAsc" || sort === "gapDesc") {
+    const G = personGap(s);
+    a.sort((x, y) => G[x.id] - G[y.id]);
+    if (sort === "gapDesc") a.reverse();
   } else if (sort === "random") {
     if (!_randOrder) _randOrder = people.map((p) => p.id).sort(() => Math.random() - 0.5);
     a.sort((x, y) => _randOrder!.indexOf(x.id) - _randOrder!.indexOf(y.id));
@@ -689,12 +748,12 @@ export interface Layout {
 
 export function releaseLayout(s: State, COLW: number): Layout {
   const cols = relCols(), rows: LayoutRow[] = [], cards: LayoutCard[] = [];
-  let y = HEADER + RELBAND;
+  let y = HEADER;
   const tree = buildTree(s);
   // Colonne d'un item, clampée dans [lo, hi] (containment US ⊆ Feature ⊆ Epic).
   const clampCol = (iter: number, lo: number, hi: number) => cols.indexOf(Math.max(lo, Math.min(hi, iter)));
   tree.forEach((node) => {
-    const ekey = "epic:" + (node.epicId ?? "__none__"), eopen = isOpen(s, ekey, "area");
+    const ekey = "epic:" + (node.epicId ?? "__none__"), eopen = isOpen(s, ekey);
     const epicUS: Item[] = [];
     node.features.forEach((f) => f.stories.forEach((st) => epicUS.push(st.item)));
     const eColor = (node.epic ? epics[node.epic.id]?.color : null) || "#64748b";
@@ -702,7 +761,7 @@ export function releaseLayout(s: State, COLW: number): Layout {
     y += RELPARENT;
     if (!eopen) return;
     node.features.forEach((f) => {
-      const fopen = isOpen(s, f.item.id, "feature");
+      const fopen = isOpen(s, f.item.id);
       const fUS = f.stories.map((st) => st.item);
       const ep = epics[epicOf(f.item)] || ({} as { color?: string; short?: string });
       // Feature ⊆ Epic : intervalle de la feature borné par celui de l'epic.
@@ -716,7 +775,7 @@ export function releaseLayout(s: State, COLW: number): Layout {
       f.stories.forEach((st) => {
         const ci = clampCol(st.item.iter, lo, hi); // US ⊆ Feature
         if (ci < 0) return;
-        const sopen = isOpen(s, st.item.id, "story");
+        const sopen = isOpen(s, st.item.id);
         cards.push({ item: st.item, level: "story", ci, left: LEFT + ci * COLW + 8, top: colY[ci], width: COLW - 16, height: CUS, hasChildren: st.tasks.length > 0, open: sopen });
         colY[ci] += CUS + CGAP;
         if (sopen)
@@ -775,23 +834,22 @@ export function computeLayout(s: State, COLW: number): Layout {
 export function relLoadBand(s: State, cols: number[], theme: Theme) {
   const by = s.loadBy;
   return cols.map((real) => {
-    const cap = people.filter((p) => !s.hidden[p.id]).reduce((sum, p) => sum + (10 - (p.abs[real] || 0)), 0);
+    const cap = people.filter((p) => !s.hidden[p.id] && !p.unassigned).reduce((sum, p) => sum + capOf(p, real), 0);
     const groups: Record<string, number> = {};
     let total = 0;
     s.items.forEach((it) => {
       if (it.level !== "story") return;
       if (s.hideClosed && isDone(it.state)) return;
       if (it.iter !== real || s.hidden[it.person]) return;
-      const eff = it.points;
+      const eff = effortOf(it);
       total += eff;
-      let keys: string[];
-      if (by === "person") keys = [it.person];
+      let key: string;
+      if (by === "person") key = it.person;
       else if (by === "role") {
         const p = people.find((x) => x.id === it.person);
-        keys = [p ? p.role : "?"];
-      } else keys = it.tags.length ? it.tags : ["(sans tag)"];
-      const share = eff / keys.length;
-      keys.forEach((k) => (groups[k] = (groups[k] || 0) + share));
+        key = p && p.role ? p.role : "(sans poste)";
+      } else key = "__all__"; // Global : une seule barre agrégée
+      groups[key] = (groups[key] || 0) + eff;
     });
     const segs = Object.keys(groups)
       .map((k) => ({ key: k, val: groups[k], color: loadColor(by, k, theme), label: loadKeyLabel(by, k) }))

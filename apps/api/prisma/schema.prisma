@@ -34,36 +34,38 @@ model PlanningSession {
   creator       User            @relation(fields: [createdBy], references: [id])
   operationsLog OperationsLog[]
   ticketsCache  TicketsCache[]
-  milestones    Milestone[]
-  rowPins       RowPin[]
 
   @@map("planning_sessions")
 }
 
+/// Jalon de release, persisté par projet ADO (et non par session) — partagé
+/// entre toutes les sessions du projet et conservé après leur expiration.
 model Milestone {
-  id        String @id @default(uuid())
-  sessionId String @map("session_id")
-  title     String
-  iter      Int
-  color     String
+  id           String @id @default(uuid())
+  adoProjectId String @map("ado_project_id")
+  title        String
+  // iter = dernier index connu (fallback / legacy) ; iterationPath = clé stable
+  // (System.IterationPath) qui survit au réordonnancement des itérations ADO.
+  iter          Int
+  iterationPath String? @map("iteration_path")
+  color         String
 
-  session PlanningSession @relation(fields: [sessionId], references: [id])
-
-  @@index([sessionId])
+  @@index([adoProjectId])
   @@map("milestones")
 }
 
+/// Flag posé sur une ligne (epic/feature) du Release planning, persisté par
+/// projet ADO — partagé entre sessions et conservé après leur expiration.
 model RowPin {
-  id        String @id @default(uuid())
-  sessionId String @map("session_id")
-  rowKey    String @map("row_key")
-  iter      Int
-  title     String
-  color     String
+  id           String @id @default(uuid())
+  adoProjectId String @map("ado_project_id")
+  rowKey       String @map("row_key")
+  iter          Int
+  iterationPath String? @map("iteration_path")
+  title         String
+  color         String
 
-  session PlanningSession @relation(fields: [sessionId], references: [id])
-
-  @@index([sessionId])
+  @@index([adoProjectId])
   @@map("row_pins")
 }
 
@@ -84,6 +86,35 @@ model OperationsLog {
   @@index([sessionId])
   @@index([ticketId])
   @@map("operations_log")
+}
+
+/// Capacité d'un membre pour une itération, persistée par projet ADO (pas par
+/// session) — survit donc à l'expiration des sessions. `memberHash` = sha256 de
+/// l'identifiant ADO du membre : aucune donnée personnelle (email/nom) en base ;
+/// le mapping vers la personne se refait en session via la liste d'équipe ADO.
+model Capacity {
+  adoProjectId  String   @map("ado_project_id")
+  iterationPath String   @map("iteration_path")
+  memberHash    String   @map("member_hash")
+  value         Float
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@id([adoProjectId, iterationPath, memberHash])
+  @@map("capacities")
+}
+
+/// Poste/rôle d'un membre, propres à l'app (hors ADO), persistés par projet ADO.
+/// `memberHash` = sha256 de l'identifiant ADO (aucune donnée personnelle en base) ;
+/// remappé sur la personne en session via la liste d'équipe ADO.
+model MemberMeta {
+  adoProjectId String   @map("ado_project_id")
+  memberHash   String   @map("member_hash")
+  poste        String   @default("")
+  role         String   @default("")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@id([adoProjectId, memberHash])
+  @@map("member_meta")
 }
 
 model TicketsCache {

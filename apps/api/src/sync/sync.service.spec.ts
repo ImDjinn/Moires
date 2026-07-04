@@ -22,10 +22,10 @@ function makeService() {
     setTickets: jest.fn().mockResolvedValue(undefined),
     getPresences: jest.fn().mockResolvedValue([]),
     getIterations: jest.fn().mockResolvedValue([]),
-    getCapacities: jest.fn().mockResolvedValue([]),
     getStates: jest.fn().mockResolvedValue([]),
     setStates: jest.fn().mockResolvedValue(undefined),
   };
+  const capacities = { list: jest.fn().mockResolvedValue([]) };
   const ado = {
     queryWorkItemIds: jest.fn(),
     getWorkItemsBatch: jest.fn(),
@@ -36,8 +36,8 @@ function makeService() {
     getBacklogTypes: jest.fn().mockResolvedValue([]),
     getBoardColumns: jest.fn().mockResolvedValue([]),
   };
-  const service = new SyncService(prisma as any, redis as any, ado as any, new AdoMapper());
-  return { service, prisma, redis, ado };
+  const service = new SyncService(prisma as any, redis as any, capacities as any, ado as any, new AdoMapper());
+  return { service, prisma, redis, capacities, ado };
 }
 
 describe("SyncService.syncInitial", () => {
@@ -83,7 +83,7 @@ describe("SyncService.syncInitial", () => {
 
 describe("SyncService.syncIncremental", () => {
   it("recharge depuis la session persistée et renvoie un snapshot", async () => {
-    const { service, prisma, ado } = makeService();
+    const { service, prisma, capacities, ado } = makeService();
     prisma.planningSession.findUniqueOrThrow.mockResolvedValue({
       id: "s1",
       adoOrg: "org1",
@@ -100,5 +100,7 @@ describe("SyncService.syncIncremental", () => {
     expect(snapshot.sessionId).toBe("s1");
     expect(snapshot.tickets).toHaveLength(1);
     expect(snapshot.participants).toEqual([]);
+    // capacités lues en base par projet (persistantes hors session)
+    expect(capacities.list).toHaveBeenCalledWith("p1", []);
   });
 });

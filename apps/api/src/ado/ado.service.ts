@@ -1,9 +1,24 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
-import type { OperationField, TeamMember } from "@moires/shared";
-import { AdoMapper, RawAdoWorkItem } from "./ado.mapper";
+import type { OperationFieldKey, TeamMember } from "@moires/shared";
+import { AdoMapper, KNOWN_FIELDS, RawAdoWorkItem } from "./ado.mapper";
 
 // Base for cross-organization identity APIs (profile + accounts).
 const VSSPS_BASE = "https://app.vssps.visualstudio.com";
+
+/** Jours ouvrés (lun–ven) entre deux dates ISO incluses, bornés à [lo, hi]. */
+function workingDays(startIso: string, endIso: string, lo?: string, hi?: string): number {
+  let s = startIso.slice(0, 10), e = endIso.slice(0, 10);
+  if (lo && s < lo) s = lo;
+  if (hi && e > hi) e = hi;
+  let count = 0;
+  const d = new Date(`${s}T00:00:00Z`);
+  const end = new Date(`${e}T00:00:00Z`);
+  for (; d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const day = d.getUTCDay();
+    if (day !== 0 && day !== 6) count++;
+  }
+  return count;
+}
 
 @Injectable()
 export class AdoService {
@@ -142,20 +157,15 @@ export class AdoService {
     return (data.workItems as any[]).map((wi: any) => String(wi.id));
   }
 
+  // Sans `fields`, workitemsbatch renvoie tous les champs (dont les champs
+  // custom des process hérités) — requis pour Ticket.customFields.
+  // MAIS System.Parent n'est jamais renvoyé sans demande explicite (vérifié
+  // contre l'API) : $expand=relations le fait réapparaître dans fields.
   async getWorkItemsBatch(
     org: string,
     ids: string[],
     token: string,
-    fields: string[] = [
-      "System.Id", "System.Title", "System.AssignedTo",
-      "System.AreaPath", "System.IterationId", "System.IterationPath",
-      "System.WorkItemType", "System.Parent", "System.State", "System.Tags",
-      "System.BoardColumn",
-      "Microsoft.VSTS.Scheduling.StartDate", "Microsoft.VSTS.Scheduling.FinishDate",
-      "Microsoft.VSTS.Scheduling.TargetDate",
-      "Microsoft.VSTS.Scheduling.OriginalEstimate", "Microsoft.VSTS.Scheduling.StoryPoints",
-      "Microsoft.VSTS.Common.Priority", "System.Rev",
-    ],
+    fields?: string[],
   ): Promise<RawAdoWorkItem[]> {
     const results: RawAdoWorkItem[] = [];
     for (let i = 0; i < ids.length; i += 200) {
@@ -165,7 +175,7 @@ export class AdoService {
         token,
         {
           method: "POST",
-          body: JSON.stringify({ ids: batch.map(Number), fields }),
+          body: JSON.stringify(fields ? { ids: batch.map(Number), fields } : { ids: batch.map(Number), $expand: "relations" }),
         },
       );
       results.push(...(data.value as RawAdoWorkItem[]));
@@ -271,19 +281,22 @@ export class AdoService {
     org: string,
     projectId: string,
     token: string,
-  ): Promise<{ name: string; category: string; color: string; type: string; state: string }[]> {
+  ): Promise<{ name: string; category: string; color: string; type: string; state: string; columnField: string }[]> {
     const COLORS: Record<string, string> = { incoming: "#8a8f98", inProgress: "#0072B2", outgoing: "#009E73" };
     const CATS: Record<string, string> = { incoming: "Proposed", inProgress: "InProgress", outgoing: "Completed" };
     const boards = await this.adoFetch(
       `${this.orgUrl(org)}/${projectId}/_apis/work/boards?api-version=7.1`,
       token,
     );
-    const out: { name: string; category: string; color: string; type: string; state: string }[] = [];
+    const out: { name: string; category: string; color: string; type: string; state: string; columnField: string }[] = [];
     for (const b of (boards.value as any[]) ?? []) {
       const board = await this.adoFetch(
         `${this.orgUrl(org)}/${projectId}/_apis/work/boards/${b.id}?api-version=7.1`,
         token,
       );
+      // Champ Kanban du board (WEF_xxx_Kanban.Column) : écrit au drop pour
+      // déplacer la carte de colonne (System.BoardColumn est en lecture seule).
+      const columnField = board.fields?.columnField?.referenceName || "";
       // ponytail: colonnes split (Doing/Done) fusionnées en une seule.
       for (const col of (board.columns as any[]) ?? []) {
         for (const [type, state] of Object.entries(col.stateMappings ?? {})) {
@@ -293,6 +306,7 @@ export class AdoService {
             color: COLORS[col.columnType] || "#8a8f98",
             type,
             state: state as string,
+            columnField,
           });
         }
       }
@@ -329,6 +343,35 @@ export class AdoService {
     return out;
   }
 
+  /**
+   * Champs proposables d'un type de work item (custom / process hérités) —
+   * mêmes exclusions que Ticket.customFields : System.*, WEF_* et champs déjà
+   * gérés nativement par le panneau ticket.
+   */
+  async getTypeFields(
+    org: string,
+    projectId: string,
+    type: string,
+    token: string,
+  ): Promise<{ referenceName: string; name: string; defaultValue: string | number | boolean | null; alwaysRequired: boolean; allowedValues: string[] }[]> {
+    const data = await this.adoFetch(
+      `${this.orgUrl(org)}/${projectId}/_apis/wit/workitemtypes/${encodeURIComponent(type)}/fields?$expand=allowedValues&api-version=7.1`,
+      token,
+    );
+    return ((data.value as any[]) ?? [])
+      .map((f: any) => ({
+        referenceName: f.referenceName as string,
+        name: f.name as string,
+        // Valeur par défaut du process : affichée (comme dans ADO) tant que le
+        // work item n'a pas de valeur stockée pour ce champ.
+        defaultValue: ["string", "number", "boolean"].includes(typeof f.defaultValue) ? f.defaultValue : null,
+        // Contraintes du process : champ requis + valeurs autorisées (picklist).
+        alwaysRequired: !!f.alwaysRequired,
+        allowedValues: Array.isArray(f.allowedValues) ? f.allowedValues.map(String) : [],
+      }))
+      .filter((f) => f.referenceName && !f.referenceName.startsWith("System.") && !f.referenceName.startsWith("WEF_") && !KNOWN_FIELDS.has(f.referenceName));
+  }
+
   async getCapacities(
     org: string,
     projectId: string,
@@ -346,15 +389,73 @@ export class AdoService {
     }));
   }
 
+  /**
+   * Capacité ADO en jours par membre pour une itération : jours ouvrés de
+   * l'itération − jours off d'équipe (teamdaysoff) − jours off du membre
+   * (daysOff des capacities). Les heures/jour par activité ne sont pas
+   * converties (unité incompatible avec la capacité par sprint de l'app).
+   */
+  async getCapacityDays(
+    org: string,
+    projectId: string,
+    iterationId: string,
+    startDate: string,
+    finishDate: string,
+    token: string,
+  ): Promise<{ memberId: string; days: number }[]> {
+    const base = `${this.orgUrl(org)}/${projectId}/_apis/work/teamsettings/iterations/${iterationId}`;
+    const [caps, teamOff] = await Promise.all([
+      this.adoFetch(`${base}/capacities?api-version=7.1`, token),
+      this.adoFetch(`${base}/teamdaysoff?api-version=7.1`, token),
+    ]);
+    const lo = startDate.slice(0, 10), hi = finishDate.slice(0, 10);
+    const off = (ranges: { start: string; end: string }[] | undefined) =>
+      (ranges ?? []).reduce((sum, r) => sum + workingDays(r.start, r.end, lo, hi), 0);
+    const total = workingDays(lo, hi);
+    const teamOffDays = off(teamOff.daysOff);
+    return ((caps.value as any[]) ?? []).map((c: any) => ({
+      memberId: c.teamMember.uniqueName || c.teamMember.id,
+      days: Math.max(0, total - teamOffDays - off(c.daysOff)),
+    }));
+  }
+
   async patchWorkItem(
     org: string,
     id: string,
-    field: OperationField,
+    field: OperationFieldKey,
     value: unknown,
     expectedRev: number,
     token: string,
   ): Promise<number> {
-    const patches = this.mapper.toJsonPatch(field, value);
+    return this.patchWorkItemRaw(org, id, this.mapper.toJsonPatch(field, value), token);
+  }
+
+  /** Crée un work item (json-patch "add"). Retourne le work item brut créé. */
+  async createWorkItem(
+    org: string,
+    projectId: string,
+    type: string,
+    patches: { op: "add"; path: string; value: unknown }[],
+    token: string,
+  ): Promise<RawAdoWorkItem> {
+    return this.adoFetch(
+      `${this.orgUrl(org)}/${projectId}/_apis/wit/workitems/$${encodeURIComponent(type)}?api-version=7.1`,
+      token,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json-patch+json" },
+        body: JSON.stringify(patches),
+      },
+    );
+  }
+
+  /** Patch JSON brut (plusieurs champs en une écriture atomique). Retourne la nouvelle rev. */
+  async patchWorkItemRaw(
+    org: string,
+    id: string,
+    patches: ({ op: "replace"; path: string; value: unknown } | { op: "remove"; path: string })[],
+    token: string,
+  ): Promise<number> {
     const data = await this.adoFetch(
       `${this.orgUrl(org)}/_apis/wit/workitems/${id}?api-version=7.1`,
       token,

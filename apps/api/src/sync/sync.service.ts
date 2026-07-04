@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type { Ticket, TeamMember, SessionSnapshot } from "@moires/shared";
 import { PrismaService } from "../database/prisma.service";
 import { RedisService } from "../database/redis.service";
+import { CapacitiesRepo } from "../database/capacities.repo";
 import { AdoService } from "../ado/ado.service";
 import { AdoMapper } from "../ado/ado.mapper";
 
@@ -10,6 +11,7 @@ export class SyncService {
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
+    private capacities: CapacitiesRepo,
     private ado: AdoService,
     private mapper: AdoMapper,
   ) {}
@@ -133,7 +135,7 @@ export class SyncService {
 
     const presences = await this.redis.getPresences(sessionId);
     const iterations = await this.redis.getIterations(sessionId);
-    const capacities = await this.redis.getCapacities(sessionId);
+    const capacities = await this.capacities.list(session.adoProjectId, teamMembers);
     const states = await this.redis.getStates(sessionId);
 
     return { sessionId, tickets, participants: presences, teamMembers, iterations, capacities, states };

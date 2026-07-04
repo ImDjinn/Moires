@@ -4,12 +4,15 @@ import { useSessionStore } from "../../stores/session.store";
 import { useTicketsStore } from "../../stores/tickets.store";
 import { usePresenceStore } from "../../stores/presence.store";
 import { useCapacitiesStore } from "../../stores/capacities.store";
+import { useMemberMetaStore } from "../../stores/memberMeta.store";
+import { Brand } from "../Brand";
 
 export function SessionLobby() {
   const setSnapshot = useSessionStore((s) => s.setSnapshot);
   const setTickets = useTicketsStore((s) => s.setTickets);
   const setPeers = usePresenceStore((s) => s.setPeers);
   const setCapacities = useCapacitiesStore((s) => s.setCapacities);
+  const setMemberMetas = useMemberMetaStore((s) => s.setMemberMetas);
 
   const [organizations, setOrganizations] = useState<{ id: string; name: string }[]>([]);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
@@ -54,6 +57,7 @@ export function SessionLobby() {
       setTickets(snapshot.tickets);
       setPeers(snapshot.participants);
       setCapacities(snapshot.capacities ?? []);
+      setMemberMetas(snapshot.memberMeta ?? []);
       setSnapshot(snapshot);
     } catch (e: any) {
       setError(e.message);
@@ -80,6 +84,7 @@ export function SessionLobby() {
       height: "100vh",
     }}>
       <div style={{ maxWidth: 560, width: "100%", padding: "0 24px", display: "flex", flexDirection: "column", gap: 20 }}>
+        <Brand size={40} />
         <h2 style={{ fontSize: 24, fontWeight: 600 }}>Nouvelle session</h2>
 
         {error && (

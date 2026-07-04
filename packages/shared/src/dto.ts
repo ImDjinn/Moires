@@ -14,11 +14,22 @@ export interface TeamMember {
   capacityHoursPerDay: number;
 }
 
-/** Capacité d'un membre pour une itération, en Story Points. */
+/** Capacité d'un membre pour une itération. Valeur initialisée en jours
+ * ouvrés depuis ADO (jours off déduits), puis librement modifiable dans l'app. */
 export interface Capacity {
   memberId: string;
   iterationPath: string;
+  /** Valeur de capacité (nom historique — l'unité est celle de l'équipe). */
   storyPoints: number;
+}
+
+/** Métadonnées d'un membre propres à l'app (hors ADO), persistées par projet. */
+export interface MemberMeta {
+  memberId: string;
+  /** Poste / métier (ex. "Backend Lead"). */
+  poste: string;
+  /** Rôle dans l'équipe/sprint (ex. "Tech Lead"). */
+  role: string;
 }
 
 export interface Iteration {
@@ -39,6 +50,8 @@ export interface AdoState {
   type?: string;
   /** Entrées issues des colonnes de board : état ADO réel à écrire quand une carte est déposée dans cette colonne. */
   state?: string;
+  /** Champ ADO de la colonne Kanban (WEF_xxx_Kanban.Column) — écrit au drop pour déplacer la carte. */
+  columnField?: string;
 }
 
 export interface SessionSnapshot {
@@ -48,8 +61,12 @@ export interface SessionSnapshot {
   teamMembers: TeamMember[];
   iterations: Iteration[];
   capacities: Capacity[];
+  /** Poste/rôle par membre (app, hors ADO). */
+  memberMeta?: MemberMeta[];
   /** États réels ordonnés du projet (pour la vue Daily). */
   states?: AdoState[];
+  /** Base URL ADO du projet (https://dev.azure.com/{org}/{project}) — liens vers les work items. */
+  adoUrl?: string;
 }
 
 /** Jalon de release (entité propre, absente d'ADO). */

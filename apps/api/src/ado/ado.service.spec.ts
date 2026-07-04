@@ -82,6 +82,27 @@ describe("AdoService", () => {
     expect(res[0].capacityHoursPerDay).toBe(8);
   });
 
+  it("getCapacityDays calcule jours ouvrés − jours off (équipe + membre)", async () => {
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("teamdaysoff")
+          ? ok({ daysOff: [{ start: "2026-07-14T00:00:00Z", end: "2026-07-14T00:00:00Z" }] })
+          : ok({
+              value: [
+                { teamMember: { uniqueName: "alice@x", id: "m1", displayName: "Alice" }, daysOff: [{ start: "2026-07-09T00:00:00Z", end: "2026-07-10T00:00:00Z" }] },
+                { teamMember: { id: "m2", displayName: "Bob" }, daysOff: [] },
+              ],
+            }),
+      ),
+    );
+    // Itération lun 06/07 → ven 17/07 : 10 jours ouvrés ; 1 jour off équipe (mar 14).
+    const res = await service.getCapacityDays("org", "p1", "it1", "2026-07-06T00:00:00Z", "2026-07-17T00:00:00Z", "tkn");
+    expect(res).toEqual([
+      { memberId: "alice@x", days: 7 }, // 10 − 1 équipe − 2 perso (jeu 09–ven 10)
+      { memberId: "m2", days: 9 },
+    ]);
+  });
+
   it("resolveEpics remonte la hiérarchie parent jusqu'à l'Epic", async () => {
     // Story 1 -> Feature 10 -> Epic 100. Le batch des parents renvoie 10 puis 100.
     const story = { id: 1, rev: 1, fields: { "System.WorkItemType": "User Story", "System.Title": "Story", "System.Parent": 10 } };
@@ -102,6 +123,25 @@ describe("AdoService", () => {
     const map = await service.resolveEpics("org", [orphan], "tkn");
     expect(map.has("2")).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("getTypeFields filtre System.*, WEF_* et les champs déjà mappés, et remonte défaut + contraintes", async () => {
+    fetchMock.mockResolvedValue(
+      ok({ value: [
+        { referenceName: "System.Title", name: "Title" },
+        { referenceName: "WEF_ABC_Kanban.Column", name: "Board Column" },
+        { referenceName: "Microsoft.VSTS.Scheduling.StoryPoints", name: "Story Points" },
+        { referenceName: "Custom.WorkType", name: "Work Type", defaultValue: "Implementation", alwaysRequired: true, allowedValues: ["Implementation", "Design"] },
+        { referenceName: "Custom.Risque", name: "Risque", defaultValue: { odd: true } },
+      ] }),
+    );
+    const res = await service.getTypeFields("org", "p1", "User Story", "tkn");
+    expect(res).toEqual([
+      { referenceName: "Custom.WorkType", name: "Work Type", defaultValue: "Implementation", alwaysRequired: true, allowedValues: ["Implementation", "Design"] },
+      { referenceName: "Custom.Risque", name: "Risque", defaultValue: null, alwaysRequired: false, allowedValues: [] },
+    ]);
+    expect(fetchMock.mock.calls[0][0]).toContain("/workitemtypes/User%20Story/fields");
+    expect(fetchMock.mock.calls[0][0]).toContain("$expand=allowedValues");
   });
 
   it("patchWorkItem envoie un JSON Patch et renvoie la nouvelle révision", async () => {

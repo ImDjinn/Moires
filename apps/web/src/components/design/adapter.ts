@@ -1,4 +1,4 @@
-import type { SessionSnapshot } from "@moires/shared";
+import type { Capacity, MemberMeta, SessionSnapshot } from "@moires/shared";
 import type { Dataset, Item, Iter, Level, Person } from "./ganttModel";
 import { MONTHS_FR, stateProgress } from "./ganttModel";
 
@@ -46,7 +46,11 @@ function typeFor(wit: string): string {
  * Transforme un SessionSnapshot ADO réel en Dataset consommable par GanttBoard
  * (mêmes structures que les données mock du prototype). Pur et testable.
  */
-export function buildDataset(snapshot: SessionSnapshot): Dataset {
+export function buildDataset(
+  snapshot: SessionSnapshot,
+  capacities: Capacity[] = snapshot.capacities,
+  memberMeta: MemberMeta[] = snapshot.memberMeta ?? [],
+): Dataset {
   const src = snapshot.iterations;
   const niter = src.length;
 
@@ -67,13 +71,18 @@ export function buildDataset(snapshot: SessionSnapshot): Dataset {
   const current = foundCurrent >= 0 ? foundCurrent : 0;
 
   const memberIds = new Set(snapshot.teamMembers.map((m) => m.id));
+  // Capacité par membre × itération (défaut 10 si non renseignée).
+  const capFor = (memberId: string): number[] =>
+    src.map((it) => capacities.find((c) => c.memberId === memberId && c.iterationPath === it.path)?.storyPoints ?? 10);
+  const metaById = new Map(memberMeta.map((m) => [m.memberId, m]));
   const people: Person[] = snapshot.teamMembers.map((m, i) => ({
     id: m.id,
     name: m.displayName,
-    role: "",
+    role: metaById.get(m.id)?.poste ?? "", // "poste" = champ de couleur/regroupement
+    teamRole: metaById.get(m.id)?.role ?? "",
     initials: initials(m.displayName),
     color: PEOPLE_PALETTE[i % PEOPLE_PALETTE.length],
-    abs: new Array(niter).fill(0),
+    cap: capFor(m.id),
   }));
 
   // Epics : couleur/libellé. Titre autoritatif depuis le work item Epic lui-même,
@@ -123,11 +132,13 @@ export function buildDataset(snapshot: SessionSnapshot): Dataset {
       epicId: t.epicId,
       hasDateRange,
       priority: t.priority,
+      custom: t.customFields,
+      wit: t.workItemType,
     };
   });
 
   if (hasUnassigned) {
-    people.push({ id: UNASSIGNED, name: "Non assigné", role: "", initials: "?", color: "#94a3b8", abs: new Array(niter).fill(0) });
+    people.push({ id: UNASSIGNED, name: "Non assigné", role: "", initials: "?", color: "#94a3b8", cap: new Array(niter).fill(10), unassigned: true });
   }
 
   const storyToFeature: Record<string, string> = {};
@@ -153,10 +164,15 @@ export function buildDataset(snapshot: SessionSnapshot): Dataset {
   // Colonne de board → état ADO réel à écrire au drop (stateMappings du board).
   // ponytail: premier type gagne si US et Bug mappent la colonne différemment.
   const stateWrite: Record<Level, Record<string, string>> = { epic: {}, feature: {}, story: {}, task: {} };
+  // Inverse : état ADO → colonne de board. Le placement Daily suit l'état (qu'on
+  // met à jour partout, y compris en optimiste) plutôt que System.BoardColumn,
+  // recalculé par ADO et donc en retard après un déplacement.
+  const stateToColumn: Record<Level, Record<string, string>> = { epic: {}, feature: {}, story: {}, task: {} };
   (snapshot.states || []).forEach((s) => {
     if (!s.state) return;
     const lvl = s.type ? levelFor(s.type) : "story";
     if (!stateWrite[lvl][s.name]) stateWrite[lvl][s.name] = s.state;
+    if (!stateToColumn[lvl][s.state]) stateToColumn[lvl][s.state] = s.name;
   });
 
   return {
@@ -174,5 +190,6 @@ export function buildDataset(snapshot: SessionSnapshot): Dataset {
     stateColors,
     stateCat,
     stateWrite,
+    stateToColumn,
   };
 }

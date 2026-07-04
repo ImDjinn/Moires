@@ -52,6 +52,20 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(cap),
     }),
+  setMemberMeta: (
+    sessionId: string,
+    meta: { memberId: string; poste: string; role: string },
+  ) =>
+    request<any>(`/sessions/${sessionId}/member-meta`, {
+      method: "PUT",
+      body: JSON.stringify(meta),
+    }),
+  getTypeFields: (sessionId: string, type: string) =>
+    request<{ referenceName: string; name: string; defaultValue: string | number | boolean | null; alwaysRequired?: boolean; allowedValues?: string[] }[]>(
+      `/sessions/${sessionId}/field-defs/${encodeURIComponent(type)}`,
+    ),
+  duplicateTicket: (sessionId: string, ticketId: string) =>
+    request<import("@moires/shared").Ticket>(`/sessions/${sessionId}/tickets/${ticketId}/duplicate`, { method: "POST" }),
   getAuditLog: (id: string) => request<any[]>(`/sessions/${id}/audit-log`),
   refreshAuth: () => request<void>("/auth/refresh", { method: "POST" }),
 

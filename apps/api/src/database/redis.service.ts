@@ -1,7 +1,7 @@
 import { Injectable, OnModuleDestroy } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import Redis from "ioredis";
-import type { Ticket, PresenceState, Iteration, TeamMember, Capacity, AdoState } from "@moires/shared";
+import type { Ticket, PresenceState, Iteration, TeamMember, AdoState } from "@moires/shared";
 
 const TTL = 86400; // 24h
 
@@ -37,10 +37,6 @@ export class RedisService implements OnModuleDestroy {
     return `session:${sessionId}:team-members`;
   }
 
-  capacitiesKey(sessionId: string) {
-    return `session:${sessionId}:capacities`;
-  }
-
   tokenKey(sessionId: string, userId: string) {
     return `session:${sessionId}:token:${userId}`;
   }
@@ -73,15 +69,6 @@ export class RedisService implements OnModuleDestroy {
 
   async getStates(sessionId: string): Promise<AdoState[]> {
     const raw = await this.client.get(`session:${sessionId}:states`);
-    return raw ? JSON.parse(raw) : [];
-  }
-
-  async setCapacities(sessionId: string, capacities: Capacity[]) {
-    await this.client.set(this.capacitiesKey(sessionId), JSON.stringify(capacities), "EX", TTL);
-  }
-
-  async getCapacities(sessionId: string): Promise<Capacity[]> {
-    const raw = await this.client.get(this.capacitiesKey(sessionId));
     return raw ? JSON.parse(raw) : [];
   }
 

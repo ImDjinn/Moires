@@ -39,6 +39,12 @@ export class AdoWebhookService {
         if (!raw) continue;
 
         const ticket = this.mapper.toTicket(raw);
+        // Le mapper laisse epicId à null : on le recalcule (gère aussi le re-parentage).
+        const epic = (await this.ado.resolveEpics(adoOrg, [raw], token)).get(ticket.id);
+        if (epic) {
+          ticket.epicId = epic.id;
+          ticket.epicTitle = epic.title;
+        }
         ticket.syncStatus = "synced";
 
         await this.redis.updateTicket(sessionId, ticket);

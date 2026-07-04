@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { SessionSnapshot, Ticket } from "@moires/shared";
 import { buildDataset } from "./adapter";
+import { applyDataset, hasBoardColumns, createInitialState, relLoadBand, capOf } from "./ganttModel";
 
 function ticket(p: Partial<Ticket>): Ticket {
   return {
@@ -63,14 +64,31 @@ describe("buildDataset", () => {
     expect(ds.people.map((p) => p.id)).toContain("m1");
     const unassigned = ds.people.find((p) => p.name === "Non assigné");
     expect(unassigned).toBeTruthy();
+    expect(unassigned!.unassigned).toBe(true);
     const task = ds.items.find((i) => i.id === "102")!;
     expect(task.person).toBe(unassigned!.id);
+  });
+
+  it("exclut « Non assigné » du total de capacité (Release)", () => {
+    applyDataset(ds);
+    const [band] = relLoadBand(createInitialState(ds.items), [0], "light");
+    const alice = ds.people.find((p) => p.id === "m1")!;
+    // Total = capacité de la seule membre réelle, sans les 10j fictifs du "Non assigné".
+    expect(band.cap).toBe(capOf(alice, 0));
   });
 
   it("construit la map des epics et storyToFeature", () => {
     expect(ds.epics["E1"]?.label).toBe("Epic One");
     expect(ds.storyToFeature["101"]).toBe("100");
     expect(ds.titleOf["100"]).toBe("Feature A");
+  });
+
+  it("mappe les capacités par membre × itération, défaut 10", () => {
+    const withCaps = buildDataset(snapshot, [
+      { memberId: "m1", iterationPath: "Proj\\S2", storyPoints: 6 },
+    ]);
+    const alice = withCaps.people.find((p) => p.id === "m1")!;
+    expect(alice.cap).toEqual([10, 6]); // S1 non renseignée → 10
   });
 });
 
@@ -113,6 +131,37 @@ describe("buildDataset — états Daily réels ordonnés (#3)", () => {
     expect(ds.dailyStates).toEqual(["To Do", "Doing", "Done"]);
     expect(ds.stateColors["Doing"]).toBe("#0072B2");
     expect(ds.stateCat["Done"]).toBe("Completed");
+  });
+
+  it("mappe colonne↔état quand les noms diffèrent (writeback + placement)", () => {
+    const ds = buildDataset({
+      sessionId: "s", participants: [], teamMembers: [], capacities: [], iterations: [], tickets: [],
+      states: [
+        // Colonnes de board (nom ≠ état) : "Doing" écrit l'état "Active".
+        { name: "To Do", category: "Proposed", color: "#aaa", type: "User Story", state: "New" },
+        { name: "Doing", category: "InProgress", color: "#00f", type: "User Story", state: "Active" },
+        { name: "Done", category: "Completed", color: "#0f0", type: "User Story", state: "Closed" },
+      ],
+    });
+    // Drop dans "Doing" → écrit l'état ADO "Active".
+    expect(ds.stateWrite.story["Doing"]).toBe("Active");
+    // Placement : l'état "Active" (reçu au retour) retombe dans la colonne "Doing".
+    expect(ds.stateToColumn.story["Active"]).toBe("Doing");
+    expect(ds.stateToColumn.story["Closed"]).toBe("Done");
+  });
+
+  it("hasBoardColumns : vrai pour un niveau avec board (mappings), faux sinon (taskboard)", () => {
+    const ds = buildDataset({
+      sessionId: "s", participants: [], teamMembers: [], capacities: [], iterations: [], tickets: [],
+      states: [
+        { name: "Doing", category: "InProgress", color: "#00f", type: "User Story", state: "Active", columnField: "WEF_X_Kanban.Column" },
+        // Task : états du taskboard, sans mapping colonne→état.
+        { name: "Active", category: "InProgress", color: "#00f", type: "Task" },
+      ],
+    });
+    applyDataset(ds);
+    expect(hasBoardColumns("story")).toBe(true);
+    expect(hasBoardColumns("task")).toBe(false);
   });
 
   it("fallback aux états par défaut si ADO n'en fournit pas", () => {

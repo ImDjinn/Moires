@@ -30,9 +30,17 @@ describe("capacities.store.setCapacity", () => {
     ]);
   });
 
-  it("retire la capacité quand mise à 0", () => {
+  it("stocke 0 (membre absent tout le sprint)", () => {
     useCapacitiesStore.getState().setCapacity("s1", "m1", "S1", 8);
     useCapacitiesStore.getState().setCapacity("s1", "m1", "S1", 0);
+    expect(useCapacitiesStore.getState().capacities).toEqual([
+      { memberId: "m1", iterationPath: "S1", storyPoints: 0 },
+    ]);
+  });
+
+  it("retire la capacité quand négative", () => {
+    useCapacitiesStore.getState().setCapacity("s1", "m1", "S1", 8);
+    useCapacitiesStore.getState().setCapacity("s1", "m1", "S1", -1);
     expect(useCapacitiesStore.getState().capacities).toEqual([]);
   });
 });

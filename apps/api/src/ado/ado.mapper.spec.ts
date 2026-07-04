@@ -67,6 +67,30 @@ describe("AdoMapper", () => {
       expect(t.estimateHours).toBe(0);
     });
 
+    it("extrait les champs custom scalaires (hors System.*, WEF_* et champs mappés)", () => {
+      const t = mapper.toTicket({
+        ...raw,
+        fields: {
+          ...raw.fields,
+          "Custom.Risque": "Élevé",
+          "Microsoft.VSTS.Common.BusinessValue": 8,
+          "Custom.Referent": { displayName: "Bob", uniqueName: "bob@corp.com" },
+          "WEF_ABC123_Kanban.Column": "Doing",
+          "System.Description": "<div>html</div>",
+          "Custom.Ignored": ["tableau", "non scalaire"],
+        },
+      });
+      expect(t.customFields).toEqual({
+        "Custom.Risque": "Élevé",
+        "Microsoft.VSTS.Common.BusinessValue": 8,
+        "Custom.Referent": "Bob",
+      });
+    });
+
+    it("customFields absent quand aucun champ custom", () => {
+      expect(mapper.toTicket(raw).customFields).toBeUndefined();
+    });
+
     it("storyPoints = 0 par défaut", () => {
       const t = mapper.toTicket({
         ...raw,
@@ -117,6 +141,25 @@ describe("AdoMapper", () => {
       expect(mapper.toJsonPatch("state", "Active")).toEqual([
         { op: "replace", path: "/fields/System.State", value: "Active" },
       ]);
+    });
+
+    it("champ custom : 'custom:<ref>' écrit /fields/<ref>", () => {
+      expect(mapper.toJsonPatch("custom:Custom.Charge", 13)).toEqual([
+        { op: "replace", path: "/fields/Custom.Charge", value: 13 },
+      ]);
+    });
+
+    it("champ custom vidé (null) => remove", () => {
+      expect(mapper.toJsonPatch("custom:Custom.Charge", null)).toEqual([
+        { op: "remove", path: "/fields/Custom.Charge" },
+      ]);
+    });
+
+    it("refuse System.*, WEF_* et les champs déjà mappés via le chemin custom", () => {
+      expect(() => mapper.toJsonPatch("custom:System.State", "x")).toThrow(/non autorisé/);
+      expect(() => mapper.toJsonPatch("custom:WEF_ABC_Kanban.Column", "x")).toThrow(/non autorisé/);
+      expect(() => mapper.toJsonPatch("custom:Microsoft.VSTS.Scheduling.StoryPoints", 1)).toThrow(/non autorisé/);
+      expect(() => mapper.toJsonPatch("custom:", "x")).toThrow(/non autorisé/);
     });
   });
 });

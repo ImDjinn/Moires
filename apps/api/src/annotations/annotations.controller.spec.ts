@@ -37,10 +37,10 @@ describe("AnnotationsController", () => {
     expect(svc.createRowPin).toHaveBeenCalledWith("s1", { rowKey: "epic:E1", iter: 2, title: "Flag", color: "#E69F00" });
   });
 
-  it("met à jour un flag par id (champs partiels coercés)", async () => {
+  it("met à jour un flag par id (champs partiels coercés), en passant la session", async () => {
     const { svc, ctrl } = make();
-    await ctrl.updateRowPin("p1", { iter: "4" } as any);
-    expect(svc.updateRowPin).toHaveBeenCalledWith("p1", { iter: 4 });
+    await ctrl.updateRowPin("s1", "p1", { iter: "4" } as any);
+    expect(svc.updateRowPin).toHaveBeenCalledWith("s1", "p1", { iter: 4 });
   });
 
   it("supprime un flag par id", async () => {

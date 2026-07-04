@@ -32,7 +32,7 @@ function makeService() {
     getSessionToken: jest.fn(),
     updateTicket: jest.fn().mockResolvedValue(undefined),
   };
-  const ado = { getWorkItemsBatch: jest.fn() };
+  const ado = { getWorkItemsBatch: jest.fn(), resolveEpics: jest.fn().mockResolvedValue(new Map()) };
   const mapper = { toTicket: jest.fn().mockReturnValue({ ...ticket }) };
   const broadcast = { send: jest.fn() };
   const service = new AdoWebhookService(
@@ -72,6 +72,21 @@ describe("AdoWebhookService.handleWorkItemUpdated", () => {
       "s1",
       "ticket:updated",
       expect.objectContaining({ id: "125" }),
+    );
+  });
+
+  it("recalcule epicId/epicTitle via resolveEpics (le mapper les laisse à null)", async () => {
+    const { service, prisma, redis, ado } = makeService();
+    prisma.ticketsCache.findMany.mockResolvedValue([{ sessionId: "s1" }]);
+    redis.getSessionToken.mockResolvedValue("tok");
+    ado.getWorkItemsBatch.mockResolvedValue([{}]);
+    ado.resolveEpics.mockResolvedValue(new Map([["125", { id: "13", title: "Wave 2026 Q4" }]]));
+
+    await service.handleWorkItemUpdated("125", "myorg");
+
+    expect(redis.updateTicket).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ epicId: "13", epicTitle: "Wave 2026 Q4" }),
     );
   });
 

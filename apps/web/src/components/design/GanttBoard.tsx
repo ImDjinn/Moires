@@ -4,19 +4,78 @@ import { useThemeStore } from "../../stores/theme.store";
 import { useSessionStore } from "../../stores/session.store";
 import { useAuthStore } from "../../stores/auth.store";
 import { useTicketsStore } from "../../stores/tickets.store";
+import { useCapacitiesStore } from "../../stores/capacities.store";
+import { useMemberMetaStore } from "../../stores/memberMeta.store";
 import { usePresenceStore } from "../../stores/presence.store";
-import { connectSocket, submitOperation } from "../../services/operations.client";
+import { connectSocket, submitOperation, setRejectionHandler } from "../../services/operations.client";
 import { initPresenceListeners, emitPresence } from "../../services/presence.client";
 import { api } from "../../services/rest.client";
 import { buildDataset, UNASSIGNED_ID } from "./adapter";
+import { Brand } from "../Brand";
 import * as M from "./ganttModel";
 import type { Drag, Item, Presence, State, Theme } from "./ganttModel";
 import type { OperationField } from "@moires/shared";
 
 const C = css;
 const mono = "'IBM Plex Mono',monospace";
+const sans = "'IBM Plex Sans',system-ui,sans-serif";
 const initialsOf = (n: string) =>
   n.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "?";
+
+// Préférences d'affichage (champs du panneau ticket par type, champ de charge) — localStorage.
+const PREFS_KEY = "moires.uiPrefs";
+/** Prefs d'un type de work item : visibilité des champs standard + champs ADO ajoutés.
+ * `def` : valeur par défaut du process, affichée tant que le ticket n'a pas de valeur stockée.
+ * `required`/`allowed` : contraintes du process ADO (champ requis, picklist). */
+interface TypePrefs {
+  fields: Record<string, boolean>;
+  extra: { ref: string; label: string; def?: string | number | boolean | null; required?: boolean; allowed?: string[] }[];
+}
+interface UiPrefs {
+  v?: 2;
+  types: Record<string, TypePrefs>;
+  loadField: M.LoadField;
+}
+// Champs de base par type ADO (process Agile), comme le formulaire ADO :
+// Story Points sur les US/Bugs, Estimation (Original Estimate) sur les Tasks,
+// Effort sur Epic/Feature (champ ADO réel, servi via le mécanisme des champs supplémentaires).
+const witKind = (wit: string): "parent" | "task" | "story" =>
+  /epic|feature/i.test(wit) ? "parent" : /task|tâche/i.test(wit) ? "task" : "story";
+function defaultTypePrefs(wit: string): TypePrefs {
+  const k = witKind(wit);
+  return {
+    fields: { state: true, assignee: true, iter: true, area: true, points: k === "story", effort: k === "task", priority: true, dates: k === "parent" },
+    extra: k === "parent" ? [{ ref: "Microsoft.VSTS.Scheduling.Effort", label: "Effort" }] : [],
+  };
+}
+function typePrefsOf(prefs: UiPrefs, wit: string): TypePrefs {
+  const d = defaultTypePrefs(wit);
+  const t = prefs.types[wit];
+  return { fields: { ...d.fields, ...(t?.fields || {}) }, extra: t?.extra ?? d.extra };
+}
+function loadPrefs(): UiPrefs {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
+    // Migration : l'ancien mode "auto" n'existe plus (champ ADO réel exigé).
+    const lf = saved.loadField && saved.loadField !== "auto" ? saved.loadField : "points";
+    // v2 : défauts par type ADO (Effort sur Epic/Feature) — prefs v1 réinitialisées.
+    return { v: 2, types: saved.v === 2 ? saved.types || {} : {}, loadField: lf };
+  } catch {
+    return { v: 2, types: {}, loadField: "points" };
+  }
+}
+/** Clé des prefs du panneau : type ADO réel, sinon libellé du type mock. */
+const witOf = (it: Item) => it.wit || M.typeLabels[it.type] || it.type;
+const inspFieldDefs: { key: string; label: string; kinds?: string[] }[] = [
+  { key: "state", label: "État" },
+  { key: "assignee", label: "Assigné à" },
+  { key: "iter", label: "Itération" },
+  { key: "area", label: "Area Path" },
+  { key: "points", label: "Story Points", kinds: ["story"] },
+  { key: "effort", label: "Estimation", kinds: ["task"] },
+  { key: "priority", label: "Priorité" },
+  { key: "dates", label: "Dates (début → fin)" },
+];
 
 interface ScriptAction {
   id: string;
@@ -31,9 +90,11 @@ export function GanttBoard() {
 
   // Données réelles (ADO) si une session est chargée avec des tickets, sinon mock.
   const snapshot = useSessionStore((s) => s.snapshot);
+  const capacities = useCapacitiesStore((s) => s.capacities);
+  const memberMeta = useMemberMetaStore((s) => s.memberMeta);
   const dataset = useMemo(
-    () => (snapshot && snapshot.tickets.length ? buildDataset(snapshot) : null),
-    [snapshot],
+    () => (snapshot && snapshot.tickets.length ? buildDataset(snapshot, capacities, memberMeta) : null),
+    [snapshot, capacities, memberMeta],
   );
   if (dataset) M.applyDataset(dataset);
 
@@ -51,6 +112,64 @@ export function GanttBoard() {
   const [state, setSt] = useState<State>(() => M.createInitialState(dataset ? dataset.items : undefined));
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  // Édition inline de la capacité (bandeau personne × sprint).
+  const [capEdit, setCapEdit] = useState<{ personId: string; real: number } | null>(null);
+  // Panneau personne (capacités par itération) — exclusif du panneau ticket.
+  const [personSel, setPersonSel] = useState<string | null>(null);
+  useEffect(() => {
+    if (state.selectedId) setPersonSel(null);
+  }, [state.selectedId]);
+
+  const [prefs, setPrefs] = useState<UiPrefs>(loadPrefs);
+  M.setLoadField(prefs.loadField);
+  const savePrefs = (next: UiPrefs): UiPrefs => {
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify(next)); } catch { /* stockage indisponible */ }
+    return next;
+  };
+  const updatePrefs = useCallback((patch: Partial<UiPrefs>) => {
+    setPrefs((p) => savePrefs({ ...p, ...patch }));
+  }, []);
+  const updateTypePrefs = useCallback((wit: string, patch: Partial<TypePrefs>) => {
+    setPrefs((p) => {
+      // Première personnalisation d'un type : on part des défauts (sinon un simple
+      // toggle effacerait l'extra par défaut, ex. Effort des Epic/Feature).
+      const cur = p.types[wit] || { fields: {}, extra: defaultTypePrefs(wit).extra };
+      const next: TypePrefs = { fields: { ...cur.fields, ...(patch.fields || {}) }, extra: patch.extra ?? cur.extra };
+      return savePrefs({ ...p, types: { ...p.types, [wit]: next } });
+    });
+  }, []);
+
+  // Sélecteur de champ ADO supplémentaire (popover ⚙ du panneau ticket).
+  // list === null : chargement en cours.
+  type PickerField = { ref: string; label: string; def?: string | number | boolean | null; required?: boolean; allowed?: string[] };
+  const [fieldPicker, setFieldPicker] = useState<{ q: string; list: PickerField[] | null } | null>(null);
+  // Saisie custom refusée (champ requis vidé) : incrémenté pour remonter les
+  // inputs (clé) et réafficher la valeur conservée.
+  const [extraNonce, setExtraNonce] = useState(0);
+  const openFieldPicker = useCallback((wit: string) => {
+    setFieldPicker({ q: "", list: null });
+    const done = (list: PickerField[]) =>
+      setFieldPicker((p) => (p ? { ...p, list } : p));
+    // Hors session réelle : union des champs custom présents sur les items du même type.
+    const fallback = () => {
+      const seen = new Map<string, string>();
+      stateRef.current.items.forEach((x) => {
+        if (witOf(x) === wit) Object.keys(x.custom || {}).forEach((k) => seen.set(k, k.split(".").pop() || k));
+      });
+      done([...seen].map(([ref, label]) => ({ ref, label })));
+    };
+    const sid = sessionIdRef.current;
+    if (realSessionRef.current && sid) {
+      api.getTypeFields(sid, wit)
+        .then((fields) => done(fields.map((f) => ({
+          ref: f.referenceName, label: f.name, def: f.defaultValue,
+          required: f.alwaysRequired || undefined,
+          allowed: f.allowedValues?.length ? f.allowedValues : undefined,
+        }))))
+        .catch(fallback);
+    } else fallback();
+  }, []);
 
   const setState = useCallback((patch: Partial<State> | ((s: State) => Partial<State>)) => {
     setSt((s) => ({ ...s, ...(typeof patch === "function" ? patch(s) : patch) }));
@@ -100,20 +219,32 @@ export function GanttBoard() {
   const emitOp = useCallback(
     (itemId: string, boardField: string, value: unknown) => {
       if (!realSessionRef.current || !user) return;
+      // Champ ADO custom : le referenceName voyage tel quel ("custom:<ref>").
+      if (boardField.startsWith("custom:")) {
+        submitOperation({ ticketId: itemId, field: boardField as `custom:${string}`, value: value as string | number | null, userId: user.id, clientTimestamp: Date.now() });
+        return;
+      }
       let field: OperationField;
       let opValue: string | number | string[] | null;
       switch (boardField) {
         case "title": field = "title"; opValue = value as string; break;
         case "state": {
-          field = "state";
-          // La valeur board est une colonne (ex: "Doing") : on écrit l'état
-          // ADO réel mappé (stateMappings), pas le nom de colonne.
+          // La valeur board est une colonne (ex: "Doing"). Niveau avec board
+          // ADO : déplacement de colonne (le serveur écrit le champ Kanban WEF
+          // + l'état mappé). Sinon (Task : taskboard) : écriture d'état directe.
           const lvl = stateRef.current.items.find((x) => x.id === itemId)?.level ?? "story";
-          opValue = M.stateToWrite(lvl, value as string);
+          if (M.hasBoardColumns(lvl)) {
+            field = "boardColumn";
+            opValue = value as string;
+          } else {
+            field = "state";
+            opValue = M.stateToWrite(lvl, value as string);
+          }
           break;
         }
         case "person": field = "assigneeId"; opValue = value === UNASSIGNED_ID ? null : (value as string); break;
         case "points": field = "storyPoints"; opValue = value as number; break;
+        case "priority": field = "priority"; opValue = value as number; break;
         case "effortDays": field = "estimateHours"; opValue = value as number; break;
         case "tags": field = "tags"; opValue = value as string[]; break;
         case "area": field = "areaPath"; opValue = value as string; break;
@@ -132,6 +263,49 @@ export function GanttBoard() {
       submitOperation({ ticketId: itemId, field, value: opValue, userId: user.id, clientTimestamp: Date.now() });
     },
     [user],
+  );
+
+  // Capacité d'un membre pour un sprint : persistée côté serveur en session
+  // réelle (partagée entre participants), locale en mock.
+  const commitCapacity = useCallback(
+    (personId: string, real: number, value: number) => {
+      setCapEdit(null);
+      if (!Number.isFinite(value) || value < 0) return;
+      const path = M.iters[real]?.path;
+      const sid = sessionIdRef.current;
+      if (realSessionRef.current && sid && path) {
+        useCapacitiesStore.getState().setCapacity(sid, personId, path, value);
+      } else {
+        const p = M.people.find((x) => x.id === personId);
+        if (!p) return;
+        p.cap[real] = value;
+        setState({});
+      }
+      sync("Capacité mise à jour");
+    },
+    [setState, sync],
+  );
+
+  // Poste/rôle d'un membre : persisté côté serveur en session réelle (partagé,
+  // hors ADO), local en mock. `patch` ne porte que le champ modifié.
+  const commitMemberMeta = useCallback(
+    (personId: string, patch: { poste?: string; teamRole?: string }) => {
+      const p = M.people.find((x) => x.id === personId);
+      if (!p) return;
+      const poste = (patch.poste ?? p.role).trim();
+      const teamRole = (patch.teamRole ?? p.teamRole ?? "").trim();
+      if (poste === (p.role || "") && teamRole === (p.teamRole || "")) return;
+      const sid = sessionIdRef.current;
+      if (realSessionRef.current && sid) {
+        useMemberMetaStore.getState().setMemberMeta(sid, { memberId: personId, poste, role: teamRole });
+      } else {
+        p.role = poste;
+        p.teamRole = teamRole;
+        setState({});
+      }
+      sync("Profil mis à jour");
+    },
+    [setState, sync],
   );
 
   // Émet la position du curseur aux autres participants (throttlé côté client).
@@ -167,27 +341,66 @@ export function GanttBoard() {
       emitOp(id, field as string, value);
       const labels: Record<string, string> = {
         title: "Titre", state: "État", person: "Assignation", iter: "Itération",
-        points: "Story points", effortDays: "Estimation", tags: "Tags", area: "Area Path",
+        points: "Story points", effortDays: "Estimation", tags: "Tags", area: "Area Path", priority: "Priorité",
       };
       sync(`${labels[field as string] || "Champ"} enregistré dans Azure DevOps`);
     },
     [setState, sync, emitOp],
   );
 
+  // Champ ADO custom : maj locale (Item.custom) + write-back "custom:<ref>".
+  // Saisie numérique ("." ou ",") → nombre ; sinon chaîne brute ; vide = effacer.
+  const setCustomField = useCallback(
+    (id: string, ref: string, raw: string) => {
+      const st = stateRef.current;
+      const cur = st.items.find((x) => x.id === id)?.custom?.[ref];
+      const trimmed = raw.trim();
+      const n = Number(trimmed.replace(",", "."));
+      const value = trimmed === "" ? null : Number.isFinite(n) ? n : trimmed;
+      if (value === (cur ?? null)) return;
+      const items = st.items.map((x) => {
+        if (x.id !== id) return x;
+        const custom = { ...x.custom };
+        if (value === null) delete custom[ref];
+        else custom[ref] = value;
+        return { ...x, custom };
+      });
+      setState({ items });
+      emitOp(id, `custom:${ref}`, value);
+      sync(`${ref.split(".").pop() || ref} enregistré dans Azure DevOps`);
+    },
+    [setState, sync, emitOp],
+  );
+
   const pasteCopy = useCallback(
     (src: Item) => {
+      const sid = sessionIdRef.current;
+      if (realSessionRef.current && sid) {
+        // Session réelle : le serveur crée le work item copié dans ADO et renvoie le ticket.
+        api.duplicateTicket(sid, src.id)
+          .then((t) => {
+            const st = t.boardColumn || M.columnForState(src.level, t.state) || t.state || "New";
+            const copy: Item = { ...src, id: t.id, ado: `#${t.id}`, title: t.title, state: st, progress: M.stateProgress(st), tags: t.tags.slice() };
+            setState((s) => ({ items: [...s.items, copy], selectedId: t.id, level: src.level }));
+            const store = useTicketsStore.getState();
+            store.setTickets([...store.tickets, t]);
+            sync(`Copie créée dans Azure DevOps : #${t.id}`);
+          })
+          .catch(() => toast("Impossible de créer la copie dans Azure DevOps"));
+        return;
+      }
       const id = "ADO-" + idc.current++;
-      const copy: Item = { ...src, id, ado: id, title: src.title.replace(/ - Copy$/, "") + " - Copy", state: "New", progress: 0, tags: src.tags.slice() };
+      const copy: Item = { ...src, id, ado: id, title: src.title + " - Copy", state: "New", progress: 0, tags: src.tags.slice() };
       setState((s) => ({ items: [...s.items, copy], selectedId: id, level: src.level }));
       sync(`Copie créée : ${id}`);
     },
-    [setState, sync],
+    [setState, sync, toast],
   );
 
   const toggleNode = useCallback(
-    (key: string, kind: string) => {
+    (key: string) => {
       const st = stateRef.current;
-      const open = M.isOpen(st, key, kind);
+      const open = M.isOpen(st, key);
       setState({ expanded: { ...st.expanded, [key]: !open } });
     },
     [setState],
@@ -235,7 +448,7 @@ export function GanttBoard() {
       if (realSessionRef.current && sid) {
         api.createRowPin(sid, draft)
           .then((p) => setState((s) => ({ rowPins: [...s.rowPins, p], rowPinSel: p.id, milestoneSel: null })))
-          .catch(() => {});
+          .catch(() => toast("Impossible d'ajouter le flag (erreur serveur)"));
       } else {
         const id = "F" + Date.now().toString(36);
         setState((s) => ({ rowPins: [...s.rowPins, { id, ...draft }], rowPinSel: id, milestoneSel: null }));
@@ -346,6 +559,12 @@ export function GanttBoard() {
         if (s0 !== d.os || en !== d.oe) setFeatRange(d.id, s0, en);
         return;
       }
+      // Simple clic (pas de déplacement) → sélectionne le ticket. La sélection
+      // n'est plus faite au pointerdown pour ne pas ouvrir le panneau en dragguant.
+      if (Math.abs(d.dx) < 4 && Math.abs(d.dy) < 4) {
+        setState({ drag: null, selectedId: d.id });
+        return;
+      }
       const items = st.items.map((x) => ({ ...x }));
       const it = items.find((x) => x.id === d.id)!;
       const daily = st.board === "daily";
@@ -389,7 +608,7 @@ export function GanttBoard() {
       e.stopPropagation();
       const it = stateRef.current.items.find((x) => x.id === id)!;
       const pIdx = M.people.findIndex((p) => p.id === it.person);
-      setState({ selectedId: id, rangeOpen: false, drag: { id, mode, sx: e.clientX, sy: e.clientY, dx: 0, dy: 0, oi: it.iter, op: pIdx, os: it.span || 1 } });
+      setState({ rangeOpen: false, drag: { id, mode, sx: e.clientX, sy: e.clientY, dx: 0, dy: 0, oi: it.iter, op: pIdx, os: it.span || 1 } });
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
     },
@@ -425,11 +644,12 @@ export function GanttBoard() {
             setState({ scrollLeft: tagged.scrollLeft });
           });
         });
-        // Release : la molette verticale pilote le défilement horizontal, sauf au survol du panneau gauche.
+        // Board trop large (Release toujours, Sprint/Daily si trop d'itérations/états) :
+        // la molette verticale pilote le défilement horizontal, sauf au survol du panneau gauche.
         tagged.addEventListener(
           "wheel",
           (e) => {
-            if (stateRef.current.board !== "release" || !e.deltaY) return;
+            if (!e.deltaY || tagged.scrollWidth <= tagged.clientWidth) return;
             if (e.clientX - tagged.getBoundingClientRect().left <= M.LEFT) return;
             tagged.scrollLeft += e.deltaY;
             e.preventDefault();
@@ -553,6 +773,13 @@ export function GanttBoard() {
       .catch(() => {});
   }, [realSession, snapshot, user, setState]);
 
+  // Écritures refusées (serveur ou ADO) : toast au lieu d'un échec silencieux.
+  useEffect(() => {
+    if (!realSession) return;
+    setRejectionHandler(toast);
+    return () => setRejectionHandler(null);
+  }, [realSession, toast]);
+
   // Réconciliation : toute maj du store tickets (socket distant, sync ADO,
   // écho de nos propres ops) repatche les champs ADO des items du board.
   useEffect(() => {
@@ -569,8 +796,12 @@ export function GanttBoard() {
           if (!t) return it;
           const iter = t.iterationId && pathIndex.has(t.iterationId) ? pathIndex.get(t.iterationId)! : M.BACKLOG;
           const person = t.assigneeId && memberIds.has(t.assigneeId) ? t.assigneeId : UNASSIGNED_ID;
-          const st = t.boardColumn || t.state || it.state;
-          return { ...it, title: t.title, state: st, progress: M.stateProgress(st), points: t.storyPoints, effortDays: t.estimateHours, tags: t.tags, area: t.areaPath, epicId: t.epicId, person, iter };
+          // Colonne Daily : boardColumn d'abord (écrit au drop via le champ WEF,
+          // mis à jour en optimiste et sur les échos — fiable même quand deux
+          // colonnes partagent le même état), sinon dérivée de l'état, sinon
+          // l'état brut.
+          const st = t.boardColumn || M.columnForState(it.level, t.state) || t.state || it.state;
+          return { ...it, title: t.title, state: st, progress: M.stateProgress(st), points: t.storyPoints, effortDays: t.estimateHours, tags: t.tags, area: t.areaPath, epicId: t.epicId, priority: t.priority, custom: t.customFields, person, iter };
         }),
       }));
     };
@@ -584,10 +815,14 @@ export function GanttBoard() {
     const id = setInterval(() => {
       api
         .syncSession(snapshot.sessionId)
-        .then((fresh: { tickets: import("@moires/shared").Ticket[] }) => {
+        .then((fresh: { tickets: import("@moires/shared").Ticket[]; capacities?: import("@moires/shared").Capacity[] }) => {
           const store = useTicketsStore.getState();
           const pending = new Set(store.tickets.filter((t) => t.syncStatus !== "synced").map((t) => t.id));
           fresh.tickets.filter((t) => !pending.has(t.id)).forEach((t) => store.updateTicket(t));
+          // Capacités modifiées par les autres participants.
+          // ponytail: le serveur gagne — une saisie locale non encore persistée
+          // (fenêtre < 5s) peut être écrasée, le PUT part en ~100ms.
+          if (fresh.capacities) useCapacitiesStore.getState().setCapacities(fresh.capacities);
         })
         .catch(() => {});
     }, 5000);
@@ -633,7 +868,8 @@ export function GanttBoard() {
           if (current) { tag = "courante"; tagStyle = "font-size:9px;font-weight:600;padding:1px 6px;border-radius:5px;background:var(--accentsoft,#ececfb);color:var(--accent,#5b5bd6)"; }
           else if (past) { tag = "passée"; tagStyle = "font-size:9px;font-weight:600;padding:1px 6px;border-radius:5px;background:var(--line2,#f0f0f4);color:var(--faint,#abacb6)"; }
           return {
-            label: it.label, dates: it.dates, sub: it.sub, tag, tagStyle, showDot: current, dotColor: "var(--accent,#5b5bd6)",
+            // Release : le sous-titre laisse la place à la bande de charge dans le header.
+            label: it.label, dates: it.dates, sub: release ? "" : it.sub, tag, tagStyle, showDot: current, dotColor: "var(--accent,#5b5bd6)",
             titleColor: current ? "var(--accent,#5b5bd6)" : past ? "var(--muted,#86868f)" : "var(--ink,#1a1a20)",
             bgStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${TH}px;background:${vi % 2 ? "var(--colalt,#fafafc)" : "transparent"};border-right:1px solid var(--gridline,#ececf1)${real === M.BACKLOG ? ";border-left:1px dashed var(--line,#e8e8ee)" : ""}`,
             headStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${M.HEADER}px;padding:12px 14px;border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:6;box-sizing:border-box${current ? ";box-shadow:inset 0 -2px 0 var(--accent,#5b5bd6)" : ""}`,
@@ -644,33 +880,48 @@ export function GanttBoard() {
       ? []
       : layout.rows.map((r) => {
           const p = M.people.find((x) => x.id === r.personId)!;
-          const used = capUsed[p.id][M.CURRENT], cap = 10 - p.abs[M.CURRENT], lp = cap ? used / cap : used, lc = M.capColor(lp);
+          const used = capUsed[p.id][M.CURRENT], cap = M.capOf(p, M.CURRENT), lp = cap ? used / cap : used, lc = M.capColor(lp);
+          const openable = p.id !== UNASSIGNED_ID;
           return {
-            id: p.id, name: p.name, role: p.role, initials: p.initials, loadShow: daily,
-            loadText: `${M.fmt(used)}/${cap}j · ${Math.round(lp * 100)}%`,
+            id: p.id, name: p.name, role: p.role, initials: p.initials, loadShow: daily && !p.unassigned,
+            loadText: `${M.fmt(used)}/${M.fmt(cap)}j · ${Math.round(lp * 100)}%`,
             loadTextStyle: `font-size:10px;font-family:${mono};color:${lp > 1 ? "#ef4444" : "var(--muted,#86868f)"}`,
             loadFillStyle: `position:absolute;left:0;top:0;height:100%;width:${Math.min(lp, 1) * 100}%;background:${lc};border-radius:3px`,
             avatarStyle: `width:30px;height:30px;border-radius:50%;background:${p.color};color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
-            leftStyle: `position:absolute;left:0;top:${r.top}px;width:${M.LEFT}px;height:${r.height}px;background:var(--panel,#fff);border-right:1px solid var(--line,#e8e8ee);padding:0 14px;z-index:7;box-sizing:border-box;display:flex;align-items:center;gap:10px`,
+            // Ouvre le panneau personne (et ferme le panneau ticket).
+            onOpen: openable
+              ? (e: React.MouseEvent) => { e.stopPropagation(); setFieldPicker(null); setState({ selectedId: null, prefsOpen: false }); setPersonSel(p.id); }
+              : undefined,
+            // Épinglé au défilement horizontal (comme en Release) : au-dessus des barres (z drag = 40).
+            leftStyle: `position:absolute;left:0;top:${r.top}px;width:${M.LEFT}px;height:${r.height}px;background:var(--panel,#fff);border-right:1px solid var(--line,#e8e8ee);padding:0 14px;z-index:45;box-sizing:border-box;display:flex;align-items:center;gap:10px;transform:translateX(var(--sl,0px));will-change:transform${openable ? ";cursor:pointer" : ""}`,
             sepStyle: `position:absolute;left:0;top:${r.top + r.height}px;width:${TW}px;height:1px;background:var(--gridline,#ececf1);z-index:5`,
           };
         });
 
-    const banners: { style: string; fillStyle: string; text: string; textStyle: string; pct: string; pctStyle: string }[] = [];
+    const banners: { style: string; fillStyle: string; text: string; textStyle: string; pct: string; pctStyle: string; editing: boolean; capVal: number; onClick: (e: React.MouseEvent) => void; onCommit: (value: number) => void }[] = [];
     if (!daily && !release)
       layout.rows.forEach((r) => {
         const p = M.people.find((x) => x.id === r.personId)!;
+        if (p.unassigned) return; // pas de capacité affichée/éditable pour "Non assigné"
         const by = r.top + M.TOPPAD;
         cols.forEach((real, vi) => {
           if (real >= M.NITER) return;
-          const used = capUsed[p.id][real], cap = 10 - p.abs[real], pct = cap ? used / cap : used, c = M.capColor(pct);
+          const used = capUsed[p.id][real], cap = M.capOf(p, real), pct = cap ? used / cap : used, c = M.capColor(pct);
+          const editable = p.id !== UNASSIGNED_ID;
           banners.push({
-            style: `position:absolute;left:${M.LEFT + vi * COLW + 10}px;top:${by}px;width:${COLW - 20}px;height:${M.BANNER}px;display:flex;align-items:center;gap:8px;padding:0 9px;background:var(--panel2,#fafafc);border:1px solid var(--line2,#f0f0f4);border-radius:7px;box-sizing:border-box;z-index:4`,
+            style: `position:absolute;left:${M.LEFT + vi * COLW + 10}px;top:${by}px;width:${COLW - 20}px;height:${M.BANNER}px;display:flex;align-items:center;gap:8px;padding:0 9px;background:var(--panel2,#fafafc);border:1px solid var(--line2,#f0f0f4);border-radius:7px;box-sizing:border-box;z-index:4${editable ? ";cursor:pointer" : ""}`,
             fillStyle: `position:absolute;left:0;top:0;height:100%;width:${Math.min(pct, 1) * 100}%;background:${c};border-radius:3px`,
-            text: `${M.fmt(used)}/${cap}j${p.abs[real] ? " · −" + p.abs[real] + "j abs." : ""}`,
+            text: `${M.fmt(used)}/${M.fmt(cap)}j`,
             textStyle: `font-size:9.5px;font-family:${mono};color:var(--muted,#86868f);white-space:nowrap;flex:0 0 auto`,
             pct: Math.round(pct * 100) + "%",
             pctStyle: `font-size:9.5px;font-weight:600;font-family:${mono};color:${pct > 1 ? "#ef4444" : c};flex:0 0 auto`,
+            editing: !!capEdit && capEdit.personId === p.id && capEdit.real === real,
+            capVal: cap,
+            onClick: (e: React.MouseEvent) => {
+              e.stopPropagation();
+              if (editable) setCapEdit({ personId: p.id, real });
+            },
+            onCommit: (value: number) => commitCapacity(p.id, real, value),
           });
         });
       });
@@ -687,7 +938,7 @@ export function GanttBoard() {
       const epMeta = M.epics[M.epicOf(it)] || ({} as { color?: string; short?: string }), epColor = epMeta.color || "#888";
       const prog = M.stateProgress(it.state), sc = M.stateColors[it.state];
       return {
-        ado: it.ado, typeLabel: M.typeLabels[it.type], title: it.title, showPoints, points: it.points + "p", est, showFooter: !release,
+        ado: it.ado, typeLabel: M.typeLabels[it.type], title: it.title, showPoints, points: M.fmt(it.points) + "p", est, showFooter: !release,
         accent: cm.accent, epicShort: epMeta.short || "",
         epicDotStyle: `width:8px;height:8px;border-radius:2px;background:${epColor};flex:0 0 auto`,
         epicLabelStyle: "font-size:10px;font-weight:500;color:var(--muted,#86868f);white-space:nowrap;overflow:hidden;text-overflow:ellipsis",
@@ -739,10 +990,11 @@ export function GanttBoard() {
 
     const rl = state.rangeFrom === state.rangeTo ? M.iters[state.rangeFrom].short : `${M.iters[state.rangeFrom].short} → ${M.iters[state.rangeTo].short}`;
     const rangeLabel = release ? "Toutes les itérations" : daily ? M.iters[M.CURRENT].short : rl + (state.backlog ? " + Backlog" : "");
+    const iterLabel = (i: number) => M.iters[i].label + (i === M.CURRENT ? " (courante)" : i < M.CURRENT ? " (passée)" : "");
+    const iterOptions = Array.from({ length: M.NITER }, (_, i) => ({ value: String(i), label: iterLabel(i) }));
     const range = {
       showRange: !daily && !release, isRelease: release,
-      from: String(state.rangeFrom), to: String(state.rangeTo), backlog: state.backlog,
-      options: Array.from({ length: M.NITER }, (_, i) => i).map((i) => ({ value: String(i), label: M.iters[i].label + (i === M.CURRENT ? " (courante)" : i < M.CURRENT ? " (passée)" : "") })),
+      from: String(state.rangeFrom), to: String(state.rangeTo), backlog: state.backlog, iterOptions,
       onFrom: (e: React.ChangeEvent<HTMLSelectElement>) => { const val = Number(e.target.value); setState((s) => ({ rangeFrom: val, rangeTo: Math.max(val, s.rangeTo) })); },
       onTo: (e: React.ChangeEvent<HTMLSelectElement>) => { const val = Number(e.target.value); setState((s) => ({ rangeTo: val, rangeFrom: Math.min(val, s.rangeFrom) })); },
       onBacklog: (e: React.ChangeEvent<HTMLInputElement>) => setState({ backlog: e.target.checked }),
@@ -764,6 +1016,13 @@ export function GanttBoard() {
     function buildInsp(item: Item) {
       const cm = M.colorMap(item.type, theme);
       const isTask = item.level === "task";
+      const wit = witOf(item);
+      const tp = typePrefsOf(prefs, wit);
+      const fmtVal = (val: string | number | boolean | null | undefined) => {
+        if (val == null) return "—";
+        const s = String(val);
+        return s.length > 300 ? s.slice(0, 300) + "…" : s;
+      };
       return {
         ado: item.ado, typeLabel: M.typeLabels[item.type], accent: cm.accent,
         badgeStyle: `font-size:10px;font-weight:600;padding:2px 7px;border-radius:6px;background:${cm.border};color:${cm.text}`,
@@ -780,20 +1039,99 @@ export function GanttBoard() {
         area: item.area, onArea: (e: React.ChangeEvent<HTMLSelectElement>) => setField(item.id, "area", e.target.value),
         areaOptions: M.areaOptions.map((a) => ({ value: a, label: a })),
         onDup: () => pasteCopy(item),
+        adoHref: snapshot?.adoUrl ? `${snapshot.adoUrl}/_workitems/edit/${item.id}` : null,
         notTask: !isTask, isTask,
-        points: item.points, incPoints: () => setField(item.id, "points", item.points + 1), decPoints: () => setField(item.id, "points", Math.max(0, item.points - 1)),
-        effort: isTask ? M.fmt(item.effortDays) : M.fmt(item.points),
+        show: tp.fields,
+        // --- Personnalisation des champs du panneau (par type de work item) ---
+        wit,
+        prefsOpen: state.prefsOpen,
+        onPrefsToggle: (e: React.MouseEvent) => { e.stopPropagation(); setFieldPicker(null); setState((s) => ({ prefsOpen: !s.prefsOpen })); },
+        // Clic dans le panneau hors du popover réglages : ferme les réglages (le popover stoppe la propagation).
+        onPanelClick: (e: React.MouseEvent) => { e.stopPropagation(); if (stateRef.current.prefsOpen) { setFieldPicker(null); setState({ prefsOpen: false }); } },
+        prefFields: inspFieldDefs
+          .filter((f) => !f.kinds || f.kinds.includes(witKind(wit)))
+          .map((f) => ({
+            label: f.label, checked: tp.fields[f.key] !== false,
+            onToggle: (e: React.ChangeEvent<HTMLInputElement>) => updateTypePrefs(wit, { fields: { [f.key]: e.target.checked } }),
+          })),
+        onAddField: (e: React.MouseEvent) => { e.stopPropagation(); openFieldPicker(wit); },
+        picker: fieldPicker && {
+          q: fieldPicker.q,
+          onQ: (e: React.ChangeEvent<HTMLInputElement>) => setFieldPicker((p) => (p ? { ...p, q: e.target.value } : p)),
+          loading: fieldPicker.list === null,
+          onClose: () => setFieldPicker(null),
+          options: (fieldPicker.list || [])
+            .filter((f) => !tp.extra.some((x) => x.ref === f.ref))
+            .filter((f) => f.label.toLowerCase().includes(fieldPicker.q.toLowerCase()))
+            .map((f) => ({ ...f, onPick: () => updateTypePrefs(wit, { extra: [...tp.extra, f] }) })),
+        },
+        points: item.points,
+        // Saisie décimale : "." et "," acceptés, commit au blur (pas à la frappe).
+        onPoints: (e: React.FocusEvent<HTMLInputElement>) => { const n = parseFloat(e.target.value.replace(",", ".")); const val = Number.isFinite(n) ? Math.max(0, n) : item.points; e.target.value = String(val); if (val !== item.points) setField(item.id, "points", val); },
+        incPoints: () => setField(item.id, "points", item.points + 0.5), decPoints: () => setField(item.id, "points", Math.max(0, item.points - 0.5)),
+        effort: item.effortDays || 0,
+        onEffort: (e: React.FocusEvent<HTMLInputElement>) => { const n = parseFloat(e.target.value.replace(",", ".")); const val = Number.isFinite(n) ? Math.max(0, n) : item.effortDays || 0; e.target.value = String(val); if (val !== (item.effortDays || 0)) setField(item.id, "effortDays", val); },
         incEffort: () => setField(item.id, "effortDays", (item.effortDays || 0) + 0.5),
         decEffort: () => setField(item.id, "effortDays", Math.max(0, (item.effortDays || 0) - 0.5)),
-        tags: item.tags.map((t, i) => ({ label: t, onRemove: () => setField(item.id, "tags", item.tags.filter((_, j) => j !== i)) })),
-        tagDraft: state.tagDraft, onTagInput: (e: React.ChangeEvent<HTMLInputElement>) => setState({ tagDraft: e.target.value }),
-        onTagKey: (e: React.KeyboardEvent) => { if (e.key === "Enter" && state.tagDraft.trim()) { setField(item.id, "tags", [...item.tags, state.tagDraft.trim()]); setState({ tagDraft: "" }); } },
-        onClose: () => setState({ selectedId: null }),
+        priority: item.priority ?? "",
+        onPriority: (e: React.ChangeEvent<HTMLInputElement>) => { const n = parseInt(e.target.value, 10); if (n >= 1) setField(item.id, "priority", n); },
+        dates: M.formatRange(item.startISO, item.endISO),
+        extraFields: tp.extra.map((f) => {
+          const raw = item.custom?.[f.ref] != null ? String(item.custom![f.ref]) : "";
+          return {
+            // Valeur stockée sur le ticket, sinon défaut du process (comme ADO), sinon "—".
+            ref: f.ref, label: f.label, value: fmtVal(item.custom?.[f.ref] ?? f.def),
+            raw, required: !!f.required, allowed: f.allowed,
+            onCommit: (e: { target: { value: string } }) => {
+              // Champ requis dans ADO : saisie vide refusée localement.
+              if (f.required && !e.target.value.trim()) {
+                setExtraNonce((n) => n + 1); // remonte l'input → réaffiche la valeur conservée
+                toast(`« ${f.label} » est requis dans Azure DevOps — valeur conservée`);
+                return;
+              }
+              setCustomField(item.id, f.ref, e.target.value);
+            },
+            onRemove: () => updateTypePrefs(wit, { extra: tp.extra.filter((x) => x.ref !== f.ref) }),
+          };
+        }),
+        onClose: () => { setFieldPicker(null); setState({ selectedId: null, prefsOpen: false }); },
         footDotStyle: syncing ? `width:9px;height:9px;border-radius:50%;border:2px solid var(--accent,#5b5bd6);border-top-color:transparent;animation:ggspin .7s linear infinite` : "width:7px;height:7px;border-radius:50%;background:#2bbf73",
         footLabel: syncing ? "Écriture dans Azure DevOps…" : "Synchronisé · write-back par champ",
       };
     }
     if (item) insp = buildInsp(item);
+
+    // Panneau personne : capacité éditable pour chaque itération.
+    const selPerson = personSel ? M.people.find((p) => p.id === personSel) : null;
+    const personPanel = selPerson
+      ? {
+          name: selPerson.name, poste: selPerson.role, teamRole: selPerson.teamRole, initials: selPerson.initials,
+          onCommitPoste: (e: React.FocusEvent<HTMLInputElement>) => commitMemberMeta(selPerson.id, { poste: e.target.value }),
+          onCommitRole: (e: React.FocusEvent<HTMLInputElement>) => commitMemberMeta(selPerson.id, { teamRole: e.target.value }),
+          avatarStyle: `width:34px;height:34px;border-radius:50%;background:${selPerson.color};color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
+          // Itération courante et suivantes : la capacité des sprints passés ne s'édite plus.
+          rows: M.iters.slice(M.CURRENT, M.NITER).map((it, k) => {
+            const i = M.CURRENT + k;
+            const used = capUsed[selPerson.id]?.[i] || 0, cap = M.capOf(selPerson, i);
+            const pct = cap ? used / cap : used;
+            return {
+              key: i, label: it.label, dates: it.dates, current: i === M.CURRENT,
+              usedText: `${M.fmt(used)} /`,
+              cap,
+              pctText: Math.round(pct * 100) + "%",
+              pctStyle: `font-size:10.5px;font-weight:600;font-family:${mono};color:${pct > 1 ? "#ef4444" : M.capColor(pct)};width:40px;text-align:right;flex:0 0 auto`,
+              // Même convention que les champs du panneau ticket : commit au blur.
+              onCommit: (e: React.FocusEvent<HTMLInputElement>) => {
+                const n = parseFloat(e.target.value.replace(",", "."));
+                const val = Number.isFinite(n) ? Math.max(0, n) : cap;
+                e.target.value = String(val);
+                if (val !== cap) commitCapacity(selPerson.id, i, val);
+              },
+            };
+          }),
+          onClose: () => setPersonSel(null),
+        }
+      : null;
 
     // release-only
     type TreeRow = Record<string, unknown>;
@@ -816,7 +1154,7 @@ export function GanttBoard() {
         const isFeat = r.kind === "feature";
         const rg = r.range || null;
         const rangeSub = rg ? `${M.iters[rg[0]].short} → ${M.iters[rg[1]].short}` : "";
-        const sub = ch.total > 0 ? `${rangeSub ? rangeSub + " · " : ""}Σ ${ch.total} pts` : rangeSub || "aucune US planifiée";
+        const sub = ch.total > 0 ? `${rangeSub ? rangeSub + " · " : ""}Σ ${M.fmt(ch.total)} pts` : rangeSub || "aucune US planifiée";
         // Double-clic sur une epic/feature → pose un flag au début de son sprint.
         const flagIter = rg ? rg[0] : M.CURRENT;
         let statusTag = "", statusStyle = "display:none";
@@ -829,7 +1167,7 @@ export function GanttBoard() {
         const prio = !isFeat && r.item?.priority != null ? `P${r.item.priority}` : "";
         return {
           isArea: true, isFeat, key: r.key, hasChildren: r.hasChildren, open: r.open, statusTag, statusStyle, prio,
-          chevron: r.open ? "▾" : r.hasChildren ? "▸" : "", onToggle: () => { if (r.hasChildren) toggleNode(r.key!, r.kind!); },
+          chevron: r.open ? "▾" : r.hasChildren ? "▸" : "", onToggle: () => { if (r.hasChildren) toggleNode(r.key!); },
           name: isFeat ? r.item!.ado + "  " + r.item!.title : r.epicName || "(Sans epic)",
           sub, dotColor: r.accent,
           onDoubleClick: () => addFlag(r.key!, flagIter),
@@ -837,7 +1175,7 @@ export function GanttBoard() {
           chevStyle: `font-size:9px;color:var(--muted,#86868f);width:14px;flex:0 0 auto;cursor:${r.hasChildren ? "pointer" : "default"};text-align:center`,
           leftStyle: `position:absolute;left:0;top:${r.top}px;width:${M.LEFT}px;height:${r.height}px;background:${isFeat ? "var(--panel,#fff)" : "var(--panel2,#fafafc)"};border-right:1px solid var(--line,#e8e8ee);border-bottom:1px solid var(--line2,#f0f0f4);padding:0 12px 0 ${indent}px;z-index:32;box-sizing:border-box;display:flex;align-items:center;gap:8px;transform:translateX(var(--sl,0px));will-change:transform`,
           sepStyle: `position:absolute;left:0;top:${r.top + r.height}px;width:${TW}px;height:1px;background:var(--gridline,#ececf1);z-index:5`,
-          onClick: () => { if (r.hasChildren) toggleNode(r.key!, r.kind!); },
+          onClick: () => { if (r.hasChildren) toggleNode(r.key!); },
         };
       });
 
@@ -850,11 +1188,11 @@ export function GanttBoard() {
         const sc = M.stateColors[it.state];
         return {
           isTask, hasChildren: c.hasChildren, chevron: c.open ? "▾" : "▸",
-          ado: it.ado, title: it.title, points: it.points + "p", badge: M.typeLabels[it.type], showPoints: !isTask,
+          ado: it.ado, title: it.title, points: M.fmt(it.points) + "p", badge: M.typeLabels[it.type], showPoints: !isTask,
           adoStyle: `font-size:9.5px;font-weight:600;font-family:${mono};color:${cm.accent}`,
           badgeStyle: `font-size:8.5px;font-weight:600;padding:1px 5px;border-radius:4px;background:${cm.border};color:${cm.text}`,
           chevStyle: `font-size:8px;color:var(--muted,#86868f);cursor:pointer;flex:0 0 auto;width:12px;text-align:center`,
-          onToggle: (e: React.MouseEvent) => { e.stopPropagation(); if (c.hasChildren) toggleNode(it.id, "story"); },
+          onToggle: (e: React.MouseEvent) => { e.stopPropagation(); if (c.hasChildren) toggleNode(it.id); },
           onDown: (e: React.PointerEvent) => startDrag(it.id, "move", e),
           onClick: (e: React.MouseEvent) => { e.stopPropagation(); setState({ selectedId: it.id }); },
           dotStyle: `width:6px;height:6px;border-radius:50%;background:${sc};flex:0 0 auto`,
@@ -892,7 +1230,7 @@ export function GanttBoard() {
           const val = ch.per[real] || 0;
           segs.push({
             segStyle: `flex:1;position:relative;border-right:1px solid ${theme === "dark" ? "rgba(255,255,255,.18)" : "rgba(255,255,255,.45)"};display:flex;align-items:center;justify-content:center;background:${r.accent};opacity:${val > 0 ? 1 : 0.32}`,
-            fillStyle: "display:none", label: val > 0 ? String(val) : "",
+            fillStyle: "display:none", label: val > 0 ? M.fmt(val) : "",
             labelStyle: `position:relative;z-index:1;font-size:10px;font-weight:600;font-family:${mono};color:#fff`,
           });
         }
@@ -947,14 +1285,16 @@ export function GanttBoard() {
         const left = M.LEFT + vi * COLW, over = b.total > b.cap;
         const denom = Math.max(b.cap, b.total, 1);
         const segs = b.segs.map((s) => ({ style: `width:${(s.val / denom) * 100}%;height:100%;background:${s.color}`, title: `${s.label} · ${M.fmt(s.val)}j` }));
+        // Bande de charge intégrée au bas du header de colonnes (release garde
+        // ainsi la même hauteur de header que les autres pages).
         return {
-          wrapStyle: `position:absolute;left:${left}px;top:${M.HEADER}px;width:${COLW}px;height:${M.RELBAND}px;padding:9px 12px;border-right:1px solid var(--gridline,#ececf1);border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);box-sizing:border-box;z-index:5`,
-          total: `${M.fmt(b.total)}j`, cap: `/ ${b.cap}j`,
-          totalStyle: `font-size:12px;font-weight:600;font-family:${mono};color:${over ? "#ef4444" : "var(--ink,#1a1a20)"}`,
+          wrapStyle: `position:absolute;left:${left}px;top:${M.HEADER - M.RELBAND}px;width:${COLW}px;height:${M.RELBAND}px;padding:4px 12px 8px;border-right:1px solid var(--gridline,#ececf1);box-sizing:border-box;z-index:7`,
+          total: `${M.fmt(b.total)}j`, cap: `/ ${M.fmt(b.cap)}j`,
+          totalStyle: `font-size:11.5px;font-weight:600;font-family:${mono};color:${over ? "#ef4444" : "var(--ink,#1a1a20)"}`,
           capStyle: `font-size:10px;font-family:${mono};color:var(--faint,#abacb6)`,
           pct: Math.round((b.total / (b.cap || 1)) * 100) + "%",
           pctStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${over ? "#ef4444" : "var(--muted,#86868f)"}`,
-          trackStyle: `margin-top:7px;height:9px;border-radius:5px;background:var(--line2,#f0f0f4);overflow:hidden;display:flex;gap:1px;${over ? "box-shadow:0 0 0 1px #ef4444" : ""}`,
+          trackStyle: `margin-top:3px;height:6px;border-radius:4px;background:var(--line2,#f0f0f4);overflow:hidden;display:flex;gap:1px;${over ? "box-shadow:0 0 0 1px #ef4444" : ""}`,
           segs,
         };
       });
@@ -996,21 +1336,47 @@ export function GanttBoard() {
         }
       : null;
 
+    // Champs ADO custom numériques présents sur les tickets — proposés comme
+    // champ de charge en plus des champs mappés (Story Points / jours).
+    const customLoadFields = (() => {
+      const seen = new Map<string, string>();
+      state.items.forEach((it) => {
+        Object.entries(it.custom || {}).forEach(([k, val]) => {
+          if (typeof val === "number" && !seen.has(k)) seen.set(k, k.split(".").pop() || k);
+        });
+      });
+      return [...seen].map(([value, label]) => ({ value, label }));
+    })();
+
     const visiblePeople = M.people.length - Object.keys(state.hidden).length;
     return {
       rootStyle: { position: "relative" as const, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" as const, fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "var(--canvas)", color: "var(--ink)", overflow: "hidden" },
       totalWidth: TW, totalHeight: TH, columns, personRows, banners, bars, cursors, presence, onlineLabel,
-      leftHeaderStyle: `position:absolute;top:0;left:0;width:${M.LEFT}px;height:${release ? M.HEADER + M.RELBAND : M.HEADER}px;padding:11px 14px;border-bottom:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:${release ? 34 : 8};box-sizing:border-box;transform:${release ? "translateX(var(--sl,0px))" : "none"};will-change:transform`,
+      leftHeaderStyle: `position:absolute;top:0;left:0;width:${M.LEFT}px;height:${M.HEADER}px;padding:11px 14px;border-bottom:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:${release ? 34 : 46};box-sizing:border-box;transform:translateX(var(--sl,0px));will-change:transform`,
       currentLabel: M.iters[M.CURRENT].label, currentDates: M.iters[M.CURRENT].dates,
       levels,
       legendShow, legendItems, isDaily: daily,
       sortValue: state.sort,
-      sortOptions: [{ value: "az", label: "Nom A→Z" }, { value: "za", label: "Nom Z→A" }, { value: "loadDesc", label: "Charge ↓" }, { value: "loadAsc", label: "Charge ↑" }, { value: "random", label: "Aléatoire" }],
+      sortOptions: [{ value: "az", label: "Nom A→Z" }, { value: "za", label: "Nom Z→A" }, { value: "loadDesc", label: "Charge ↓" }, { value: "loadAsc", label: "Charge ↑" }, { value: "gapDesc", label: "Écart charge/capa ↓" }, { value: "gapAsc", label: "Écart charge/capa ↑" }, { value: "random", label: "Aléatoire" }],
       onSort: (e: React.ChangeEvent<HTMLSelectElement>) => { const val = e.target.value; if (val === "random") M.resetRandOrder(); setState({ sort: val }); },
       onShuffle: () => { M.resetRandOrder(); setState({ sort: "random" }); },
       shuffleStyle: `width:28px;height:28px;flex:0 0 auto;border-radius:6px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center`,
       peopleOpen: state.peopleOpen,
-      onPeopleToggle: (e: React.MouseEvent) => { e.stopPropagation(); setState((s) => ({ peopleOpen: !s.peopleOpen, rangeOpen: false })); },
+      onPeopleToggle: (e: React.MouseEvent) => { e.stopPropagation(); setState((s) => ({ peopleOpen: !s.peopleOpen, rangeOpen: false, prefsOpen: false })); },
+      loadFieldValue: prefs.loadField,
+      loadFieldOptions: (() => {
+        const opts = [
+          { value: "points", label: "Story Points" },
+          { value: "effortDays", label: "Estimation (jours)" },
+          ...customLoadFields,
+        ];
+        // Préférence sauvegardée sur un champ absent des tickets chargés : on la
+        // garde visible dans le select plutôt que d'afficher une valeur vide.
+        if (!opts.some((o) => o.value === prefs.loadField))
+          opts.push({ value: prefs.loadField, label: prefs.loadField.split(".").pop() || prefs.loadField });
+        return opts;
+      })(),
+      onLoadField: (e: React.ChangeEvent<HTMLSelectElement>) => updatePrefs({ loadField: e.target.value as M.LoadField }),
       peopleLabel: `${M.people.length - Object.keys(state.hidden).length}/${M.people.length}`,
       peopleList: M.people.map((p) => ({
         name: p.name, role: p.role, checked: !state.hidden[p.id],
@@ -1019,16 +1385,15 @@ export function GanttBoard() {
         onToggle: (e: React.ChangeEvent<HTMLInputElement>) => { const h = { ...state.hidden }; if (e.target.checked) delete h[p.id]; else h[p.id] = true; setState({ hidden: h }); },
       })),
       onShowAllPeople: () => setState({ hidden: {} }),
-      boardTabs: [{ key: "sprint", label: "Sprint Planning" }, { key: "daily", label: "Daily" }, { key: "release", label: "Release Planning" }].map((t) => {
+      boardTabs: [{ key: "daily", label: "Daily" }, { key: "sprint", label: "Sprint Planning" }, { key: "release", label: "Release Planning" }].map((t) => {
         const active = state.board === t.key;
         return { label: t.label, onClick: () => setState({ board: t.key as State["board"], selectedId: null, rangeOpen: false, peopleOpen: false }), style: `padding:6px 14px;border-radius:6px;border:none;font-size:12.5px;font-weight:${active ? 600 : 500};cursor:pointer;white-space:nowrap;background:${active ? "var(--panel,#fff)" : "transparent"};color:${active ? "var(--ink,#1a1a20)" : "var(--muted,#86868f)"};box-shadow:${active ? "0 1px 2px rgba(20,20,40,.12)" : "none"}` };
       }),
       isRelease: release, showSort: !release, showGranularity: !release,
       leftKicker: release ? "Projet" : "Équipe",
       leftTitle: release ? "Arborescence" : `${visiblePeople} personne${visiblePeople > 1 ? "s" : ""}`,
-      leftSub: release ? "Epic › Feature › US › Tâche" : "",
       loadByValue: state.loadBy,
-      loadByOptions: [{ value: "person", label: "Personne" }, { value: "role", label: "Type de poste" }, { value: "tag", label: "Tag" }],
+      loadByOptions: [{ value: "person", label: "Personne" }, { value: "role", label: "Poste" }, { value: "none", label: "Global" }],
       onLoadBy: (e: React.ChangeEvent<HTMLSelectElement>) => setState({ loadBy: e.target.value as State["loadBy"] }),
       treeRows, loadBand, milestones, milestoneEditor,
       relCards, relBands, relEpics, relRowPins, rowPinEditor,
@@ -1041,18 +1406,19 @@ export function GanttBoard() {
       onEpicFilter: (e: React.ChangeEvent<HTMLSelectElement>) => setState({ epicFilter: e.target.value as State["epicFilter"] }),
       rangeLabel, range, rangeOpen: state.rangeOpen,
       rangeBtnStyle: `height:30px;padding:0 12px;border-radius:7px;border:1px solid ${state.rangeOpen ? "var(--accent,#5b5bd6)" : "var(--line,#e9e9ef)"};background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:7px`,
-      onRangeToggle: (e: React.MouseEvent) => { e.stopPropagation(); setState((s) => ({ rangeOpen: !s.rangeOpen, peopleOpen: false })); },
+      onRangeToggle: (e: React.MouseEvent) => { e.stopPropagation(); setState((s) => ({ rangeOpen: !s.rangeOpen, peopleOpen: false, prefsOpen: false })); },
       syncLabel: syncing ? "Synchronisation…" : "Azure DevOps synchronisé", syncStyle, syncDotStyle,
       themeLabel: theme === "dark" ? "Clair" : "Sombre", themeIcon: theme === "dark" ? "☀" : "☾",
       onToggleTheme: () => toggleTheme(),
       onScrollRef, onCanvasRef,
-      onBgClick: () => setState({ selectedId: null, rangeOpen: false, peopleOpen: false }),
+      onBgClick: () => { setPersonSel(null); setState({ selectedId: null, rangeOpen: false, peopleOpen: false, prefsOpen: false }); },
       stop: (e: React.MouseEvent) => e.stopPropagation(),
-      selected: !!item, insp, toast: state.toast,
+      selected: !!item, insp, personPanel, toast: state.toast,
       labelCss: "font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6);margin-bottom:7px",
       selectCss: "width:100%;height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;outline:none",
       inputCss: `width:100%;height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12.5px;font-family:${mono};outline:none;box-sizing:border-box`,
       stepperCss: "display:flex;align-items:center;height:36px;border:1px solid var(--line,#e8e8ee);border-radius:8px;background:var(--panel2,#fafafc);overflow:hidden",
+      stepInputCss: `flex:1;min-width:0;width:100%;text-align:center;border:none;background:transparent;font-size:14px;font-weight:600;font-family:${mono};color:var(--ink,#1a1a20);outline:none`,
       stepBtnCss: "width:34px;height:100%;border:none;background:transparent;color:var(--muted,#86868f);font-size:17px;cursor:pointer;flex:0 0 auto",
     };
   }
@@ -1062,9 +1428,7 @@ export function GanttBoard() {
     <div style={v.rootStyle}>
       {/* Header row 1 */}
       <div style={C("height:54px;flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:0 18px;border-bottom:1px solid var(--line,#e9e9ef);background:var(--panel,#fff);position:relative;z-index:70")}>
-        <div style={C("width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#0078d4,#3b8df0);display:flex;align-items:center;justify-content:center;flex:0 0 auto;box-shadow:0 1px 3px rgba(0,90,200,.35)")}>
-          <div style={C("width:11px;height:11px;border:2px solid #fff;border-radius:3px")} />
-        </div>
+        <Brand size={24} />
         <div style={C("display:flex;background:var(--panel2,#fafafc);border:1px solid var(--line,#e9e9ef);border-radius:8px;padding:2px;gap:2px")}>
           {v.boardTabs.map((t) => (
             <button key={t.label} onClick={t.onClick} style={C(t.style)}>{t.label}</button>
@@ -1125,6 +1489,10 @@ export function GanttBoard() {
           </>
         )}
         <div style={{ flex: 1 }} />
+        <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Charge</span>
+        <select value={v.loadFieldValue} onChange={v.onLoadField} title="Champ utilisé pour les jauges de charge et le tri « Charge »" style={C("height:30px;padding:0 8px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
+          {v.loadFieldOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
         <button onClick={v.onPeopleToggle} style={C("height:30px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px")}>
           <span style={C("opacity:.7")}>☷</span> Personnes {v.peopleLabel} <span style={C("opacity:.5;font-size:9px")}>▾</span>
         </button>
@@ -1146,21 +1514,21 @@ export function GanttBoard() {
 
       {/* Range popover */}
       {v.rangeOpen && (
-        <div onClick={v.stop} style={C("position:absolute;top:104px;right:18px;width:296px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:15px 16px;animation:ggdrop .14s ease")}>
+        <div onClick={v.stop} style={C("position:absolute;top:104px;right:18px;width:340px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:15px 16px;animation:ggdrop .14s ease")}>
           {v.range.showRange && (
             <>
               <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6);margin-bottom:11px")}>Intervalle d'itérations affiché</div>
-              <div style={C("display:flex;gap:10px")}>
-                <div style={{ flex: 1 }}>
+              <div style={C("display:flex;flex-direction:column;gap:10px")}>
+                <div>
                   <div style={C("font-size:10.5px;color:var(--muted,#86868f);margin-bottom:5px")}>De</div>
                   <select value={v.range.from} onChange={v.range.onFrom} style={C(v.selectCss)}>
-                    {v.range.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    {v.range.iterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
-                <div style={{ flex: 1 }}>
+                <div>
                   <div style={C("font-size:10.5px;color:var(--muted,#86868f);margin-bottom:5px")}>À</div>
                   <select value={v.range.to} onChange={v.range.onTo} style={C(v.selectCss)}>
-                    {v.range.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    {v.range.iterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
               </div>
@@ -1257,7 +1625,6 @@ export function GanttBoard() {
           <div style={C(v.leftHeaderStyle)}>
             <div style={C("font-size:10px;font-weight:600;letter-spacing:.08em;color:var(--faint,#aeaeb8);text-transform:uppercase")}>{v.leftKicker}</div>
             <div style={C("font-size:12.5px;font-weight:600;color:var(--ink,#1a1a20);margin-top:3px")}>{v.leftTitle}</div>
-            {v.leftSub && <div style={C("font-size:10.5px;color:var(--muted,#86868f);margin-top:1px")}>{v.leftSub}</div>}
             {v.showSort && (
               <div style={C("display:flex;align-items:center;gap:6px;margin-top:8px")}>
                 <select value={v.sortValue} onChange={v.onSort} style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:6px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:11.5px;cursor:pointer;outline:none")}>
@@ -1328,7 +1695,7 @@ export function GanttBoard() {
           {v.personRows.map((row, i) => (
             <div key={"pr" + i}>
               <div style={C(row.sepStyle)} />
-              <div style={C(row.leftStyle)}>
+              <div style={C(row.leftStyle)} onClick={row.onOpen} title={row.onOpen ? "Capacités par itération" : undefined}>
                 <div style={C(row.avatarStyle)}>{row.initials}</div>
                 <div style={C("line-height:1.25;min-width:0")}>
                   <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{row.name}</div>
@@ -1345,13 +1712,33 @@ export function GanttBoard() {
           ))}
 
           {v.banners.map((b, i) => (
-            <div key={"bn" + i} style={C(b.style)}>
+            <div key={"bn" + i} style={C(b.style)} onClick={b.onClick} title="Cliquer pour modifier la capacité">
               <span style={C("font-size:9.5px;color:var(--faint,#abacb6);font-weight:500;flex:0 0 auto")}>charge</span>
               <div style={C("flex:1;height:5px;border-radius:3px;background:var(--line2,#f0f0f4);overflow:hidden;position:relative")}>
                 <div style={C(b.fillStyle)} />
               </div>
-              <span style={C(b.textStyle)}>{b.text}</span>
-              <span style={C(b.pctStyle)}>{b.pct}</span>
+              {b.editing ? (
+                <input
+                  autoFocus
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  defaultValue={b.capVal}
+                  onFocus={(e) => e.target.select()}
+                  onClick={(e) => e.stopPropagation()}
+                  onBlur={(e) => b.onCommit(parseFloat(e.target.value))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                    else if (e.key === "Escape") setCapEdit(null);
+                  }}
+                  style={C(`width:52px;height:18px;font-size:10px;font-family:${mono};border:1px solid var(--accent,#5b5bd6);border-radius:4px;padding:0 4px;background:var(--panel,#fff);color:var(--ink,#1a1a20);flex:0 0 auto;outline:none;box-sizing:border-box`)}
+                />
+              ) : (
+                <>
+                  <span style={C(b.textStyle)}>{b.text}</span>
+                  <span style={C(b.pctStyle)}>{b.pct}</span>
+                </>
+              )}
             </div>
           ))}
 
@@ -1452,76 +1839,199 @@ export function GanttBoard() {
 
       {/* Inspector */}
       {v.selected && v.insp && (
-        <div onClick={v.stop} style={C("position:absolute;right:0;top:100px;bottom:0;width:330px;background:var(--panel,#fff);border-left:1px solid var(--line,#e9e9ef);z-index:65;box-shadow:-8px 0 26px rgba(20,20,40,.07);display:flex;flex-direction:column;animation:ggpop .16s ease")}>
+        <div onClick={v.insp.onPanelClick} style={C("position:absolute;right:0;top:100px;bottom:0;width:330px;background:var(--panel,#fff);border-left:1px solid var(--line,#e9e9ef);z-index:65;box-shadow:-8px 0 26px rgba(20,20,40,.07);display:flex;flex-direction:column;animation:ggpop .16s ease")}>
           <div style={C("padding:16px 18px 13px;border-bottom:1px solid var(--line2,#f0f0f4)")}>
             <div style={C("display:flex;align-items:center;gap:8px")}>
               <span style={C(`font-size:12px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:${v.insp.accent}`)}>{v.insp.ado}</span>
               <span style={C(v.insp.badgeStyle)}>{v.insp.typeLabel}</span>
               <div style={{ flex: 1 }} />
+              <button onClick={v.insp.onPrefsToggle} title="Personnaliser les champs affichés" style={C(`width:26px;height:26px;border-radius:6px;border:none;background:${v.insp.prefsOpen ? "var(--accentsoft,#ececfb)" : "var(--line2,#f0f0f4)"};color:${v.insp.prefsOpen ? "var(--accent,#5b5bd6)" : "var(--muted,#86868f)"};cursor:pointer;font-size:13px;line-height:1`)}>⚙</button>
+              {v.insp.adoHref && (
+                <a href={v.insp.adoHref} target="_blank" rel="noreferrer" title="Ouvrir dans Azure DevOps" style={C("width:26px;height:26px;border-radius:6px;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;text-decoration:none")}>↗</a>
+              )}
               <button onClick={v.insp.onDup} title="Dupliquer (⌘D)" style={C("width:26px;height:26px;border-radius:6px;border:none;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;font-size:13px;line-height:1")}>⧉</button>
               <button onClick={v.insp.onClose} style={C("width:26px;height:26px;border-radius:6px;border:none;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;font-size:15px;line-height:1")}>✕</button>
             </div>
             <textarea value={v.insp.title} onChange={v.insp.onTitle} rows={2} style={C("margin-top:11px;width:100%;border:none;background:transparent;resize:none;font-size:16px;font-weight:600;line-height:1.3;color:var(--ink,#1a1a20);outline:none;padding:0")} />
             {v.insp.hasParent && <div style={C("margin-top:6px;font-size:11px;color:var(--muted,#86868f);display:flex;align-items:center;gap:5px")}>↳ {v.insp.parentLabel}</div>}
           </div>
+          {/* Popover personnalisation des champs — réglage par type de work item */}
+          {v.insp.prefsOpen && (
+            <div onClick={v.stop} style={C("position:absolute;top:46px;left:12px;right:12px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:20;padding:14px 16px;animation:ggdrop .14s ease;max-height:72%;overflow:auto")}>
+              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Champs affichés — {v.insp.wit}</div>
+              <div style={C("font-size:10.5px;line-height:1.4;color:var(--muted,#86868f);margin:4px 0 9px")}>S'applique à tous les tickets « {v.insp.wit} ».</div>
+              {v.insp.prefFields.map((f) => (
+                <label key={f.label} style={C(`display:flex;align-items:center;gap:9px;padding:4px 0;cursor:pointer;font-size:12.5px;font-family:${sans};color:var(--ink,#1a1a20)`)}>
+                  <input type="checkbox" checked={f.checked} onChange={f.onToggle} style={C("width:15px;height:15px;accent-color:var(--accent,#5b5bd6);cursor:pointer")} />
+                  {f.label}
+                </label>
+              ))}
+              {v.insp.extraFields.length > 0 && (
+                <>
+                  <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6);margin:13px 0 5px")}>Champs supplémentaires</div>
+                  {v.insp.extraFields.map((f) => (
+                    <div key={f.ref} title={f.ref} style={C(`display:flex;align-items:center;justify-content:space-between;gap:8px;padding:3px 0;font-size:12.5px;font-family:${sans};color:var(--ink,#1a1a20)`)}>
+                      <span style={C("white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{f.label}</span>
+                      <button onClick={f.onRemove} title="Retirer ce champ" style={C("border:none;background:none;color:var(--faint,#aeaeb8);cursor:pointer;font-size:14px;line-height:1;padding:0")}>×</button>
+                    </div>
+                  ))}
+                </>
+              )}
+              {v.insp.picker ? (
+                <div style={C("margin-top:12px")}>
+                  <input autoFocus value={v.insp.picker.q} onChange={v.insp.picker.onQ} placeholder="Rechercher un champ ADO…" style={C(v.inputCss)} />
+                  {v.insp.picker.loading ? (
+                    <div style={C("font-size:11.5px;color:var(--muted,#86868f);padding:9px 2px")}>Chargement des champs ADO…</div>
+                  ) : v.insp.picker.options.length === 0 ? (
+                    <div style={C("font-size:11.5px;color:var(--muted,#86868f);padding:9px 2px")}>Aucun champ disponible</div>
+                  ) : (
+                    <div style={C("max-height:170px;overflow:auto;margin-top:6px")}>
+                      {v.insp.picker.options.map((o) => (
+                        <button key={o.ref} onClick={o.onPick} title={o.ref} style={C("display:block;width:100%;text-align:left;border:none;background:none;padding:6px 4px;border-radius:6px;cursor:pointer;font-size:12.5px;color:var(--ink,#1a1a20)")}>
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <button onClick={v.insp.picker.onClose} style={C("margin-top:8px;width:100%;height:28px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--muted,#86868f);font-size:11px;font-weight:500;cursor:pointer")}>Annuler</button>
+                </div>
+              ) : (
+                <button onClick={v.insp.onAddField} style={C("margin-top:12px;width:100%;height:32px;border-radius:7px;border:1px dashed var(--line,#e9e9ef);background:transparent;color:var(--accent,#5b5bd6);font-size:11.5px;font-weight:500;cursor:pointer")}>+ Ajouter un champ supplémentaire</button>
+              )}
+            </div>
+          )}
           <div style={C("flex:1;overflow:auto;padding:16px 18px;display:flex;flex-direction:column;gap:17px")}>
-            <div>
-              <div style={C(v.labelCss)}>État</div>
-              <div style={C("display:flex;gap:5px")}>
-                {v.insp.states.map((s) => <button key={s.label} onClick={s.onClick} style={C(s.style)}>{s.label}</button>)}
+            {v.insp.show.state && (
+              <div>
+                <div style={C(v.labelCss)}>État</div>
+                <div style={C("display:flex;gap:5px")}>
+                  {v.insp.states.map((s) => <button key={s.label} onClick={s.onClick} style={C(s.style)}>{s.label}</button>)}
+                </div>
               </div>
-            </div>
-            <div>
-              <div style={C(v.labelCss)}>Assigné à</div>
-              <select value={v.insp.assignee} onChange={v.insp.onAssignee} style={C(v.selectCss)}>
-                {v.insp.people.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <div style={C(v.labelCss)}>Itération</div>
-              <select value={v.insp.iter} onChange={v.insp.onIter} style={C(v.selectCss)}>
-                {v.insp.iterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <div style={C(v.labelCss)}>Area Path</div>
-              <select value={v.insp.area} onChange={v.insp.onArea} style={C(v.selectCss)}>
-                {v.insp.areaOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-            {v.insp.notTask && (
+            )}
+            {v.insp.show.assignee && (
+              <div>
+                <div style={C(v.labelCss)}>Assigné à</div>
+                <select value={v.insp.assignee} onChange={v.insp.onAssignee} style={C(v.selectCss)}>
+                  {v.insp.people.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            )}
+            {v.insp.show.iter && (
+              <div>
+                <div style={C(v.labelCss)}>Itération</div>
+                <select value={v.insp.iter} onChange={v.insp.onIter} style={C(v.selectCss)}>
+                  {v.insp.iterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            )}
+            {v.insp.show.area && (
+              <div>
+                <div style={C(v.labelCss)}>Area Path</div>
+                <select value={v.insp.area} onChange={v.insp.onArea} style={C(v.selectCss)}>
+                  {v.insp.areaOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            )}
+            {v.insp.notTask && v.insp.show.points && (
               <div>
                 <div style={C(v.labelCss)}>Story Points</div>
                 <div style={C(v.stepperCss)}>
                   <button onClick={v.insp.decPoints} style={C(v.stepBtnCss)}>−</button>
-                  <span style={C("flex:1;text-align:center;font-size:14px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--ink,#1a1a20)")}>{v.insp.points}</span>
+                  <input type="text" inputMode="decimal" key={"pts" + v.insp.ado + ":" + v.insp.points} defaultValue={String(v.insp.points)}
+                    onBlur={v.insp.onPoints} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} style={C(v.stepInputCss)} />
                   <button onClick={v.insp.incPoints} style={C(v.stepBtnCss)}>+</button>
                 </div>
               </div>
             )}
-            {v.insp.isTask && (
+            {v.insp.isTask && v.insp.show.effort && (
               <div>
-                <div style={C(v.labelCss)}>Estimation</div>
+                <div style={C(v.labelCss)}>Estimation (jours)</div>
                 <div style={C(v.stepperCss)}>
                   <button onClick={v.insp.decEffort} style={C(v.stepBtnCss)}>−</button>
-                  <span style={C("flex:1;text-align:center;font-size:14px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--ink,#1a1a20)")}>{v.insp.effort} j</span>
+                  <input type="text" inputMode="decimal" key={"eff" + v.insp.ado + ":" + v.insp.effort} defaultValue={String(v.insp.effort)}
+                    onBlur={v.insp.onEffort} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} style={C(v.stepInputCss)} />
                   <button onClick={v.insp.incEffort} style={C(v.stepBtnCss)}>+</button>
                 </div>
               </div>
             )}
-            <div>
-              <div style={C(v.labelCss)}>Tags</div>
-              <div style={C("display:flex;flex-wrap:wrap;gap:6px;align-items:center")}>
-                {v.insp.tags.map((t, i) => (
-                  <span key={i} style={C("display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--ink,#1a1a20);background:var(--line2,#f0f0f4);padding:3px 5px 3px 9px;border-radius:6px")}>{t.label}<button onClick={t.onRemove} style={C("border:none;background:none;color:var(--faint,#aeaeb8);cursor:pointer;font-size:13px;line-height:1;padding:0")}>×</button></span>
-                ))}
-                <input value={v.insp.tagDraft} onChange={v.insp.onTagInput} onKeyDown={v.insp.onTagKey} placeholder="+ tag" style={C("border:1px dashed var(--line,#e9e9ef);background:transparent;border-radius:6px;padding:3px 8px;font-size:11px;color:var(--ink,#1a1a20);outline:none;width:64px")} />
+            {v.insp.show.priority && (
+              <div>
+                <div style={C(v.labelCss)}>Priorité</div>
+                <input type="number" min={1} step={1} value={v.insp.priority} onChange={v.insp.onPriority} placeholder="—" style={C(v.inputCss)} />
               </div>
-            </div>
+            )}
+            {v.insp.show.dates && (
+              <div>
+                <div style={C(v.labelCss)}>Dates (début → fin)</div>
+                <div style={C(`font-size:12.5px;font-family:${mono};color:var(--ink,#1a1a20)`)}>{v.insp.dates}</div>
+              </div>
+            )}
+            {v.insp.extraFields.map((f) => (
+              <div key={f.ref} title={f.ref}>
+                <div style={C(v.labelCss)}>{f.label}{f.required ? " *" : ""}</div>
+                {f.allowed ? (
+                  <select value={f.raw} onChange={f.onCommit} style={C(v.selectCss)}>
+                    {(!f.required || f.raw === "") && <option value="" disabled={f.required}>—</option>}
+                    {f.raw !== "" && !f.allowed.includes(f.raw) && <option value={f.raw}>{f.raw}</option>}
+                    {f.allowed.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                ) : (
+                  <input type="text" key={f.ref + ":" + f.raw + ":" + extraNonce} defaultValue={f.raw} placeholder={f.value}
+                    onBlur={f.onCommit} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} style={C(v.inputCss)} />
+                )}
+              </div>
+            ))}
           </div>
           <div style={C("padding:12px 18px;border-top:1px solid var(--line2,#f0f0f4);display:flex;align-items:center;gap:8px")}>
             <div style={C(v.insp.footDotStyle)} />
             <span style={C("font-size:11px;color:var(--muted,#86868f)")}>{v.insp.footLabel}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Panneau personne — capacités par itération */}
+      {v.personPanel && (
+        <div style={C("position:absolute;right:0;top:100px;bottom:0;width:330px;background:var(--panel,#fff);border-left:1px solid var(--line,#e9e9ef);z-index:65;box-shadow:-8px 0 26px rgba(20,20,40,.07);display:flex;flex-direction:column;animation:ggpop .16s ease")}>
+          <div style={C("padding:16px 18px 12px;border-bottom:1px solid var(--line2,#f0f0f4);display:flex;align-items:center;gap:11px")}>
+            <div style={C(v.personPanel.avatarStyle)}>{v.personPanel.initials}</div>
+            <div style={C("min-width:0;flex:1")}>
+              <div style={C("font-size:15px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{v.personPanel.name}</div>
+              {v.personPanel.poste && <div style={C("font-size:11px;color:var(--muted,#86868f)")}>{v.personPanel.poste}</div>}
+            </div>
+            <button onClick={v.personPanel.onClose} style={C("width:26px;height:26px;border-radius:6px;border:none;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;font-size:15px;line-height:1;flex:0 0 auto")}>✕</button>
+          </div>
+          <div style={C("padding:14px 18px;border-bottom:1px solid var(--line2,#f0f0f4);display:flex;flex-direction:column;gap:11px")}>
+            <div>
+              <div style={C(v.labelCss)}>Poste</div>
+              <input type="text" key={"poste:" + v.personPanel.name + ":" + (v.personPanel.poste || "")}
+                defaultValue={v.personPanel.poste || ""} placeholder="—" onBlur={v.personPanel.onCommitPoste}
+                onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                style={C("width:100%;height:34px;padding:0 10px;border-radius:8px;border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12.5px;outline:none;box-sizing:border-box")} />
+            </div>
+            <div>
+              <div style={C(v.labelCss)}>Role</div>
+              <input type="text" key={"role:" + v.personPanel.name + ":" + (v.personPanel.teamRole || "")}
+                defaultValue={v.personPanel.teamRole || ""} placeholder="—" onBlur={v.personPanel.onCommitRole}
+                onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                style={C("width:100%;height:34px;padding:0 10px;border-radius:8px;border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12.5px;outline:none;box-sizing:border-box")} />
+            </div>
+          </div>
+          <div style={C("flex:1;overflow-y:auto;padding:14px 18px")}>
+            <div style={C(v.labelCss)}>Capacité par itération</div>
+            {v.personPanel.rows.map((r) => (
+              <div key={r.key} style={C("display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--line2,#f0f0f4)")}>
+                <div style={C("flex:1;min-width:0")}>
+                  <div style={C(`font-size:12.5px;font-weight:${r.current ? 600 : 500};color:${r.current ? "var(--accent,#5b5bd6)" : "var(--ink,#1a1a20)"};white-space:nowrap;overflow:hidden;text-overflow:ellipsis`)}>{r.label}</div>
+                  <div style={C(`font-size:10px;color:var(--faint,#abacb6);font-family:${mono}`)}>{r.dates}</div>
+                </div>
+                <span title="Charge planifiée" style={C(`font-size:11px;color:var(--muted,#86868f);font-family:${mono};flex:0 0 auto`)}>{r.usedText}</span>
+                <input type="text" inputMode="decimal" key={"cap" + r.key + ":" + r.cap} defaultValue={String(r.cap)}
+                  onBlur={r.onCommit} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                  style={C(`width:52px;height:30px;text-align:center;border:1px solid var(--line,#e8e8ee);border-radius:7px;background:var(--panel2,#fafafc);font-size:12.5px;font-weight:600;font-family:${mono};color:var(--ink,#1a1a20);outline:none;flex:0 0 auto;box-sizing:border-box`)} />
+                <span style={C(r.pctStyle)}>{r.pctText}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}

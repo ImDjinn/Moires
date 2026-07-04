@@ -37,12 +37,12 @@ export class AnnotationsController {
   }
 
   @Patch("milestones/:mid")
-  updateMilestone(@Param("mid") mid: string, @Body() b: MilestoneBody) {
+  updateMilestone(@Param("id") id: string, @Param("mid") mid: string, @Body() b: MilestoneBody) {
     const data: Partial<{ title: string; iter: number; color: string }> = {};
     if (b.title !== undefined) data.title = str(b.title, "title");
     if (b.iter !== undefined) data.iter = int(b.iter, "iter");
     if (b.color !== undefined) data.color = str(b.color, "color");
-    return this.svc.updateMilestone(mid, data);
+    return this.svc.updateMilestone(id, mid, data);
   }
 
   @Delete("milestones/:mid")
@@ -61,12 +61,12 @@ export class AnnotationsController {
   }
 
   @Patch("row-pins/:pid")
-  updateRowPin(@Param("pid") pid: string, @Body() b: RowPinBody) {
+  updateRowPin(@Param("id") id: string, @Param("pid") pid: string, @Body() b: RowPinBody) {
     const data: Partial<{ iter: number; title: string; color: string }> = {};
     if (b.iter !== undefined) data.iter = int(b.iter, "iter");
     if (b.title !== undefined) data.title = str(b.title, "title");
     if (b.color !== undefined) data.color = str(b.color, "color");
-    return this.svc.updateRowPin(pid, data);
+    return this.svc.updateRowPin(id, pid, data);
   }
 
   @Delete("row-pins/:pid")

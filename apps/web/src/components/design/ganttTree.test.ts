@@ -57,3 +57,33 @@ describe("buildTree — groupement par Epic + statut/priorité + filtre", () => 
     expect(ea.range).toEqual([0, 1]); // 05 janv (S1) → 10 févr (S2)
   });
 });
+
+describe("effortOf — champ de charge configurable (dont champ ADO custom)", () => {
+  const item: M.Item = {
+    id: "X", ado: "X", level: "story", type: "story", title: "t", points: 5, effortDays: 2,
+    person: "m1", iter: 0, span: 1, state: "New", progress: 0, parent: null, tags: [],
+    startISO: "", endISO: "", area: "", custom: { "Custom.Charge": 13, "Custom.Note": "n/a" },
+  };
+
+  it("champs mappés : Story Points ou estimation en jours", () => {
+    M.setLoadField("points");
+    expect(M.effortOf(item)).toBe(5);
+    M.setLoadField("effortDays");
+    expect(M.effortOf(item)).toBe(2);
+    M.setLoadField("points");
+  });
+
+  it("champ custom numérique : lit Item.custom[referenceName]", () => {
+    M.setLoadField("Custom.Charge");
+    expect(M.effortOf(item)).toBe(13);
+    M.setLoadField("points");
+  });
+
+  it("champ custom absent ou non numérique : 0", () => {
+    M.setLoadField("Custom.Absent");
+    expect(M.effortOf(item)).toBe(0);
+    M.setLoadField("Custom.Note");
+    expect(M.effortOf(item)).toBe(0);
+    M.setLoadField("points");
+  });
+});

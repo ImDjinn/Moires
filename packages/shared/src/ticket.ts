@@ -25,4 +25,6 @@ export interface Ticket {
   storyPoints: number;
   adoRev: number;
   syncStatus: "synced" | "pending" | "error";
+  /** Champs ADO non mappés (process hérités / champs custom) — affichage lecture seule. */
+  customFields?: Record<string, string | number | boolean>;
 }

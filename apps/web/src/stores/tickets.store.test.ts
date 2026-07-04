@@ -48,6 +48,21 @@ describe("tickets.store", () => {
     expect(t.syncStatus).toBe("pending");
   });
 
+  it("applyOperation sur 'custom:<ref>' écrit customFields (null = effacer)", () => {
+    useTicketsStore.getState().setTickets([{ ...base, customFields: { "Custom.Note": "n" } }]);
+    useTicketsStore.getState().applyOperation({
+      ticketId: "t1", field: "custom:Custom.Charge", value: 13, userId: "u1", clientTimestamp: 1,
+    });
+    let t = useTicketsStore.getState().tickets[0];
+    expect(t.customFields).toEqual({ "Custom.Note": "n", "Custom.Charge": 13 });
+    expect(t.syncStatus).toBe("pending");
+    useTicketsStore.getState().applyOperation({
+      ticketId: "t1", field: "custom:Custom.Charge", value: null, userId: "u1", clientTimestamp: 2,
+    });
+    t = useTicketsStore.getState().tickets[0];
+    expect(t.customFields).toEqual({ "Custom.Note": "n" });
+  });
+
   it("applyOperation ne touche pas les autres tickets", () => {
     const other: Ticket = { ...base, id: "t2" };
     useTicketsStore.getState().setTickets([base, other]);

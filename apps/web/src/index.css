@@ -68,9 +68,27 @@ body {
   flex-direction: column;
 }
 
+/* Les contrôles de formulaire n'héritent pas de la police par défaut :
+   on les aligne sur celle de l'app pour un rendu harmonieux. */
+button, select, option, input, textarea {
+  font-family: inherit;
+}
+
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Steppers − / + : la saisie décimale directe se fait au clavier,
+   les flèches natives du input number font doublon. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 @keyframes ggspin { to { transform: rotate(360deg); } }

@@ -21,7 +21,8 @@ export const useCapacitiesStore = create<CapacitiesState>((set, get) => ({
     const next = get().capacities.filter(
       (c) => !(c.memberId === memberId && c.iterationPath === iterationPath),
     );
-    if (storyPoints > 0) next.push({ memberId, iterationPath, storyPoints });
+    // 0 est une valeur légitime (membre absent tout le sprint) ; négatif = suppression.
+    if (storyPoints >= 0) next.push({ memberId, iterationPath, storyPoints });
     set({ capacities: next });
     api.setCapacity(sessionId, { memberId, iterationPath, storyPoints }).catch(() => {});
   },

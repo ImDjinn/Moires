@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Ticket, Operation } from "@moires/shared";
+import { setTicketField } from "@moires/shared";
 
 interface TicketsState {
   tickets: Ticket[];
@@ -14,11 +15,12 @@ export const useTicketsStore = create<TicketsState>((set) => ({
   setTickets: (tickets) => set({ tickets }),
   applyOperation: (op) =>
     set((state) => ({
-      tickets: state.tickets.map((t) =>
-        t.id === op.ticketId
-          ? { ...t, [op.field]: op.value, syncStatus: "pending" as const }
-          : t,
-      ),
+      tickets: state.tickets.map((t) => {
+        if (t.id !== op.ticketId) return t;
+        const next = { ...t, syncStatus: "pending" as const };
+        setTicketField(next, op.field, op.value);
+        return next;
+      }),
     })),
   updateTicket: (ticket) =>
     set((state) => ({

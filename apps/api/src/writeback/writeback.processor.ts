@@ -1,7 +1,8 @@
 import { Injectable, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { Worker, Job } from "bullmq";
+import { Worker, Job, UnrecoverableError } from "bullmq";
 import type { Operation } from "@moires/shared";
+import { setTicketField } from "@moires/shared";
 import { PrismaService } from "../database/prisma.service";
 import { RedisService } from "../database/redis.service";
 import { AdoService } from "../ado/ado.service";
@@ -50,16 +51,38 @@ export class WritebackProcessor implements OnModuleInit {
         this.config.get<string>("ADO_SYSTEM_TOKEN") ??
         "";
 
-      const newRev = await this.ado.patchWorkItem(
-        session.adoOrg,
-        op.ticketId,
-        op.field,
-        op.value,
-        ticket.adoRev,
-        token,
-      );
+      let newRev: number;
+      if (op.field === "boardColumn") {
+        // Déplacement de colonne : écrit UNIQUEMENT le champ Kanban du board
+        // (WEF). ADO transitionne System.State lui-même selon le stateMapping
+        // de la colonne (comme un drag dans l'UI). Ne PAS écrire System.State
+        // dans le même patch : ADO recalculerait la colonne par défaut de cet
+        // état et écraserait le déplacement (vérifié : deux colonnes sur le
+        // même état → la carte revenait dans la première).
+        const states = await this.redis.getStates(sessionId);
+        const col = states.find(
+          (s) => s.columnField && s.type === ticket.workItemType && s.name === op.value,
+        );
+        if (!col) throw new Error(`Colonne "${op.value}" sans mapping pour ${ticket.workItemType}`);
+        newRev = await this.ado.patchWorkItemRaw(
+          session.adoOrg,
+          op.ticketId,
+          [{ op: "replace", path: `/fields/${col.columnField}`, value: op.value }],
+          token,
+        );
+        ticket.state = col.state!;
+      } else {
+        newRev = await this.ado.patchWorkItem(
+          session.adoOrg,
+          op.ticketId,
+          op.field,
+          op.value,
+          ticket.adoRev,
+          token,
+        );
+      }
 
-      (ticket as any)[op.field] = op.value;
+      setTicketField(ticket, op.field, op.value);
       ticket.adoRev = newRev;
       ticket.syncStatus = "synced";
       await this.redis.updateTicket(sessionId, ticket);
@@ -75,12 +98,16 @@ export class WritebackProcessor implements OnModuleInit {
         adoRev: ticket.adoRev,
       });
     } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      // 400 = erreur de validation ADO (champ requis, picklist, type, règle du
+      // process) : non transitoire, retenter est inutile — échec immédiat.
+      const validation = msg.includes("ADO API error: 400");
       console.error(
         `[writeback] échec tentative ${job.attemptsMade + 1}/${job.opts.attempts || 5} —`,
         `session=${sessionId} ticket=${op.ticketId} field=${op.field}:`,
-        error instanceof Error ? error.message : error,
+        msg,
       );
-      if (job.attemptsMade >= (job.opts.attempts || 5) - 1) {
+      if (validation || job.attemptsMade >= (job.opts.attempts || 5) - 1) {
         await this.prisma.operationsLog.update({
           where: { id: logId },
           data: { adoSyncStatus: "failed" },
@@ -96,7 +123,8 @@ export class WritebackProcessor implements OnModuleInit {
           this.broadcast.send(sessionId, "ticket:updated", ticket);
         }
       }
-      throw error;
+      // UnrecoverableError : BullMQ n'effectue aucun retry.
+      throw validation ? new UnrecoverableError(msg) : error;
     }
   }
 }
