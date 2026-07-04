@@ -65,25 +65,25 @@ export const api = {
       `/sessions/${sessionId}/field-defs/${encodeURIComponent(type)}`,
     ),
   duplicateTicket: (sessionId: string, ticketId: string) =>
-    request<import("@moires/shared").Ticket>(`/sessions/${sessionId}/tickets/${ticketId}/duplicate`, { method: "POST" }),
+    request<import("@moirai/shared").Ticket>(`/sessions/${sessionId}/tickets/${ticketId}/duplicate`, { method: "POST" }),
   getAuditLog: (id: string) => request<any[]>(`/sessions/${id}/audit-log`),
   refreshAuth: () => request<void>("/auth/refresh", { method: "POST" }),
 
   // --- Jalons & flags (entités propres, persistées en base) ---
   getAnnotations: (id: string) =>
-    request<{ milestones: import("@moires/shared").Milestone[]; rowPins: import("@moires/shared").RowPin[] }>(
+    request<{ milestones: import("@moirai/shared").Milestone[]; rowPins: import("@moirai/shared").RowPin[] }>(
       `/sessions/${id}/annotations`,
     ),
   createMilestone: (id: string, body: { title: string; iter: number; color: string }) =>
-    request<import("@moires/shared").Milestone>(`/sessions/${id}/milestones`, { method: "POST", body: JSON.stringify(body) }),
+    request<import("@moirai/shared").Milestone>(`/sessions/${id}/milestones`, { method: "POST", body: JSON.stringify(body) }),
   updateMilestone: (id: string, mid: string, body: Partial<{ title: string; iter: number; color: string }>) =>
-    request<import("@moires/shared").Milestone>(`/sessions/${id}/milestones/${mid}`, { method: "PATCH", body: JSON.stringify(body) }),
+    request<import("@moirai/shared").Milestone>(`/sessions/${id}/milestones/${mid}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteMilestone: (id: string, mid: string) =>
     request<void>(`/sessions/${id}/milestones/${mid}`, { method: "DELETE" }),
   createRowPin: (id: string, body: { rowKey: string; iter: number; title: string; color: string }) =>
-    request<import("@moires/shared").RowPin>(`/sessions/${id}/row-pins`, { method: "POST", body: JSON.stringify(body) }),
+    request<import("@moirai/shared").RowPin>(`/sessions/${id}/row-pins`, { method: "POST", body: JSON.stringify(body) }),
   updateRowPin: (id: string, pid: string, body: Partial<{ iter: number; title: string; color: string }>) =>
-    request<import("@moires/shared").RowPin>(`/sessions/${id}/row-pins/${pid}`, { method: "PATCH", body: JSON.stringify(body) }),
+    request<import("@moirai/shared").RowPin>(`/sessions/${id}/row-pins/${pid}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteRowPin: (id: string, pid: string) =>
     request<void>(`/sessions/${id}/row-pins/${pid}`, { method: "DELETE" }),
 };

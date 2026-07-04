@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import type { SessionSnapshot } from "@moires/shared";
+import type { SessionSnapshot } from "@moirai/shared";
 import { useSessionStore } from "./session.store";
 
 const snapshot: SessionSnapshot = {

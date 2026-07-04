@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Capacity } from "@moires/shared";
+import type { Capacity } from "@moirai/shared";
 import { api } from "../services/rest.client";
 
 interface CapacitiesState {

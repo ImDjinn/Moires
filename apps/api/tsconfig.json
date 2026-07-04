@@ -6,7 +6,7 @@
     "module": "CommonJS",
     "moduleResolution": "node",
     "paths": {
-      "@moires/shared": ["../../packages/shared/src/index.ts"]
+      "@moirai/shared": ["../../packages/shared/src/index.ts"]
     },
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true

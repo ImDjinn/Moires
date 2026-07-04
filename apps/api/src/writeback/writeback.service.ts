@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Queue } from "bullmq";
-import type { Operation } from "@moires/shared";
+import type { Operation } from "@moirai/shared";
 
 @Injectable()
 export class WritebackService {

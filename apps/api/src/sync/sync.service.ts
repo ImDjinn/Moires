@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { Ticket, TeamMember, SessionSnapshot } from "@moires/shared";
+import type { Ticket, TeamMember, SessionSnapshot } from "@moirai/shared";
 import { PrismaService } from "../database/prisma.service";
 import { RedisService } from "../database/redis.service";
 import { CapacitiesRepo } from "../database/capacities.repo";

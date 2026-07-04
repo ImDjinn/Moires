@@ -9,8 +9,8 @@ import {
   MessageBody,
 } from "@nestjs/websockets";
 import { Server, Socket } from "socket.io";
-import type { Operation, PresenceState } from "@moires/shared";
-import { ROOM } from "@moires/shared";
+import type { Operation, PresenceState } from "@moirai/shared";
+import { ROOM } from "@moirai/shared";
 import { RedisService } from "../database/redis.service";
 import { BroadcastService } from "./broadcast.service";
 import { OperationsHandler } from "./operations.handler";

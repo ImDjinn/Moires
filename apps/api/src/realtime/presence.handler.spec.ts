@@ -1,5 +1,5 @@
 import { PresenceHandler } from "./presence.handler";
-import type { PresenceState } from "@moires/shared";
+import type { PresenceState } from "@moirai/shared";
 
 function makeClient(data: any) {
   const emit = jest.fn();

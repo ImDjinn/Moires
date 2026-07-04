@@ -1,4 +1,4 @@
-import type { Ticket, Capacity } from "@moires/shared";
+import type { Ticket, Capacity } from "@moirai/shared";
 
 /** Charge (Story Points) d'un membre sur une itération. */
 export function loadOf(tickets: Ticket[], memberId: string, iterationPath: string): number {

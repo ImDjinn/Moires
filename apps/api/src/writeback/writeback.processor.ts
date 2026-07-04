@@ -1,8 +1,8 @@
 import { Injectable, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Worker, Job, UnrecoverableError } from "bullmq";
-import type { Operation } from "@moires/shared";
-import { setTicketField } from "@moires/shared";
+import type { Operation } from "@moirai/shared";
+import { setTicketField } from "@moirai/shared";
 import { PrismaService } from "../database/prisma.service";
 import { RedisService } from "../database/redis.service";
 import { AdoService } from "../ado/ado.service";

@@ -1,4 +1,4 @@
-import type { Ticket } from "@moires/shared";
+import type { Ticket } from "@moirai/shared";
 
 interface Props {
   status: Ticket["syncStatus"];

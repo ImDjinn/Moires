@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { Ticket, Iteration, Operation } from "@moires/shared";
+import type { Ticket, Iteration, Operation } from "@moirai/shared";
 import { usePresenceStore } from "../stores/presence.store";
 
 function clamp(min: number, max: number, v: number) {

@@ -1,4 +1,4 @@
-# Implementation Plan — Moires (ADO Sprint/Release Planning)
+# Implementation Plan — Moirai (ADO Sprint/Release Planning)
 
 > Plan technique d'implémentation. Découpé par couche pour permettre à plusieurs agents
 > (`/database`, `/backend`, `/realtime`, `/ado-sync`, `/frontend`) de travailler en parallèle.
@@ -94,7 +94,7 @@ apps/web/                         # React + Vite
   src/
     main.tsx
     App.tsx
-    types/                        # ré-exporte depuis @moires/shared
+    types/                        # ré-exporte depuis @moirai/shared
     stores/
       auth.store.ts
       session.store.ts
@@ -251,8 +251,8 @@ Ordonné par dépendance. Chaque TODO est atomique (~30 min, un agent, un tour) 
 
 - [ ] **T0.1** Init monorepo pnpm : `package.json` racine (workspaces `packages/*`, `apps/*`), `pnpm-workspace.yaml`, `tsconfig.base.json` (strict), `.env.example`, `docker-compose.yml` (postgres:16 + redis:7).
   → *verify* : `pnpm install` réussit ; `docker compose config` valide.
-- [ ] **T0.2** Package `@moires/shared` : créer `ticket.ts`, `operation.ts`, `presence.ts`, `socket-events.ts`, `dto.ts` (§4.1–4.3), `index.ts` ré-exporte tout. `dep: T0.1`.
-  → *verify* : `pnpm --filter @moires/shared build` compile sans erreur TS.
+- [ ] **T0.2** Package `@moirai/shared` : créer `ticket.ts`, `operation.ts`, `presence.ts`, `socket-events.ts`, `dto.ts` (§4.1–4.3), `index.ts` ré-exporte tout. `dep: T0.1`.
+  → *verify* : `pnpm --filter @moirai/shared build` compile sans erreur TS.
 
 ### Phase 1 — Database (`/database`)
 

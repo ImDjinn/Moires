@@ -4,7 +4,7 @@ jest.mock("bullmq", () => ({
 }));
 
 import { WritebackService } from "./writeback.service";
-import type { Operation } from "@moires/shared";
+import type { Operation } from "@moirai/shared";
 
 const config = { get: () => "redis://localhost:6379" } as any;
 

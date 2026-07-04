@@ -1,4 +1,4 @@
-import type { Ticket, TeamMember } from "@moires/shared";
+import type { Ticket, TeamMember } from "@moirai/shared";
 
 export type GroupBy = "user" | "epic";
 

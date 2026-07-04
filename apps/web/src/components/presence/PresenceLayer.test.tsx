@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
-import type { PresenceState } from "@moires/shared";
+import type { PresenceState } from "@moirai/shared";
 import { PresenceLayer } from "./PresenceLayer";
 
 function peer(partial: Partial<PresenceState>): PresenceState {

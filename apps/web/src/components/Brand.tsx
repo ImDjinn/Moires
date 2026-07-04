@@ -1,5 +1,5 @@
-// Logo Moires : triquetra — trois fils entrelacés, les trois Moires tissant le fil de la vie.
-export function MoiresMark({ size = 26 }: { size?: number }) {
+// Logo Moirai : triquetra — trois fils entrelacés, les trois Moirai tissant le fil de la vie.
+export function MoiraiMark({ size = 26 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden>
       <g stroke="currentColor" strokeWidth={8} strokeLinejoin="round" strokeLinecap="round">
@@ -15,10 +15,10 @@ export function MoiresMark({ size = 26 }: { size?: number }) {
 export function Brand({ size = 26, wordmark = true }: { size?: number; wordmark?: boolean }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 9, color: "var(--accent,#5b5bd6)", flex: "0 0 auto" }}>
-      <MoiresMark size={size} />
+      <MoiraiMark size={size} />
       {wordmark && (
         <span style={{ fontSize: size * 0.72, fontWeight: 700, letterSpacing: "-0.01em", color: "var(--ink,#1a1a20)" }}>
-          Moires
+          Moirai
         </span>
       )}
     </div>

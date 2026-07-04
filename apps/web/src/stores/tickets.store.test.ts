@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import type { Ticket, Operation } from "@moires/shared";
+import type { Ticket, Operation } from "@moirai/shared";
 import { useTicketsStore } from "./tickets.store";
 
 const base: Ticket = {

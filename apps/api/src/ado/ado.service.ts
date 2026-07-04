@@ -1,5 +1,5 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
-import type { OperationFieldKey, TeamMember } from "@moires/shared";
+import type { OperationFieldKey, TeamMember } from "@moirai/shared";
 import { AdoMapper, KNOWN_FIELDS, RawAdoWorkItem } from "./ado.mapper";
 
 // Base for cross-organization identity APIs (profile + accounts).

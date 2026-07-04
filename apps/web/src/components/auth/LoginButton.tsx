@@ -30,7 +30,7 @@ export function LoginButton() {
       flexDirection: "column",
       gap: "24px",
     }}>
-      <h1 style={{ fontSize: "32px", fontWeight: 600 }}>Moires</h1>
+      <h1 style={{ fontSize: "32px", fontWeight: 600 }}>Moirai</h1>
       <p style={{ color: "var(--text-muted)" }}>Planification collaborative de sprint</p>
       {error && (
         <div

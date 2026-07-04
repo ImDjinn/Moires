@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
-import type { Iteration } from "@moires/shared";
+import type { Iteration } from "@moirai/shared";
 import { SprintTimelineHeader } from "./SprintTimelineHeader";
 
 const iterations: Iteration[] = [

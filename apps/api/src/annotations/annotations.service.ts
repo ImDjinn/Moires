@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { Milestone, RowPin } from "@moires/shared";
+import type { Milestone, RowPin } from "@moirai/shared";
 import { PrismaService } from "../database/prisma.service";
 import { RedisService } from "../database/redis.service";
 

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { SessionSnapshot } from "@moires/shared";
+import type { SessionSnapshot } from "@moirai/shared";
 import type { GroupBy } from "../utils/grouping";
 
 interface SessionState {

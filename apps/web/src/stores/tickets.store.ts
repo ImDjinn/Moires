@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import type { Ticket, Operation } from "@moires/shared";
-import { setTicketField } from "@moires/shared";
+import type { Ticket, Operation } from "@moirai/shared";
+import { setTicketField } from "@moirai/shared";
 
 interface TicketsState {
   tickets: Ticket[];

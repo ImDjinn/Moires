@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Put, Param, Body, Req, UseGuards, BadRequestException } from "@nestjs/common";
 import { Request } from "express";
-import type { CreateSessionDto, Capacity, MemberMeta } from "@moires/shared";
+import type { CreateSessionDto, Capacity, MemberMeta } from "@moirai/shared";
 import { AuthGuard } from "../auth/auth.guard";
 import { SessionsService } from "./sessions.service";
 import { SyncService } from "../sync/sync.service";

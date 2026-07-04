@@ -7,7 +7,7 @@ jest.mock("bullmq", () => ({
 }));
 
 import { WritebackProcessor } from "./writeback.processor";
-import type { Operation } from "@moires/shared";
+import type { Operation } from "@moirai/shared";
 
 const op: Operation = {
   ticketId: "t1",

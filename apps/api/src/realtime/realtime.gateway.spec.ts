@@ -1,5 +1,5 @@
 import { RealtimeGateway } from "./realtime.gateway";
-import type { Operation, PresenceState } from "@moires/shared";
+import type { Operation, PresenceState } from "@moirai/shared";
 
 function makeGateway() {
   const operationsHandler = { handle: jest.fn() };

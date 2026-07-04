@@ -97,7 +97,7 @@ export function Board() {
         >
           <div style={{ width: 11, height: 11, border: "2px solid #fff", borderRadius: 3 }} />
         </div>
-        <h1 style={{ fontSize: 16, fontWeight: 600, color: "var(--ink)" }}>Moires</h1>
+        <h1 style={{ fontSize: 16, fontWeight: 600, color: "var(--ink)" }}>Moirai</h1>
         <span style={{ color: "var(--muted)", fontSize: 12.5 }}>{tickets.length} tickets</span>
 
         {/* Group-by segmented control */}

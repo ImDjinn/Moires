@@ -1,4 +1,4 @@
-# Design Plan — Moires (Gantt collaboratif temps réel)
+# Design Plan — Moirai (Gantt collaboratif temps réel)
 
 > Plan de design UI/UX. Couvre l'écran, l'interaction et le système visuel.
 > Le plan technique vit dans [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md).

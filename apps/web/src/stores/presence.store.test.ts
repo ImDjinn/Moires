@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import type { PresenceState } from "@moires/shared";
+import type { PresenceState } from "@moirai/shared";
 import { usePresenceStore } from "./presence.store";
 
 function peer(partial: Partial<PresenceState>): PresenceState {

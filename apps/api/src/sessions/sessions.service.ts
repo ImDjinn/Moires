@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import type { CreateSessionDto, SessionSnapshot, Operation, Ticket, Iteration, Capacity, MemberMeta, TeamMember } from "@moires/shared";
-import { setTicketField, getTicketField } from "@moires/shared";
+import type { CreateSessionDto, SessionSnapshot, Operation, Ticket, Iteration, Capacity, MemberMeta, TeamMember } from "@moirai/shared";
+import { setTicketField, getTicketField } from "@moirai/shared";
 import { PrismaService } from "../database/prisma.service";
 import { RedisService } from "../database/redis.service";
 import { CapacitiesRepo } from "../database/capacities.repo";

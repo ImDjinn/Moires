@@ -1,4 +1,4 @@
-import type { Capacity, MemberMeta, SessionSnapshot } from "@moires/shared";
+import type { Capacity, MemberMeta, SessionSnapshot } from "@moirai/shared";
 import type { Dataset, Item, Iter, Level, Person } from "./ganttModel";
 import { MONTHS_FR, stateProgress } from "./ganttModel";
 

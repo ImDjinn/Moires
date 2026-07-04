@@ -1,4 +1,4 @@
-import type { PresenceState } from "@moires/shared";
+import type { PresenceState } from "@moirai/shared";
 import { getSocket } from "./operations.client";
 import { usePresenceStore } from "../stores/presence.store";
 

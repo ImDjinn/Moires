@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { MemberMeta } from "@moires/shared";
+import type { MemberMeta } from "@moirai/shared";
 import { api } from "../services/rest.client";
 
 interface MemberMetaState {

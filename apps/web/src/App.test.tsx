@@ -4,7 +4,7 @@ import { App } from "./App";
 import { useAuthStore } from "./stores/auth.store";
 import { useSessionStore } from "./stores/session.store";
 import { useTicketsStore } from "./stores/tickets.store";
-import type { SessionSnapshot } from "@moires/shared";
+import type { SessionSnapshot } from "@moirai/shared";
 
 // --- Mocks à la frontière : aucune dépendance réseau/socket réelle ---
 vi.mock("./services/rest.client", () => ({
@@ -102,7 +102,7 @@ describe("App — rendu des 3 vues (pages)", () => {
     mockAuthMe({ ok: true, body: { id: "u1", displayName: "Alice" } });
     // Champs ADO supplémentaires ajoutés par l'utilisateur pour le type "User Story"
     // (Risque : requis ; Type de travail : picklist).
-    localStorage.setItem("moires.uiPrefs", JSON.stringify({ v: 2, types: { "User Story": { extra: [
+    localStorage.setItem("moirai.uiPrefs", JSON.stringify({ v: 2, types: { "User Story": { extra: [
       { ref: "Custom.Risque", label: "Risque", required: true },
       { ref: "Custom.Type", label: "Type de travail", allowed: ["Dev", "Design"] },
     ] } } }));
@@ -163,11 +163,11 @@ describe("App — rendu des 3 vues (pages)", () => {
     expect(await screen.findByText("Intervalle d'itérations affiché")).toBeInTheDocument();
     expect(screen.getAllByRole("option", { name: "Sprint 1 (courante)" })).toHaveLength(2);
 
-    localStorage.removeItem("moires.uiPrefs");
+    localStorage.removeItem("moirai.uiPrefs");
   });
 
   it("panneau ticket : ⚙ ouvre la personnalisation par type et ajoute un champ ADO", async () => {
-    localStorage.removeItem("moires.uiPrefs");
+    localStorage.removeItem("moirai.uiPrefs");
     mockAuthMe({ ok: true, body: { id: "u1", displayName: "Alice" } });
     const snapshot: SessionSnapshot = {
       sessionId: "s1",
@@ -206,7 +206,7 @@ describe("App — rendu des 3 vues (pages)", () => {
     // La pref est persistée par type de work item, avec le défaut.
     expect(screen.getAllByText("Work Type").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByPlaceholderText("Implementation")).toBeInTheDocument();
-    expect(JSON.parse(localStorage.getItem("moires.uiPrefs")!).types["User Story"].extra)
+    expect(JSON.parse(localStorage.getItem("moirai.uiPrefs")!).types["User Story"].extra)
       .toEqual([{ ref: "Custom.WorkType", label: "Work Type", def: "Implementation" }]);
 
     // Une maj du store tickets (poll sync / écho socket) repatche la valeur du champ custom.
@@ -216,6 +216,6 @@ describe("App — rendu des 3 vues (pages)", () => {
     expect(screen.getByDisplayValue("Dev")).toBeInTheDocument();
     expect(screen.queryByPlaceholderText("Implementation")).not.toBeInTheDocument();
 
-    localStorage.removeItem("moires.uiPrefs");
+    localStorage.removeItem("moirai.uiPrefs");
   });
 });

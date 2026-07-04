@@ -23,7 +23,7 @@ jest.mock("ioredis", () => {
 });
 
 import { RedisService } from "./redis.service";
-import type { Ticket } from "@moires/shared";
+import type { Ticket } from "@moirai/shared";
 
 const config = { get: () => "redis://localhost:6379" } as any;
 

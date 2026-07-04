@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { Server, Socket } from "socket.io";
-import type { Operation } from "@moires/shared";
-import { ROOM } from "@moires/shared";
+import type { Operation } from "@moirai/shared";
+import { ROOM } from "@moirai/shared";
 import { SessionsService } from "../sessions/sessions.service";
 
 @Injectable()

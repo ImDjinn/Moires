@@ -14,7 +14,7 @@ import { buildDataset, UNASSIGNED_ID } from "./adapter";
 import { Brand } from "../Brand";
 import * as M from "./ganttModel";
 import type { Drag, Item, Presence, State, Theme } from "./ganttModel";
-import type { OperationField } from "@moires/shared";
+import type { OperationField } from "@moirai/shared";
 
 const C = css;
 const mono = "'IBM Plex Mono',monospace";
@@ -23,7 +23,7 @@ const initialsOf = (n: string) =>
   n.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "?";
 
 // Préférences d'affichage (champs du panneau ticket par type, champ de charge) — localStorage.
-const PREFS_KEY = "moires.uiPrefs";
+const PREFS_KEY = "moirai.uiPrefs";
 /** Prefs d'un type de work item : visibilité des champs standard + champs ADO ajoutés.
  * `def` : valeur par défaut du process, affichée tant que le ticket n'a pas de valeur stockée.
  * `required`/`allowed` : contraintes du process ADO (champ requis, picklist). */
@@ -815,7 +815,7 @@ export function GanttBoard() {
     const id = setInterval(() => {
       api
         .syncSession(snapshot.sessionId)
-        .then((fresh: { tickets: import("@moires/shared").Ticket[]; capacities?: import("@moires/shared").Capacity[] }) => {
+        .then((fresh: { tickets: import("@moirai/shared").Ticket[]; capacities?: import("@moirai/shared").Capacity[] }) => {
           const store = useTicketsStore.getState();
           const pending = new Set(store.tickets.filter((t) => t.syncStatus !== "synced").map((t) => t.id));
           fresh.tickets.filter((t) => !pending.has(t.id)).forEach((t) => store.updateTicket(t));

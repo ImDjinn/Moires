@@ -66,7 +66,7 @@ test("parcours complet : lobby → sélection → board Gantt", async ({ page })
   await page.getByRole("button", { name: /Entrer dans la session/i }).click();
 
   // Board Gantt rendu avec le ticket du snapshot
-  await expect(page.getByText("Moires")).toBeVisible();
+  await expect(page.getByText("Moirai")).toBeVisible();
   await expect(page.getByText("1 tickets")).toBeVisible();
   await expect(page.getByText("Tâche démo")).toBeVisible();
 });

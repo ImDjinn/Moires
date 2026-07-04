@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import type { Ticket, TeamMember, Iteration, Capacity } from "@moires/shared";
+import type { Ticket, TeamMember, Iteration, Capacity } from "@moirai/shared";
 import { UserBoard } from "./UserBoard";
 import { usePresenceStore } from "../../stores/presence.store";
 

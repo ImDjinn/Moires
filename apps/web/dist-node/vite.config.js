@@ -6,7 +6,7 @@ export default defineConfig({
     resolve: {
         // Sources TS du paquet partagé (comme le paths du tsconfig) : le dist CJS
         // n'est pas consommable tel quel par Vite pour un paquet workspace lié.
-        alias: { "@moires/shared": fileURLToPath(new URL("../../packages/shared/src/index.ts", import.meta.url)) },
+        alias: { "@moirai/shared": fileURLToPath(new URL("../../packages/shared/src/index.ts", import.meta.url)) },
     },
     server: {
         port: 5173,

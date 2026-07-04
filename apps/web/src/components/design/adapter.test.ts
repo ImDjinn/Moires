@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { SessionSnapshot, Ticket } from "@moires/shared";
+import type { SessionSnapshot, Ticket } from "@moirai/shared";
 import { buildDataset } from "./adapter";
 import { applyDataset, hasBoardColumns, createInitialState, relLoadBand, capOf } from "./ganttModel";
 

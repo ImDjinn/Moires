@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 export type Theme = "light" | "dark";
 
-const KEY = "moires-theme";
+const KEY = "moirai-theme";
 
 function apply(theme: Theme) {
   document.documentElement.dataset.theme = theme;

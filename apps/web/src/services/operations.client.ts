@@ -1,5 +1,5 @@
 import { io, Socket } from "socket.io-client";
-import type { Operation, ClientToServer, ServerToClient } from "@moires/shared";
+import type { Operation, ClientToServer, ServerToClient } from "@moirai/shared";
 import { useTicketsStore } from "../stores/tickets.store";
 
 let socket: Socket<ServerToClient, ClientToServer> | null = null;

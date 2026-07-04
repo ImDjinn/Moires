@@ -1,4 +1,4 @@
-import type { Iteration } from "@moires/shared";
+import type { Iteration } from "@moirai/shared";
 import { formatSprintRange } from "../../utils/dates";
 
 interface Props {

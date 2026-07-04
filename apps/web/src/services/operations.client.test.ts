@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { Ticket } from "@moires/shared";
+import type { Ticket } from "@moirai/shared";
 import { useTicketsStore } from "../stores/tickets.store";
 
 const handlers: Record<string, (...a: any[]) => void> = {};

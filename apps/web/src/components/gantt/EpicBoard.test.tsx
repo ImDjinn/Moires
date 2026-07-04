@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import type { Ticket, Iteration } from "@moires/shared";
+import type { Ticket, Iteration } from "@moirai/shared";
 import { EpicBoard } from "./EpicBoard";
 import { usePresenceStore } from "../../stores/presence.store";
 

@@ -2,9 +2,9 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: moires
-      POSTGRES_PASSWORD: moires
-      POSTGRES_DB: moires
+      POSTGRES_USER: moirai
+      POSTGRES_PASSWORD: moirai
+      POSTGRES_DB: moirai
     ports:
       - "5432:5432"
     volumes:

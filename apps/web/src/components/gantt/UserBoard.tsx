@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { Ticket, TeamMember, Iteration, Operation, Capacity } from "@moires/shared";
+import type { Ticket, TeamMember, Iteration, Operation, Capacity } from "@moirai/shared";
 import { buildRows, cellTickets, UNASSIGNED_ROW } from "../../utils/grouping";
 import { loadOf, capacityOf } from "../../utils/load";
 import { useBoardDnd } from "../../hooks/useBoardDnd";

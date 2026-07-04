@@ -1,4 +1,4 @@
-import type { PresenceState } from "@moires/shared";
+import type { PresenceState } from "@moirai/shared";
 
 interface Props {
   peers: PresenceState[];

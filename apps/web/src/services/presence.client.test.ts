@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import type { PresenceState } from "@moires/shared";
+import type { PresenceState } from "@moirai/shared";
 import { usePresenceStore } from "../stores/presence.store";
 
 const handlers: Record<string, (...a: any[]) => void> = {};

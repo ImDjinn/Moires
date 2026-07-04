@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { Ticket, OperationField, OperationFieldKey } from "@moires/shared";
+import type { Ticket, OperationField, OperationFieldKey } from "@moirai/shared";
 
 export interface RawAdoWorkItem {
   id: number;

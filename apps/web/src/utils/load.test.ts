@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Ticket, Capacity } from "@moires/shared";
+import type { Ticket, Capacity } from "@moirai/shared";
 import { loadOf, capacityOf } from "./load";
 
 function ticket(p: Partial<Ticket>): Ticket {

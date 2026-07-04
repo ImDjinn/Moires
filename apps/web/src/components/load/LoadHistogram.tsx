@@ -1,4 +1,4 @@
-import type { Ticket, TeamMember, Iteration, Capacity } from "@moires/shared";
+import type { Ticket, TeamMember, Iteration, Capacity } from "@moirai/shared";
 import { loadOf, capacityOf } from "../../utils/load";
 
 const BAR_MAX_H = 80;

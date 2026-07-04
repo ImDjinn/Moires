@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import type { Operation } from "@moires/shared";
+import type { Operation } from "@moirai/shared";
 import { addDays } from "../utils/dates";
 
 interface ResizeState {

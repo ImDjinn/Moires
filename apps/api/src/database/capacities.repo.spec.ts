@@ -1,5 +1,5 @@
 import { CapacitiesRepo } from "./capacities.repo";
-import type { TeamMember } from "@moires/shared";
+import type { TeamMember } from "@moirai/shared";
 
 function makeRepo() {
   const capacity = {

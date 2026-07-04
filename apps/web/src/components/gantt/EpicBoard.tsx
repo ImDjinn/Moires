@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { Ticket, Iteration, Operation } from "@moires/shared";
+import type { Ticket, Iteration, Operation } from "@moirai/shared";
 import { buildRows, cellTickets, epicSpan } from "../../utils/grouping";
 import { useBoardDnd } from "../../hooks/useBoardDnd";
 import { SprintTimelineHeader } from "./SprintTimelineHeader";
