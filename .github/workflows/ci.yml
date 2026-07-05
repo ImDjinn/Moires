@@ -30,6 +30,11 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # Client Prisma généré : les tests API en dépendent pour les types
+      # (findMany typé, etc.). pnpm ne rejoue pas toujours le postinstall.
+      - name: Prisma generate
+        run: pnpm --filter api exec prisma generate
+
       - name: Front (Vitest)
         run: pnpm test:web
 
