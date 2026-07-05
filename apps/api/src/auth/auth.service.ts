@@ -29,6 +29,9 @@ export class AuthService {
       auth: {
         clientId: config.get<string>("AZURE_AD_CLIENT_ID")!,
         clientSecret: config.get<string>("AZURE_AD_CLIENT_SECRET")!,
+        // Multi-tenant : "organizations" autorise tout compte pro Azure AD à se
+        // connecter (chacun voit ses propres orgs ADO). Mettre un tenant ID précis
+        // pour restreindre à une seule organisation.
         authority: `https://login.microsoftonline.com/${config.get<string>("AZURE_AD_TENANT_ID")}`,
       },
     });

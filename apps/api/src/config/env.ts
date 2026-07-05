@@ -5,7 +5,7 @@ export const envSchema = z.object({
   REDIS_URL: z.string().default("redis://localhost:6379"),
   AZURE_AD_CLIENT_ID: z.string(),
   AZURE_AD_CLIENT_SECRET: z.string(),
-  AZURE_AD_TENANT_ID: z.string(),
+  AZURE_AD_TENANT_ID: z.string().default("organizations"),
   AZURE_AD_REDIRECT_URI: z.string(),
   SESSION_SECRET: z.string(),
   PORT: z.coerce.number().default(3000),

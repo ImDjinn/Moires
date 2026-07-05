@@ -52,7 +52,7 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 ```
 
 ### Remplir `.env.production`
-- `AZURE_AD_CLIENT_ID` / `_SECRET` / `_TENANT_ID` : depuis le portail Azure.
+- `AZURE_AD_CLIENT_ID` / `_SECRET` : depuis le portail Azure. `_TENANT_ID` : `organizations` pour du multi-tenant (tout compte pro), ou un tenant ID pour restreindre à une seule organisation. L'app registration doit être en « Accounts in any organizational directory » pour le multi-tenant.
 - `POSTGRES_PASSWORD` **et** le mot de passe dans `DATABASE_URL` : identiques, forts.
 - `REDIS_PASSWORD` **et** le mot de passe dans `REDIS_URL` : identiques, forts (`openssl rand -hex 32`).
 - `SESSION_SECRET` : générer avec `openssl rand -hex 32` (signe les cookies de session).
