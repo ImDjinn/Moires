@@ -68,6 +68,7 @@ export const api = {
     request<import("@moirai/shared").Ticket>(`/sessions/${sessionId}/tickets/${ticketId}/duplicate`, { method: "POST" }),
   getAuditLog: (id: string) => request<any[]>(`/sessions/${id}/audit-log`),
   refreshAuth: () => request<void>("/auth/refresh", { method: "POST" }),
+  logout: () => request<void>("/auth/logout", { method: "POST" }),
 
   // --- Jalons & flags (entités propres, persistées en base) ---
   getAnnotations: (id: string) =>

@@ -7,7 +7,7 @@ import { useTicketsStore } from "../../stores/tickets.store";
 import { useCapacitiesStore } from "../../stores/capacities.store";
 import { useMemberMetaStore } from "../../stores/memberMeta.store";
 import { usePresenceStore } from "../../stores/presence.store";
-import { connectSocket, submitOperation, setRejectionHandler } from "../../services/operations.client";
+import { connectSocket, submitOperation, setRejectionHandler, disconnectSocket } from "../../services/operations.client";
 import { initPresenceListeners, emitPresence } from "../../services/presence.client";
 import { api } from "../../services/rest.client";
 import { buildDataset, UNASSIGNED_ID } from "./adapter";
@@ -120,6 +120,22 @@ export function GanttBoard() {
   useEffect(() => {
     if (state.selectedId) setPersonSel(null);
   }, [state.selectedId]);
+
+  // Menu utilisateur (déconnexion / changement de projet-organisation).
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  // Quitter la session : ferme le socket et revient au lobby (choix org/projet).
+  const exitSession = useCallback(() => {
+    setUserMenuOpen(false);
+    disconnectSocket();
+    useSessionStore.getState().clear();
+  }, []);
+  // Déconnexion : efface les cookies serveur puis recharge sur l'écran de login.
+  const logout = useCallback(async () => {
+    setUserMenuOpen(false);
+    useSessionStore.getState().clear();
+    try { await api.logout(); } catch { /* on redirige quand même */ }
+    window.location.href = "/";
+  }, []);
 
   const [prefs, setPrefs] = useState<UiPrefs>(loadPrefs);
   M.setLoadField(prefs.loadField);
@@ -1411,7 +1427,7 @@ export function GanttBoard() {
       themeLabel: theme === "dark" ? "Clair" : "Sombre", themeIcon: theme === "dark" ? "☀" : "☾",
       onToggleTheme: () => toggleTheme(),
       onScrollRef, onCanvasRef,
-      onBgClick: () => { setPersonSel(null); setState({ selectedId: null, rangeOpen: false, peopleOpen: false, prefsOpen: false }); },
+      onBgClick: () => { setPersonSel(null); setUserMenuOpen(false); setState({ selectedId: null, rangeOpen: false, peopleOpen: false, prefsOpen: false }); },
       stop: (e: React.MouseEvent) => e.stopPropagation(),
       selected: !!item, insp, personPanel, toast: state.toast,
       labelCss: "font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6);margin-bottom:7px",
@@ -1458,6 +1474,36 @@ export function GanttBoard() {
         </div>
         <div style={C("width:1px;height:22px;background:var(--line,#e9e9ef)")} />
         <button onClick={v.onToggleTheme} style={C("height:30px;padding:0 12px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px")}>{v.themeIcon} {v.themeLabel}</button>
+        {user && (
+          <div style={C("width:1px;height:22px;background:var(--line,#e9e9ef)")} />
+        )}
+        {user && (
+          <div style={{ position: "relative" }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); setUserMenuOpen((o) => !o); }}
+              style={C("height:30px;padding:0 10px 0 4px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:7px")}
+            >
+              <span style={C(`width:22px;height:22px;border-radius:50%;background:${myColor};color:#fff;font-size:9px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`)}>{initialsOf(user.displayName)}</span>
+              <span style={{ maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.displayName}</span>
+              <span style={C("opacity:.5;font-size:9px")}>▾</span>
+            </button>
+            {userMenuOpen && (
+              <div onClick={(e) => e.stopPropagation()} style={C("position:absolute;top:38px;right:0;width:250px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:6px;animation:ggdrop .14s ease")}>
+                <div style={C("padding:8px 10px 10px")}>
+                  <div style={C("font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Connecté en tant que</div>
+                  <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>{user.displayName}</div>
+                </div>
+                <div style={C("height:1px;background:var(--line,#e9e9ef);margin:2px 0")} />
+                <button onClick={exitSession} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:7px;background:transparent;color:var(--ink,#1a1a20);font-size:12.5px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
+                  <span style={C("opacity:.7")}>⇄</span> Changer de projet / d'organisation
+                </button>
+                <button onClick={logout} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:7px;background:transparent;color:var(--color-error,#ef4444);font-size:12.5px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
+                  <span style={C("opacity:.7")}>⎋</span> Se déconnecter
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Header row 2 */}

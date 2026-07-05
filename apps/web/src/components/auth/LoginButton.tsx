@@ -1,3 +1,5 @@
+import { MoiraiMark } from "../Brand";
+
 // Maps known auth failure codes to actionable French messages. Keys are either
 // AAD sub-codes (AADSTS…) forwarded by the backend or OAuth error codes.
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
@@ -27,43 +29,67 @@ export function LoginButton() {
       alignItems: "center",
       justifyContent: "center",
       height: "100vh",
-      flexDirection: "column",
-      gap: "24px",
+      background: "var(--canvas)",
+      padding: "0 24px",
     }}>
-      <h1 style={{ fontSize: "32px", fontWeight: 600 }}>Moirai</h1>
-      <p style={{ color: "var(--text-muted)" }}>Planification collaborative de sprint</p>
-      {error && (
-        <div
-          role="alert"
+      <div style={{
+        width: "100%",
+        maxWidth: 420,
+        background: "var(--panel)",
+        border: "1px solid var(--line)",
+        borderRadius: 16,
+        boxShadow: "var(--shadow)",
+        padding: 36,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 24,
+        textAlign: "center",
+      }}>
+        <MoiraiMark size={48} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.01em", color: "var(--ink)" }}>Moirai</h1>
+          <p style={{ color: "var(--muted)", fontSize: 14, lineHeight: 1.5 }}>
+            Planification collaborative de sprint sur Azure DevOps
+          </p>
+        </div>
+        {error && (
+          <div
+            role="alert"
+            style={{
+              width: "100%",
+              padding: "12px 16px",
+              background: "rgba(239, 68, 68, 0.1)",
+              border: "1px solid var(--color-error)",
+              borderRadius: 8,
+              color: "var(--color-error)",
+              fontSize: 13,
+              lineHeight: 1.5,
+              textAlign: "left",
+            }}
+          >
+            {error}
+          </div>
+        )}
+        <a
+          href="/auth/login"
           style={{
-            maxWidth: "480px",
-            padding: "12px 16px",
-            background: "rgba(248, 81, 73, 0.1)",
-            border: "1px solid var(--color-error)",
-            borderRadius: "8px",
-            color: "var(--color-error)",
-            fontSize: "14px",
-            lineHeight: 1.5,
-            textAlign: "center",
+            width: "100%",
+            height: 46,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "var(--accent)",
+            color: "#fff",
+            borderRadius: 10,
+            textDecoration: "none",
+            fontSize: 15,
+            fontWeight: 600,
           }}
         >
-          {error}
-        </div>
-      )}
-      <a
-        href="/auth/login"
-        style={{
-          padding: "12px 32px",
-          background: "var(--accent)",
-          color: "#fff",
-          borderRadius: "8px",
-          textDecoration: "none",
-          fontSize: "16px",
-          fontWeight: 500,
-        }}
-      >
-        Se connecter avec Azure AD
-      </a>
+          Se connecter avec Azure AD
+        </a>
+      </div>
     </div>
   );
 }

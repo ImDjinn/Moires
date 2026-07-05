@@ -87,7 +87,9 @@ qui casse les tests ne déploie donc pas. Déclenchable aussi à la main (onglet
 | `DEPLOY_USER` | utilisateur SSH (ex. `ubuntu` ou `root`) |
 | `DEPLOY_PASSWORD` | mot de passe SSH de cet utilisateur (voir prérequis serveur ci-dessous) |
 | `DEPLOY_PATH` | chemin du repo cloné (ex. `~/Moires` ou `/root/moirai`) |
-| `DEPLOY_PORT` | *(optionnel)* port SSH, défaut `22` |
+
+> Le port SSH est fixé à `22` dans le workflow ; pour un port custom, éditer
+> `port:` dans `.github/workflows/deploy.yml`.
 
 **Prérequis serveur pour l'auth par mot de passe :**
 - SSH par mot de passe activé : `PasswordAuthentication yes` dans `/etc/ssh/sshd_config`

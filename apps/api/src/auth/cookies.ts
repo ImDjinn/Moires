@@ -26,6 +26,16 @@ export function plainCookieOpts(maxAgeMs: number) {
   };
 }
 
+// Effacement d'un cookie : les options (hors maxAge) doivent correspondre à
+// celles de la pose, sinon le navigateur ne l'écrase pas.
+export function clearCookieOpts() {
+  return {
+    httpOnly: true,
+    secure: isProd(),
+    sameSite: "lax" as const,
+  };
+}
+
 // Vérifie et décode un cookie signé depuis un en-tête Cookie brut (handshake
 // WebSocket, où le middleware cookie-parser ne s'applique pas). Renvoie undefined
 // si le cookie est absent, non signé, ou de signature invalide.

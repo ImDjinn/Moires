@@ -2,7 +2,7 @@ import { Controller, Get, Post, Query, Req, Res, HttpCode } from "@nestjs/common
 import { ConfigService } from "@nestjs/config";
 import { Request, Response } from "express";
 import { AuthService } from "./auth.service";
-import { signedCookieOpts, plainCookieOpts } from "./cookies";
+import { signedCookieOpts, plainCookieOpts, clearCookieOpts } from "./cookies";
 
 const H = 60 * 60 * 1000;
 
@@ -74,6 +74,15 @@ export class AuthController {
 
   private redirectWithError(res: Response, code: string) {
     res.redirect(`${this.config.get<string>("FRONTEND_URL")}?auth_error=${encodeURIComponent(code)}`);
+  }
+
+  @Post("logout")
+  @HttpCode(204)
+  logout(@Res() res: Response) {
+    res.clearCookie("session_user", clearCookieOpts());
+    res.clearCookie("ado_token", clearCookieOpts());
+    res.clearCookie("ado_org", clearCookieOpts());
+    res.status(204).send();
   }
 
   @Post("refresh")

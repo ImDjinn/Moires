@@ -1,19 +1,9 @@
 import { useState, useEffect } from "react";
 import { api } from "../../services/rest.client";
-import { useSessionStore } from "../../stores/session.store";
-import { useTicketsStore } from "../../stores/tickets.store";
-import { usePresenceStore } from "../../stores/presence.store";
-import { useCapacitiesStore } from "../../stores/capacities.store";
-import { useMemberMetaStore } from "../../stores/memberMeta.store";
+import { applySnapshot } from "../../stores/session.store";
 import { Brand } from "../Brand";
 
 export function SessionLobby() {
-  const setSnapshot = useSessionStore((s) => s.setSnapshot);
-  const setTickets = useTicketsStore((s) => s.setTickets);
-  const setPeers = usePresenceStore((s) => s.setPeers);
-  const setCapacities = useCapacitiesStore((s) => s.setCapacities);
-  const setMemberMetas = useMemberMetaStore((s) => s.setMemberMetas);
-
   const [organizations, setOrganizations] = useState<{ id: string; name: string }[]>([]);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
 
@@ -54,11 +44,7 @@ export function SessionLobby() {
     setError("");
     try {
       const snapshot = await api.createSession({ adoProjectId: selectedProject });
-      setTickets(snapshot.tickets);
-      setPeers(snapshot.participants);
-      setCapacities(snapshot.capacities ?? []);
-      setMemberMetas(snapshot.memberMeta ?? []);
-      setSnapshot(snapshot);
+      applySnapshot(snapshot);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -66,14 +52,24 @@ export function SessionLobby() {
     }
   };
 
+  const labelStyle: React.CSSProperties = {
+    color: "var(--muted)",
+    fontSize: 10,
+    fontWeight: 600,
+    letterSpacing: ".06em",
+    textTransform: "uppercase",
+  };
   const selectStyle: React.CSSProperties = {
     width: "100%",
-    padding: "10px 12px",
-    background: "var(--surface)",
-    border: "1px solid var(--border)",
-    borderRadius: "6px",
-    color: "var(--text)",
-    fontSize: "14px",
+    height: 40,
+    padding: "0 12px",
+    background: "var(--panel2)",
+    border: "1px solid var(--line)",
+    borderRadius: 8,
+    color: "var(--ink)",
+    fontSize: 14,
+    cursor: "pointer",
+    outline: "none",
   };
 
   return (
@@ -82,39 +78,68 @@ export function SessionLobby() {
       alignItems: "center",
       justifyContent: "center",
       height: "100vh",
+      background: "var(--canvas)",
+      padding: "0 24px",
     }}>
-      <div style={{ maxWidth: 560, width: "100%", padding: "0 24px", display: "flex", flexDirection: "column", gap: 20 }}>
-        <Brand size={40} />
-        <h2 style={{ fontSize: 24, fontWeight: 600 }}>Nouvelle session</h2>
+      <div style={{
+        width: "100%",
+        maxWidth: 440,
+        background: "var(--panel)",
+        border: "1px solid var(--line)",
+        borderRadius: 16,
+        boxShadow: "var(--shadow)",
+        padding: 32,
+        display: "flex",
+        flexDirection: "column",
+        gap: 22,
+      }}>
+        <Brand size={30} />
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={labelStyle}>Planification collaborative</span>
+          <h2 style={{ fontSize: 22, fontWeight: 600, color: "var(--ink)" }}>Nouvelle session</h2>
+          <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
+            Sélectionnez l'organisation et le projet Azure DevOps à planifier.
+          </p>
+        </div>
 
         {error && (
-          <div style={{ padding: "8px 12px", background: "var(--color-error)", borderRadius: 6, fontSize: 13 }}>
+          <div style={{
+            padding: "10px 12px",
+            background: "rgba(239, 68, 68, 0.1)",
+            border: "1px solid var(--color-error)",
+            borderRadius: 8,
+            color: "var(--color-error)",
+            fontSize: 13,
+            lineHeight: 1.4,
+          }}>
             {error}
           </div>
         )}
 
-        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ color: "var(--text-muted)", fontSize: 13 }}>Organisation ADO</span>
+        <label style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+          <span style={labelStyle}>Organisation ADO</span>
           <select
             style={selectStyle}
             value={selectedOrg}
             onChange={(e) => handleOrgChange(e.target.value)}
           >
-            <option value="">Sélectionner...</option>
+            <option value="">Sélectionner…</option>
             {organizations.map((o) => (
               <option key={o.id} value={o.name}>{o.name}</option>
             ))}
           </select>
         </label>
 
-        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ color: "var(--text-muted)", fontSize: 13 }}>Projet ADO</span>
+        <label style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+          <span style={labelStyle}>Projet ADO</span>
           <select
-            style={selectStyle}
+            style={{ ...selectStyle, opacity: selectedOrg ? 1 : 0.5 }}
             value={selectedProject}
+            disabled={!selectedOrg}
             onChange={(e) => setSelectedProject(e.target.value)}
           >
-            <option value="">Sélectionner...</option>
+            <option value="">Sélectionner…</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
@@ -125,18 +150,20 @@ export function SessionLobby() {
           onClick={handleEnter}
           disabled={loading || !selectedProject}
           style={{
-            padding: "12px 0",
+            height: 44,
+            marginTop: 2,
             background: "var(--accent)",
             color: "#fff",
             border: "none",
-            borderRadius: 8,
-            fontSize: 16,
-            fontWeight: 500,
-            cursor: "pointer",
-            opacity: loading ? 0.6 : 1,
+            borderRadius: 10,
+            fontSize: 15,
+            fontWeight: 600,
+            cursor: loading || !selectedProject ? "default" : "pointer",
+            opacity: loading || !selectedProject ? 0.55 : 1,
+            transition: "opacity .15s",
           }}
         >
-          {loading ? "Chargement..." : "Entrer dans la session"}
+          {loading ? "Chargement…" : "Entrer dans la session"}
         </button>
       </div>
     </div>
