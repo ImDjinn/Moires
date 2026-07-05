@@ -60,7 +60,7 @@ async function stubBackend(page: Page, opts: { authenticated: boolean }) {
 test("non authentifié → écran de connexion", async ({ page }) => {
   await stubBackend(page, { authenticated: false });
   await page.goto("/");
-  await expect(page.getByText("Se connecter avec Azure AD")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Se connecter" })).toBeVisible();
 });
 
 test("parcours complet : lobby → sélection → board Gantt", async ({ page }) => {

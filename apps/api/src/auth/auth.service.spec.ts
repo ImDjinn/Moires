@@ -1,63 +1,33 @@
-const getAuthCodeUrl = jest.fn();
-const acquireTokenByCode = jest.fn();
-const acquireTokenSilent = jest.fn();
-
-jest.mock("@azure/msal-node", () => ({
-  ConfidentialClientApplication: jest.fn().mockImplementation(() => ({
-    getAuthCodeUrl,
-    acquireTokenByCode,
-    acquireTokenSilent,
-  })),
-}));
-
 import { AuthService } from "./auth.service";
 
-const config = { get: (k: string) => `cfg-${k}` } as any;
-
 function makeService() {
+  const ado = { getProfile: jest.fn() };
   const prisma = { user: { upsert: jest.fn() } };
-  const service = new AuthService(config, prisma as any);
-  return { service, prisma };
+  const service = new AuthService(ado as any, prisma as any);
+  return { service, ado, prisma };
 }
 
-beforeEach(() => {
-  getAuthCodeUrl.mockReset();
-  acquireTokenByCode.mockReset();
-  acquireTokenSilent.mockReset();
-});
-
 describe("AuthService", () => {
-  it("getLoginUrl délègue à MSAL", async () => {
-    getAuthCodeUrl.mockResolvedValue("https://login.microsoftonline.com/authorize");
-    const { service } = makeService();
-    await expect(service.getLoginUrl()).resolves.toContain("login.microsoftonline.com");
-  });
-
-  it("handleCallback échange le code et upsert l'utilisateur", async () => {
-    acquireTokenByCode.mockResolvedValue({
-      idTokenClaims: { oid: "oid1", name: "Alice", preferred_username: "alice@corp" },
-      accessToken: "AT",
-    });
-    const { service, prisma } = makeService();
+  it("loginWithPat valide le PAT via le profil et upsert l'utilisateur", async () => {
+    const { service, ado, prisma } = makeService();
+    ado.getProfile.mockResolvedValue({ id: "me1", displayName: "Alice", email: "alice@corp" });
     prisma.user.upsert.mockResolvedValue({ id: "u1", displayName: "Alice" });
 
-    const res = await service.handleCallback("code123");
+    const res = await service.loginWithPat("my-pat");
 
-    expect(res.accessToken).toBe("AT");
+    expect(ado.getProfile).toHaveBeenCalledWith("my-pat");
+    expect(res.pat).toBe("my-pat");
+    expect(res.user).toEqual({ id: "u1", displayName: "Alice" });
     expect(prisma.user.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { azureAdId: "oid1" } }),
+      expect.objectContaining({ where: { azureAdId: "me1" } }),
     );
   });
 
-  it("handleCallback lève si MSAL échoue", async () => {
-    acquireTokenByCode.mockResolvedValue(null);
-    const { service } = makeService();
-    await expect(service.handleCallback("bad")).rejects.toThrow("MSAL authentication failed");
-  });
+  it("loginWithPat propage l'erreur si le PAT est invalide", async () => {
+    const { service, ado, prisma } = makeService();
+    ado.getProfile.mockRejectedValue(new Error("Unauthorized"));
 
-  it("refreshToken renvoie le nouveau token", async () => {
-    acquireTokenSilent.mockResolvedValue({ accessToken: "NEW" });
-    const { service } = makeService();
-    await expect(service.refreshToken("old")).resolves.toBe("NEW");
+    await expect(service.loginWithPat("bad")).rejects.toThrow("Unauthorized");
+    expect(prisma.user.upsert).not.toHaveBeenCalled();
   });
 });

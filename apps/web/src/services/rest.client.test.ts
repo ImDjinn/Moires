@@ -20,7 +20,7 @@ describe("rest.client", () => {
 
   it("renvoie undefined sur un 204", async () => {
     mockFetch(() => ({ ok: true, status: 204, json: () => Promise.reject(new Error("no body")) }));
-    await expect(api.refreshAuth()).resolves.toBeUndefined();
+    await expect(api.logout()).resolves.toBeUndefined();
   });
 
   it("lève une erreur sur une réponse non OK", async () => {
@@ -28,19 +28,15 @@ describe("rest.client", () => {
     await expect(api.getProjects()).rejects.toThrow("404 Not Found");
   });
 
-  it("sur 401 : tente /auth/refresh puis rejoue la requête une fois", async () => {
+  it("sur 401 : efface la session et rejette (PAT invalide, pas de refresh)", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({ ok: false, status: 401 })
-      .mockResolvedValueOnce({ ok: true, status: 204, json: () => Promise.reject(new Error("no body")) })
-      .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve([{ id: "p1", name: "P" }]) });
+      .mockResolvedValueOnce({ ok: true, status: 204 });
     global.fetch = fetchMock as unknown as typeof fetch;
 
-    const projects = await api.getProjects();
-
-    expect(projects).toEqual([{ id: "p1", name: "P" }]);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(fetchMock.mock.calls[1][0]).toBe("/auth/refresh");
+    await expect(api.getProjects()).rejects.toThrow("Session Azure DevOps expirée");
+    expect(fetchMock.mock.calls[1][0]).toBe("/auth/logout");
   });
 
   it("POST /sessions envoie le corps sérialisé", async () => {

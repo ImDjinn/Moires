@@ -27,7 +27,7 @@ describe("AuthGuard", () => {
         <div>contenu protégé</div>
       </AuthGuard>,
     );
-    expect(screen.getByText("Se connecter avec Azure AD")).toBeInTheDocument();
+    expect(screen.getByText("Se connecter")).toBeInTheDocument();
   });
 
   it("affiche les enfants si authentifié", () => {

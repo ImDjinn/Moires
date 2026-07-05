@@ -49,7 +49,7 @@ describe("App — rendu des 3 vues (pages)", () => {
   it("non authentifié => écran de connexion", async () => {
     mockAuthMe({ ok: false });
     render(<App />);
-    expect(await screen.findByText("Se connecter avec Azure AD")).toBeInTheDocument();
+    expect(await screen.findByText("Se connecter")).toBeInTheDocument();
   });
 
   it("authentifié sans session => lobby de session", async () => {

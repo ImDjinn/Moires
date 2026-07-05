@@ -14,14 +14,16 @@ beforeEach(() => {
 });
 
 describe("AdoService", () => {
-  it("getProjects mappe id/name et envoie le bearer token", async () => {
+  it("getProjects mappe id/name et envoie le PAT en Basic auth", async () => {
     fetchMock.mockResolvedValue(ok({ value: [{ id: "p1", name: "Alpha", extra: 1 }] }));
     const res = await service.getProjects("org", "tkn");
     expect(res).toEqual([{ id: "p1", name: "Alpha" }]);
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/_apis/projects"),
       expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: "Bearer tkn" }),
+        headers: expect.objectContaining({
+          Authorization: `Basic ${Buffer.from(":tkn").toString("base64")}`,
+        }),
       }),
     );
   });

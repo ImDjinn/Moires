@@ -2,10 +2,6 @@ import { validateEnv } from "./env";
 
 const required = {
   DATABASE_URL: "postgres://localhost/db",
-  AZURE_AD_CLIENT_ID: "cid",
-  AZURE_AD_CLIENT_SECRET: "secret",
-  AZURE_AD_TENANT_ID: "tid",
-  AZURE_AD_REDIRECT_URI: "http://localhost:3000/auth/callback",
   SESSION_SECRET: "shhh",
 };
 

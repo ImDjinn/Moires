@@ -1,29 +1,25 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { LoginButton } from "./LoginButton";
 
-function setSearch(search: string) {
-  window.history.replaceState({}, "", `/${search}`);
-}
-
-afterEach(() => setSearch(""));
+afterEach(() => vi.restoreAllMocks());
 
 describe("LoginButton", () => {
-  it("affiche le bouton sans alerte quand il n'y a pas d'erreur", () => {
+  it("affiche le formulaire PAT sans alerte au départ", () => {
     render(<LoginButton />);
-    expect(screen.getByText("Se connecter avec Azure AD")).toBeInTheDocument();
+    expect(screen.getByLabelText("Personal Access Token Azure DevOps")).toBeInTheDocument();
+    expect(screen.getByText("Se connecter")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("affiche un message actionnable pour un code AADSTS connu", () => {
-    setSearch("?auth_error=AADSTS650052");
+  it("affiche une erreur quand le PAT est refusé (401)", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ status: 401 }) as unknown as typeof fetch;
     render(<LoginButton />);
-    expect(screen.getByRole("alert")).toHaveTextContent("Azure DevOps n'est pas activé");
-  });
-
-  it("affiche un message générique avec le code pour une erreur inconnue", () => {
-    setSearch("?auth_error=boom");
-    render(<LoginButton />);
-    expect(screen.getByRole("alert")).toHaveTextContent("code : boom");
+    fireEvent.change(screen.getByLabelText("Personal Access Token Azure DevOps"), {
+      target: { value: "bad-pat" },
+    });
+    fireEvent.click(screen.getByText("Se connecter"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("PAT invalide"));
+    expect(global.fetch).toHaveBeenCalledWith("/auth/login", expect.objectContaining({ method: "POST" }));
   });
 });

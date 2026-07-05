@@ -35,7 +35,8 @@ export class AdoService {
     const res = await fetch(url, {
       ...options,
       headers: {
-        Authorization: `Bearer ${token}`,
+        // PAT Azure DevOps : Basic auth, username vide, PAT en mot de passe.
+        Authorization: `Basic ${Buffer.from(`:${token}`).toString("base64")}`,
         Accept: "application/json",
         "Content-Type": "application/json",
         ...options?.headers,
@@ -57,12 +58,12 @@ export class AdoService {
     }
   }
 
-  async getProfile(token: string): Promise<{ id: string; displayName: string }> {
+  async getProfile(token: string): Promise<{ id: string; displayName: string; email: string }> {
     const data = await this.adoFetch(
       `${VSSPS_BASE}/_apis/profile/profiles/me?api-version=7.1`,
       token,
     );
-    return { id: data.id, displayName: data.displayName };
+    return { id: data.id, displayName: data.displayName, email: data.emailAddress ?? "" };
   }
 
   async getOrganizations(token: string): Promise<{ id: string; name: string }[]> {

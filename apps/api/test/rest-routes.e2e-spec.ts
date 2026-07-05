@@ -76,7 +76,7 @@ describe("Routes REST (e2e, services mockés)", () => {
         { provide: SyncService, useValue: sync },
         {
           provide: AuthService,
-          useValue: { getLoginUrl: jest.fn(), refreshToken: jest.fn().mockResolvedValue("new-token") },
+          useValue: { loginWithPat: jest.fn() },
         },
         { provide: ConfigService, useValue: { get: () => "http://localhost:5173" } },
         { provide: PrismaService, useValue: prisma },
@@ -122,12 +122,6 @@ describe("Routes REST (e2e, services mockés)", () => {
         .expect({ id: "u1", displayName: "Alice" }));
 
     it("401 sans cookie de session", () => http().get("/auth/me").expect(401));
-  });
-
-  describe("/auth/refresh", () => {
-    it("204 avec un token ADO présent", () =>
-      http().post("/auth/refresh").set("Cookie", "ado_token=abc").expect(204));
-    it("401 sans token ADO", () => http().post("/auth/refresh").expect(401));
   });
 
   describe("/ado/*", () => {

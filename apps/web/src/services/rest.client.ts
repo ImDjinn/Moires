@@ -1,17 +1,18 @@
 const BASE = "";
 
-async function request<T>(path: string, options?: RequestInit, retried = false): Promise<T> {
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...options,
     credentials: "include",
     headers: { "Content-Type": "application/json", ...options?.headers },
   });
-  // 401 = token ADO expiré (durée 1h < session 8h). On tente un refresh une fois,
-  // puis on rejoue la requête ; si le refresh échoue, on relance le login Azure AD.
-  if (res.status === 401 && !retried && path !== "/auth/refresh") {
-    const refresh = await fetch(`${BASE}/auth/refresh`, { method: "POST", credentials: "include" });
-    if (refresh.ok) return request<T>(path, options, true);
-    if (typeof window !== "undefined") window.location.href = "/auth/login";
+  // 401 = PAT Azure DevOps invalide/révoqué. On efface la session et on renvoie
+  // à l'écran de connexion (le PAT n'a pas de refresh — il est saisi à la main).
+  if (res.status === 401) {
+    if (typeof window !== "undefined") {
+      await fetch(`${BASE}/auth/logout`, { method: "POST", credentials: "include" });
+      window.location.href = "/";
+    }
     throw new Error("Session Azure DevOps expirée — reconnectez-vous");
   }
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
@@ -67,7 +68,6 @@ export const api = {
   duplicateTicket: (sessionId: string, ticketId: string) =>
     request<import("@moirai/shared").Ticket>(`/sessions/${sessionId}/tickets/${ticketId}/duplicate`, { method: "POST" }),
   getAuditLog: (id: string) => request<any[]>(`/sessions/${id}/audit-log`),
-  refreshAuth: () => request<void>("/auth/refresh", { method: "POST" }),
   logout: () => request<void>("/auth/logout", { method: "POST" }),
 
   // --- Jalons & flags (entités propres, persistées en base) ---

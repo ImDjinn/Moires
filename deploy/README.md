@@ -24,9 +24,11 @@ Domaine cible : **themoirai.net**
 Enregistrement **A** : `themoirai.net` → `IP_DU_VPS`, **proxy « DNS only » (nuage gris)**.
 > Le proxy orange casse la génération du certificat Caddy et les WebSockets. À laisser gris.
 
-### 3. Azure AD
-Portail Azure → App registrations → (ton app) → Authentication → Redirect URIs :
-- Ajouter : `https://themoirai.net/auth/callback`
+### 3. Azure DevOps (auth par PAT)
+Aucune app Azure AD à configurer. La connexion se fait avec un **Personal Access
+Token** Azure DevOps saisi dans l'UI. Créer le PAT sur https://dev.azure.com →
+User settings → Personal access tokens, portées : *Work Items (lecture/écriture)*
+et *Project and Team (lecture)*.
 
 ### 4. Serveur : Docker + pare-feu
 ```bash
@@ -52,7 +54,6 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 ```
 
 ### Remplir `.env.production`
-- `AZURE_AD_CLIENT_ID` / `_SECRET` : depuis le portail Azure. `_TENANT_ID` : `organizations` pour du multi-tenant (tout compte pro), ou un tenant ID pour restreindre à une seule organisation. L'app registration doit être en « Accounts in any organizational directory » pour le multi-tenant.
 - `POSTGRES_PASSWORD` **et** le mot de passe dans `DATABASE_URL` : identiques, forts.
 - `REDIS_PASSWORD` **et** le mot de passe dans `REDIS_URL` : identiques, forts (`openssl rand -hex 32`).
 - `SESSION_SECRET` : générer avec `openssl rand -hex 32` (signe les cookies de session).
@@ -125,5 +126,5 @@ docker compose -f docker-compose.prod.yml exec postgres \
 ## Dépannage
 
 - **Pas de HTTPS / erreur certificat** : le DNS ne pointe pas encore (attendre la propagation) ou proxy Cloudflare en orange. Logs : `docker compose ... logs caddy`.
-- **Login Azure échoue** : la Redirect URI dans Azure AD ne correspond pas exactement à `https://themoirai.net/auth/callback`.
+- **Login échoue (PAT invalide)** : le PAT est expiré, révoqué, ou n'a pas les portées *Work Items* / *Project and Team*. En régénérer un sur dev.azure.com.
 - **API redémarre en boucle** : souvent `DATABASE_URL` faux (doit viser l'hôte `postgres`). Voir `logs api`.
