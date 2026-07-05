@@ -186,6 +186,32 @@ describe("SessionsService.applyOperation", () => {
     expect(writeback.enqueue).toHaveBeenCalledWith("s1", op, "log1");
   });
 
+  it("n'enfile PAS le write-back quand WRITEBACK_ENABLED=false", async () => {
+    const { service, redis, prisma, writeback } = makeService();
+    redis.getTicket.mockResolvedValue({ ...ticket });
+    redis.updateTicket.mockResolvedValue(undefined);
+    prisma.operationsLog.create.mockResolvedValue({ id: "log1" });
+
+    const prev = process.env.WRITEBACK_ENABLED;
+    process.env.WRITEBACK_ENABLED = "false";
+    try {
+      const op: Operation = {
+        ticketId: "t1",
+        field: "assigneeId",
+        value: "m2",
+        userId: "u1",
+        clientTimestamp: 1,
+      };
+      const result = await service.applyOperation("s1", op);
+
+      expect(result.assigneeId).toBe("m2");
+      expect(prisma.operationsLog.create).toHaveBeenCalled();
+      expect(writeback.enqueue).not.toHaveBeenCalled();
+    } finally {
+      process.env.WRITEBACK_ENABLED = prev;
+    }
+  });
+
   it("rejette si le ticket est introuvable", async () => {
     const { service, redis } = makeService();
     redis.getTicket.mockResolvedValue(null);

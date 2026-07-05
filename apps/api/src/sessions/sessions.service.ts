@@ -205,7 +205,11 @@ export class SessionsService {
       },
     });
 
-    await this.writebackService.enqueue(sessionId, op, log.id);
+    // ponytail: kill-switch writeback pour env de test — WRITEBACK_ENABLED=false
+    // applique l'op dans Redis + la logge, mais n'écrit jamais vers ADO.
+    if (process.env.WRITEBACK_ENABLED !== "false") {
+      await this.writebackService.enqueue(sessionId, op, log.id);
+    }
 
     return ticket;
   }
