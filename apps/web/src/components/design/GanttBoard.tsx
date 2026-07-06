@@ -527,12 +527,22 @@ export function GanttBoard() {
   );
 
   // ---- drag ----
+  // pointermove peut arriver à >100 Hz : on coalesce en un seul setState par frame
+  // (même throttle rAF que le scroll) pour ne pas relancer computeView à chaque event.
+  const moveRaf = useRef(0);
+  const lastMove = useRef<PointerEvent | null>(null);
   const onMove = useCallback(
     (e: PointerEvent) => {
-      const d = stateRef.current.drag;
-      if (!d) return;
-      const next: Drag = { ...d, dx: e.clientX - d.sx, ...("sy" in d ? { dy: e.clientY - d.sy } : {}) } as Drag;
-      setState({ drag: next });
+      if (!stateRef.current.drag) return;
+      lastMove.current = e;
+      if (moveRaf.current) return;
+      moveRaf.current = requestAnimationFrame(() => {
+        moveRaf.current = 0;
+        const d = stateRef.current.drag, ev = lastMove.current;
+        if (!d || !ev) return;
+        const next: Drag = { ...d, dx: ev.clientX - d.sx, ...("sy" in d ? { dy: ev.clientY - d.sy } : {}) } as Drag;
+        setState({ drag: next });
+      });
     },
     [setState],
   );
@@ -555,6 +565,7 @@ export function GanttBoard() {
     (e: PointerEvent) => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      if (moveRaf.current) { cancelAnimationFrame(moveRaf.current); moveRaf.current = 0; }
       const st = stateRef.current;
       const d = st.drag;
       if (!d) return;
@@ -654,6 +665,7 @@ export function GanttBoard() {
         tagged.addEventListener("scroll", () => {
           // Recale le panneau gauche tout de suite (sans attendre React) → pas de saccade.
           canvasRef.current?.style.setProperty("--sl", tagged.scrollLeft + "px");
+          canvasRef.current?.style.setProperty("--st", tagged.scrollTop + "px");
           if (scrollRaf.current) return;
           scrollRaf.current = requestAnimationFrame(() => {
             scrollRaf.current = 0;
@@ -874,7 +886,7 @@ export function GanttBoard() {
             label: st, dates: "", sub: count + " ticket" + (count > 1 ? "s" : ""), tag: "", tagStyle: "display:none",
             showDot: true, dotColor: col, titleColor: col,
             bgStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${TH}px;background:${ci % 2 ? "var(--colalt,#fafafc)" : "transparent"};border-right:1px solid var(--gridline,#ececf1)`,
-            headStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${M.HEADER}px;padding:12px 14px;border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:6;box-sizing:border-box;box-shadow:inset 0 -2px 0 ${col}`,
+            headStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${M.HEADER}px;padding:12px 14px;border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:47;box-sizing:border-box;transform:translateY(var(--st,0px));will-change:transform;box-shadow:inset 0 -2px 0 ${col}`,
           };
         })
       : cols.map((real, vi) => {
@@ -888,7 +900,7 @@ export function GanttBoard() {
             label: it.label, dates: it.dates, sub: release ? "" : it.sub, tag, tagStyle, showDot: current, dotColor: "var(--accent,#5b5bd6)",
             titleColor: current ? "var(--accent,#5b5bd6)" : past ? "var(--muted,#86868f)" : "var(--ink,#1a1a20)",
             bgStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${TH}px;background:${vi % 2 ? "var(--colalt,#fafafc)" : "transparent"};border-right:1px solid var(--gridline,#ececf1)${real === M.BACKLOG ? ";border-left:1px dashed var(--line,#e8e8ee)" : ""}`,
-            headStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${M.HEADER}px;padding:12px 14px;border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:6;box-sizing:border-box${current ? ";box-shadow:inset 0 -2px 0 var(--accent,#5b5bd6)" : ""}`,
+            headStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${M.HEADER}px;padding:12px 14px;border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:47;box-sizing:border-box;transform:translateY(var(--st,0px));will-change:transform${current ? ";box-shadow:inset 0 -2px 0 var(--accent,#5b5bd6)" : ""}`,
           };
         });
 
@@ -1298,7 +1310,7 @@ export function GanttBoard() {
         // Bande de charge intégrée au bas du header de colonnes (release garde
         // ainsi la même hauteur de header que les autres pages).
         return {
-          wrapStyle: `position:absolute;left:${left}px;top:${M.HEADER - M.RELBAND}px;width:${COLW}px;height:${M.RELBAND}px;padding:4px 12px 8px;border-right:1px solid var(--gridline,#ececf1);box-sizing:border-box;z-index:7`,
+          wrapStyle: `position:absolute;left:${left}px;top:${M.HEADER - M.RELBAND}px;width:${COLW}px;height:${M.RELBAND}px;padding:4px 12px 8px;border-right:1px solid var(--gridline,#ececf1);box-sizing:border-box;z-index:47;background:var(--panel,#fff);transform:translateY(var(--st,0px));will-change:transform`,
           total: `${M.fmt(b.total)}j`, cap: `/ ${M.fmt(b.cap)}j`,
           totalStyle: `font-size:11.5px;font-weight:600;font-family:${mono};color:${over ? "#ef4444" : "var(--ink,#1a1a20)"}`,
           capStyle: `font-size:10px;font-family:${mono};color:var(--faint,#abacb6)`,
@@ -1362,7 +1374,7 @@ export function GanttBoard() {
     return {
       rootStyle: { position: "relative" as const, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" as const, fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "var(--canvas)", color: "var(--ink)", overflow: "hidden" },
       totalWidth: TW, totalHeight: TH, columns, personRows, banners, bars, cursors, presence, onlineLabel,
-      leftHeaderStyle: `position:absolute;top:0;left:0;width:${M.LEFT}px;height:${M.HEADER}px;padding:11px 14px;border-bottom:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:${release ? 34 : 46};box-sizing:border-box;transform:translateX(var(--sl,0px));will-change:transform`,
+      leftHeaderStyle: `position:absolute;top:0;left:0;width:${M.LEFT}px;height:${M.HEADER}px;padding:11px 14px;border-bottom:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:48;box-sizing:border-box;transform:translate(var(--sl,0px),var(--st,0px));will-change:transform`,
       currentLabel: M.iters[M.CURRENT].label, currentDates: M.iters[M.CURRENT].dates,
       levels,
       isDaily: daily,
@@ -1609,6 +1621,7 @@ export function GanttBoard() {
               <button onClick={v.onHideAllPeople} style={C("border:none;background:none;color:var(--muted,#86868f);font-size:11px;font-weight:500;cursor:pointer;padding:0")}>Tout désélectionner</button>
             </div>
           </div>
+          <div style={C("max-height:52vh;overflow-y:auto;margin:0 -15px;padding:0 15px")}>
           {v.peopleList.map((p) => (
             <label key={p.name} style={C("display:flex;align-items:center;gap:10px;padding:5px 0;cursor:pointer")}>
               <input type="checkbox" checked={p.checked} onChange={p.onToggle} style={C("width:15px;height:15px;accent-color:var(--accent,#5b5bd6);cursor:pointer;flex:0 0 auto")} />
@@ -1619,6 +1632,7 @@ export function GanttBoard() {
               </div>
             </label>
           ))}
+          </div>
         </div>
         </>
       )}
