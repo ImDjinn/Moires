@@ -61,7 +61,9 @@ export class AdoService {
   // d'un PAT « all accessible organizations » — bientôt supprimé côté ADO).
   async getConnectionData(org: string, token: string): Promise<{ id: string; displayName: string }> {
     const data = await this.adoFetch(
-      `${this.orgUrl(org)}/_apis/connectionData?api-version=7.1`,
+      // connectionData est un endpoint « preview » : api-version doit porter le
+      // suffixe -preview, sinon ADO répond 400 (VssInvalidPreviewVersion).
+      `${this.orgUrl(org)}/_apis/connectionData?api-version=7.1-preview`,
       token,
     );
     const user = data.authenticatedUser ?? {};

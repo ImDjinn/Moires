@@ -33,6 +33,8 @@ describe("AdoService", () => {
     const res = await service.getConnectionData("org", "tkn");
     expect(res).toEqual({ id: "me1", displayName: "Bob" });
     expect(fetchMock.mock.calls[0][0]).toContain("/org/_apis/connectionData");
+    // connectionData est un endpoint preview : la version DOIT porter -preview.
+    expect(fetchMock.mock.calls[0][0]).toContain("api-version=7.1-preview");
   });
 
   it("getIterations extrait les dates d'attributs", async () => {
