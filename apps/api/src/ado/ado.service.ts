@@ -2,9 +2,6 @@ import { Injectable, UnauthorizedException } from "@nestjs/common";
 import type { OperationFieldKey, TeamMember } from "@moirai/shared";
 import { AdoMapper, KNOWN_FIELDS, RawAdoWorkItem } from "./ado.mapper";
 
-// Base for cross-organization identity APIs (profile + accounts).
-const VSSPS_BASE = "https://app.vssps.visualstudio.com";
-
 /** Jours ouvrés (lun–ven) entre deux dates ISO incluses, bornés à [lo, hi]. */
 function workingDays(startIso: string, endIso: string, lo?: string, hi?: string): number {
   let s = startIso.slice(0, 10), e = endIso.slice(0, 10);
@@ -58,21 +55,20 @@ export class AdoService {
     }
   }
 
-  async getProfile(token: string): Promise<{ id: string; displayName: string; email: string }> {
+  // Valide un PAT contre son organisation et renvoie l'identité du porteur.
+  // connectionData est servi par le service de localisation de l'org : il
+  // fonctionne avec un PAT scopé à une seule org (pas besoin du scope Profile ni
+  // d'un PAT « all accessible organizations » — bientôt supprimé côté ADO).
+  async getConnectionData(org: string, token: string): Promise<{ id: string; displayName: string }> {
     const data = await this.adoFetch(
-      `${VSSPS_BASE}/_apis/profile/profiles/me?api-version=7.1`,
+      `${this.orgUrl(org)}/_apis/connectionData?api-version=7.1`,
       token,
     );
-    return { id: data.id, displayName: data.displayName, email: data.emailAddress ?? "" };
-  }
-
-  async getOrganizations(token: string): Promise<{ id: string; name: string }[]> {
-    const profile = await this.getProfile(token);
-    const data = await this.adoFetch(
-      `${VSSPS_BASE}/_apis/accounts?memberId=${profile.id}&api-version=7.1`,
-      token,
-    );
-    return (data.value as any[]).map((a: any) => ({ id: a.accountId, name: a.accountName }));
+    const user = data.authenticatedUser ?? {};
+    return {
+      id: user.id,
+      displayName: user.providerDisplayName || user.customDisplayName || "User",
+    };
   }
 
   async getProjects(org: string, token: string) {

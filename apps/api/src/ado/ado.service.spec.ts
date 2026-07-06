@@ -28,14 +28,11 @@ describe("AdoService", () => {
     );
   });
 
-  it("getOrganizations résout le profil puis les comptes de l'utilisateur", async () => {
-    fetchMock
-      .mockResolvedValueOnce(ok({ id: "me1", displayName: "Bob" }))
-      .mockResolvedValueOnce(ok({ value: [{ accountId: "a1", accountName: "OrgA" }] }));
-    const res = await service.getOrganizations("tkn");
-    expect(res).toEqual([{ id: "a1", name: "OrgA" }]);
-    expect(fetchMock.mock.calls[0][0]).toContain("/profile/profiles/me");
-    expect(fetchMock.mock.calls[1][0]).toContain("memberId=me1");
+  it("getConnectionData valide le PAT contre l'org et renvoie l'identité", async () => {
+    fetchMock.mockResolvedValue(ok({ authenticatedUser: { id: "me1", providerDisplayName: "Bob" } }));
+    const res = await service.getConnectionData("org", "tkn");
+    expect(res).toEqual({ id: "me1", displayName: "Bob" });
+    expect(fetchMock.mock.calls[0][0]).toContain("/org/_apis/connectionData");
   });
 
   it("getIterations extrait les dates d'attributs", async () => {

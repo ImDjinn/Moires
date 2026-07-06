@@ -33,10 +33,12 @@ export class AdoController {
     return org;
   }
 
+  // L'org est choisie et validée à la connexion (PAT scopé à une seule org) :
+  // on renvoie simplement celle du cookie, sans appel cross-org à ADO.
   @Get("organizations")
-  async getOrganizations(@Req() req: Request) {
-    const organizations = await this.ado.getOrganizations(this.getToken(req));
-    return { organizations, selected: req.signedCookies?.ado_org ?? null };
+  getOrganizations(@Req() req: Request) {
+    const org = req.signedCookies?.ado_org ?? null;
+    return { organizations: org ? [{ id: org, name: org }] : [], selected: org };
   }
 
   @Post("organizations/select")

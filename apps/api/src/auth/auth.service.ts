@@ -9,15 +9,15 @@ export class AuthService {
     private prisma: PrismaService,
   ) {}
 
-  // Valide un PAT Azure DevOps en lisant le profil, puis upsert l'utilisateur.
-  // Lève (UnauthorizedException via AdoService) si le PAT est invalide.
-  async loginWithPat(pat: string) {
-    const profile = await this.ado.getProfile(pat);
+  // Valide un PAT contre son organisation Azure DevOps, puis upsert l'utilisateur.
+  // Lève (UnauthorizedException via AdoService) si le PAT/l'org est invalide.
+  async loginWithPat(pat: string, org: string) {
+    const identity = await this.ado.getConnectionData(org, pat);
     const user = await this.prisma.user.upsert({
-      where: { azureAdId: profile.id },
-      update: { displayName: profile.displayName, email: profile.email },
-      create: { azureAdId: profile.id, displayName: profile.displayName, email: profile.email },
+      where: { azureAdId: identity.id },
+      update: { displayName: identity.displayName, defaultAdoOrg: org },
+      create: { azureAdId: identity.id, displayName: identity.displayName, email: "", defaultAdoOrg: org },
     });
-    return { user, pat };
+    return { user, pat, org };
   }
 }

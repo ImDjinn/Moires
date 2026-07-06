@@ -2,13 +2,14 @@ import { useState } from "react";
 import { MoiraiMark } from "../Brand";
 
 export function LoginButton() {
+  const [org, setOrg] = useState("");
   const [pat, setPat] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pat.trim() || loading) return;
+    if (!org.trim() || !pat.trim() || loading) return;
     setLoading(true);
     setError(null);
     try {
@@ -16,7 +17,7 @@ export function LoginButton() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pat: pat.trim() }),
+        body: JSON.stringify({ org: org.trim(), pat: pat.trim() }),
       });
       if (res.status === 204) {
         window.location.reload();
@@ -24,7 +25,7 @@ export function LoginButton() {
       }
       setError(
         res.status === 401
-          ? "PAT invalide ou expiré. Vérifiez le jeton et ses autorisations."
+          ? "PAT ou organisation invalide. Vérifiez le nom de l'organisation, le jeton et ses autorisations."
           : "La connexion a échoué. Réessayez.",
       );
     } catch {
@@ -32,6 +33,18 @@ export function LoginButton() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%",
+    height: 46,
+    padding: "0 14px",
+    background: "var(--panel2)",
+    border: "1px solid var(--line)",
+    borderRadius: 10,
+    color: "var(--ink)",
+    fontSize: 14,
+    outline: "none",
   };
 
   return (
@@ -86,27 +99,26 @@ export function LoginButton() {
           </div>
         )}
         <input
+          type="text"
+          value={org}
+          onChange={(e) => setOrg(e.target.value)}
+          placeholder="Organisation Azure DevOps (ex. Les-Moires)"
+          aria-label="Organisation Azure DevOps"
+          autoComplete="off"
+          style={inputStyle}
+        />
+        <input
           type="password"
           value={pat}
           onChange={(e) => setPat(e.target.value)}
           placeholder="Personal Access Token Azure DevOps"
           aria-label="Personal Access Token Azure DevOps"
           autoComplete="off"
-          style={{
-            width: "100%",
-            height: 46,
-            padding: "0 14px",
-            background: "var(--panel2)",
-            border: "1px solid var(--line)",
-            borderRadius: 10,
-            color: "var(--ink)",
-            fontSize: 14,
-            outline: "none",
-          }}
+          style={inputStyle}
         />
         <button
           type="submit"
-          disabled={loading || !pat.trim()}
+          disabled={loading || !org.trim() || !pat.trim()}
           style={{
             width: "100%",
             height: 46,
@@ -119,8 +131,8 @@ export function LoginButton() {
             borderRadius: 10,
             fontSize: 15,
             fontWeight: 600,
-            cursor: loading || !pat.trim() ? "default" : "pointer",
-            opacity: loading || !pat.trim() ? 0.55 : 1,
+            cursor: loading || !org.trim() || !pat.trim() ? "default" : "pointer",
+            opacity: loading || !org.trim() || !pat.trim() ? 0.55 : 1,
           }}
         >
           {loading ? "Connexion…" : "Se connecter"}
