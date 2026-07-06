@@ -95,14 +95,27 @@ export class SyncService {
       });
     }
 
-    let teamMembers = iterationIds.length
+    // teamMembers = union dédupliquée de trois sources, sinon les assignés hors
+    // capacités retombaient tous en « Non assigné » et le roster restait partiel :
+    //  1. roster d'équipe (collaborateurs sans ticket),
+    //  2. assignés réels des tickets (garantit qu'un assigné apparaît toujours),
+    //  3. capacités configurées (heures/jour réelles quand renseignées).
+    const caps = iterationIds.length
       ? await this.ado.getCapacities(org, projectId, iterationIds[0], token)
       : [];
-
-    // ponytail: fallback quand aucune capacité configurée dans ADO
-    if (!teamMembers.length) {
-      teamMembers = await this.ado.getTeamMembers(org, projectId, token);
+    const capById = new Map(caps.map((c) => [c.id, c.capacityHoursPerDay]));
+    const byId = new Map<string, TeamMember>();
+    const add = (id: string | null | undefined, displayName: string) => {
+      if (!id || byId.has(id)) return;
+      byId.set(id, { id, displayName: displayName || id, capacityHoursPerDay: capById.get(id) ?? 8 });
+    };
+    for (const m of await this.ado.getTeamMembers(org, projectId, token)) add(m.id, m.displayName);
+    for (const r of rawItems) {
+      const a = r.fields["System.AssignedTo"] as { uniqueName?: string; id?: string; displayName?: string } | undefined;
+      if (a) add(a.uniqueName || a.id, a.displayName || "");
     }
+    for (const c of caps) add(c.id, c.displayName);
+    const teamMembers = [...byId.values()];
 
     // Colonnes Daily : les vraies colonnes des boards d'équipe ADO (avec leur
     // mapping colonne → état pour le writeback). Les types sans board (Task :

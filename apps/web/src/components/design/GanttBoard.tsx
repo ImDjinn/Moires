@@ -1046,7 +1046,7 @@ export function GanttBoard() {
         hasParent: !!item.parent, parentLabel: item.parent ? `${item.parent} · ${M.titleOf[item.parent] || ""}` : "",
         states: M.dailyStates(item.level).map((k) => {
           const active = item.state === k, col = M.stateColors[k];
-          return { label: k, onClick: () => setField(item.id, "state", k), style: `flex:1;padding:7px 0;border-radius:7px;border:1px solid ${active ? col : "var(--line,#e8e8ee)"};background:${active ? col : "var(--panel2,#fafafc)"};color:${active ? "#fff" : "var(--muted,#86868f)"};font-size:10.5px;font-weight:600;cursor:pointer` };
+          return { label: k, onClick: () => setField(item.id, "state", k), style: `flex:1 1 auto;min-width:76px;padding:7px 9px;border-radius:7px;border:1px solid ${active ? col : "var(--line,#e8e8ee)"};background:${active ? col : "var(--panel2,#fafafc)"};color:${active ? "#fff" : "var(--muted,#86868f)"};font-size:10.5px;font-weight:600;cursor:pointer;white-space:nowrap` };
         }),
         assignee: item.person, onAssignee: (e: React.ChangeEvent<HTMLSelectElement>) => setField(item.id, "person", e.target.value),
         people: M.people.map((p) => ({ value: p.id, label: p.name })),
@@ -1950,7 +1950,7 @@ export function GanttBoard() {
             {v.insp.show.state && (
               <div>
                 <div style={C(v.labelCss)}>État</div>
-                <div style={C("display:flex;gap:5px")}>
+                <div style={C("display:flex;gap:5px;flex-wrap:wrap")}>
                   {v.insp.states.map((s) => <button key={s.label} onClick={s.onClick} style={C(s.style)}>{s.label}</button>)}
                 </div>
               </div>
@@ -2084,7 +2084,7 @@ export function GanttBoard() {
 
       {/* Legend */}
       {v.legendShow && (
-        <div style={C("position:absolute;left:18px;bottom:18px;z-index:75;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:9px;box-shadow:var(--shadow,0 2px 8px rgba(0,0,0,.1));padding:9px 13px;display:flex;align-items:center;gap:15px;flex-wrap:wrap;max-width:62vw")}>
+        <div style={C("position:absolute;left:18px;bottom:18px;z-index:75;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:9px;box-shadow:var(--shadow,0 2px 8px rgba(0,0,0,.1));padding:9px 13px;display:flex;align-items:flex-start;gap:15px;flex-wrap:wrap;max-width:62vw;max-height:28vh;overflow-y:auto")}>
           <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Légende</span>
           {v.legendItems.map((l, i) => (
             <div key={i} style={C("display:flex;align-items:center;gap:6px")}>
