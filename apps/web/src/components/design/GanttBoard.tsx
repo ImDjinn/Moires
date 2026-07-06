@@ -1020,12 +1020,6 @@ export function GanttBoard() {
       hideClosed: state.hideClosed, onHideClosed: (e: React.ChangeEvent<HTMLInputElement>) => setState({ hideClosed: e.target.checked }),
     };
 
-    const legendShow = state.colorMode !== "type";
-    let legendBase: { label: string; color: string }[] = [];
-    if (state.colorMode === "state") legendBase = Object.keys(M.stateColors).map((k) => ({ label: k, color: M.stateColors[k] }));
-    else if (state.colorMode === "epic") legendBase = Object.keys(M.epics).map((k) => ({ label: M.epics[k].label, color: M.epics[k].color }));
-    const legendItems = legendBase.map((l) => ({ label: l.label, swatchStyle: `width:11px;height:11px;border-radius:3px;background:${l.color};flex:0 0 auto` }));
-
     // inspector
     let insp: ReturnType<typeof buildInsp> | null = null;
     const item = state.items.find((x) => x.id === sel);
@@ -1371,7 +1365,7 @@ export function GanttBoard() {
       leftHeaderStyle: `position:absolute;top:0;left:0;width:${M.LEFT}px;height:${M.HEADER}px;padding:11px 14px;border-bottom:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:${release ? 34 : 46};box-sizing:border-box;transform:translateX(var(--sl,0px));will-change:transform`,
       currentLabel: M.iters[M.CURRENT].label, currentDates: M.iters[M.CURRENT].dates,
       levels,
-      legendShow, legendItems, isDaily: daily,
+      isDaily: daily,
       sortValue: state.sort,
       sortOptions: [{ value: "az", label: "Nom A→Z" }, { value: "za", label: "Nom Z→A" }, { value: "loadDesc", label: "Charge ↓" }, { value: "loadAsc", label: "Charge ↑" }, { value: "gapDesc", label: "Écart charge/capa ↓" }, { value: "gapAsc", label: "Écart charge/capa ↑" }, { value: "random", label: "Aléatoire" }],
       onSort: (e: React.ChangeEvent<HTMLSelectElement>) => { const val = e.target.value; if (val === "random") M.resetRandOrder(); setState({ sort: val }); },
@@ -1401,6 +1395,8 @@ export function GanttBoard() {
         onToggle: (e: React.ChangeEvent<HTMLInputElement>) => { const h = { ...state.hidden }; if (e.target.checked) delete h[p.id]; else h[p.id] = true; setState({ hidden: h }); },
       })),
       onShowAllPeople: () => setState({ hidden: {} }),
+      onHideAllPeople: () => setState({ hidden: Object.fromEntries(M.people.map((p) => [p.id, true])) }),
+      onPeopleClose: () => setState({ peopleOpen: false }),
       boardTabs: [{ key: "daily", label: "Daily" }, { key: "sprint", label: "Sprint Planning" }, { key: "release", label: "Release Planning" }].map((t) => {
         const active = state.board === t.key;
         return { label: t.label, onClick: () => setState({ board: t.key as State["board"], selectedId: null, rangeOpen: false, peopleOpen: false }), style: `padding:6px 14px;border-radius:6px;border:none;font-size:12.5px;font-weight:${active ? 600 : 500};cursor:pointer;white-space:nowrap;background:${active ? "var(--panel,#fff)" : "transparent"};color:${active ? "var(--ink,#1a1a20)" : "var(--muted,#86868f)"};box-shadow:${active ? "0 1px 2px rgba(20,20,40,.12)" : "none"}` };
@@ -1603,10 +1599,15 @@ export function GanttBoard() {
 
       {/* People popover */}
       {v.peopleOpen && (
+        <>
+        <div onClick={v.onPeopleClose} style={C("position:fixed;inset:0;z-index:89")} />
         <div onClick={v.stop} style={C("position:absolute;top:104px;right:18px;width:266px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:14px 15px;animation:ggdrop .14s ease")}>
-          <div style={C("display:flex;align-items:center;justify-content:space-between;margin-bottom:9px")}>
+          <div style={C("display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px")}>
             <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Personnes affichées</span>
-            <button onClick={v.onShowAllPeople} style={C("border:none;background:none;color:var(--accent,#5b5bd6);font-size:11px;font-weight:500;cursor:pointer;padding:0")}>Tout afficher</button>
+            <div style={C("display:flex;gap:10px;flex:0 0 auto")}>
+              <button onClick={v.onShowAllPeople} style={C("border:none;background:none;color:var(--accent,#5b5bd6);font-size:11px;font-weight:500;cursor:pointer;padding:0")}>Tout afficher</button>
+              <button onClick={v.onHideAllPeople} style={C("border:none;background:none;color:var(--muted,#86868f);font-size:11px;font-weight:500;cursor:pointer;padding:0")}>Tout désélectionner</button>
+            </div>
           </div>
           {v.peopleList.map((p) => (
             <label key={p.name} style={C("display:flex;align-items:center;gap:10px;padding:5px 0;cursor:pointer")}>
@@ -1619,6 +1620,7 @@ export function GanttBoard() {
             </label>
           ))}
         </div>
+        </>
       )}
 
       {/* Flag editor */}
@@ -1724,7 +1726,7 @@ export function GanttBoard() {
                   <>
                     <div style={C(`width:9px;height:9px;border-radius:3px;background:${row.dotColor};flex:0 0 auto`)} />
                     <div style={C("min-width:0")}>
-                      <div style={C("font-size:12px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{row.name}</div>
+                      <div title={row.name} style={C("font-size:12px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{row.name}</div>
                       <div style={C("font-size:10px;color:var(--muted,#86868f);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:'IBM Plex Mono',monospace")}>{row.sub}</div>
                     </div>
                     {row.prio && <span style={C("font-size:8.5px;font-weight:600;padding:1px 5px;border-radius:5px;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);flex:0 0 auto;font-family:'IBM Plex Mono',monospace")}>{row.prio}</span>}
@@ -1789,7 +1791,7 @@ export function GanttBoard() {
           ))}
 
           {v.bars.map((bar) => (
-            <div key={bar.ado} onPointerDown={bar.onDown} onClick={bar.onClick} style={C(bar.style)}>
+            <div key={bar.ado} onPointerDown={bar.onDown} onClick={bar.onClick} title={bar.title} style={C(bar.style)}>
               <div style={C(bar.accentStyle)} />
               <div style={C("display:flex;align-items:center;gap:6px;margin-bottom:3px")}>
                 <span style={C(`font-size:10.5px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:${bar.accent}`)}>{bar.ado}</span>
@@ -1847,7 +1849,7 @@ export function GanttBoard() {
           ))}
 
           {(v.relCards as Record<string, any>[]).map((c, i) => (
-            <div key={"rc" + i} onPointerDown={c.onDown} onClick={c.onClick} style={C(c.style)}>
+            <div key={"rc" + i} onPointerDown={c.onDown} onClick={c.onClick} title={c.title} style={C(c.style)}>
               <div style={C("display:flex;align-items:center;gap:5px")}>
                 {c.hasChildren && <span onClick={c.onToggle} style={C(c.chevStyle)}>{c.chevron}</span>}
                 <span style={C(c.adoStyle)}>{c.ado}</span>
@@ -2079,19 +2081,6 @@ export function GanttBoard() {
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* Legend */}
-      {v.legendShow && (
-        <div style={C("position:absolute;left:18px;bottom:18px;z-index:75;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:9px;box-shadow:var(--shadow,0 2px 8px rgba(0,0,0,.1));padding:9px 13px;display:flex;align-items:flex-start;gap:15px;flex-wrap:wrap;max-width:62vw;max-height:28vh;overflow-y:auto")}>
-          <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Légende</span>
-          {v.legendItems.map((l, i) => (
-            <div key={i} style={C("display:flex;align-items:center;gap:6px")}>
-              <div style={C(l.swatchStyle)} />
-              <span style={C("font-size:11.5px;color:var(--ink,#1a1a20)")}>{l.label}</span>
-            </div>
-          ))}
         </div>
       )}
 

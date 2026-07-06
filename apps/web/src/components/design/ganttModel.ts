@@ -133,7 +133,7 @@ export interface State {
 }
 
 // ---- Constantes de layout ----
-export const LEFT = 248;
+export const LEFT = 290;
 export const HEADER = 92;
 export const BARH = 76;
 export const LANEGAP = 10;
