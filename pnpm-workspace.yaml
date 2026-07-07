@@ -1,6 +1,12 @@
 packages:
   - "packages/*"
   - "apps/*"
+# Vulnérabilités transitives (pnpm audit) : multer < 2.1.0 (DoS,
+# GHSA-xf7r-hgr6-v32p via @nestjs/platform-express), lodash < 4.18.1
+# (injection via _.template, via @nestjs/config).
+overrides:
+  multer: ">=2.1.0"
+  lodash: ">=4.18.1"
 allowBuilds:
   '@nestjs/core': true
   '@prisma/client': true

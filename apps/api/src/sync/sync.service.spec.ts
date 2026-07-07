@@ -20,10 +20,14 @@ function makeService() {
   };
   const redis = {
     setTickets: jest.fn().mockResolvedValue(undefined),
+    getTickets: jest.fn().mockResolvedValue([]),
     getPresences: jest.fn().mockResolvedValue([]),
     getIterations: jest.fn().mockResolvedValue([]),
     getStates: jest.fn().mockResolvedValue([]),
     setStates: jest.fn().mockResolvedValue(undefined),
+    getTeamMembers: jest.fn().mockResolvedValue([]),
+    setTeamMembers: jest.fn().mockResolvedValue(undefined),
+    acquireSyncSlot: jest.fn().mockResolvedValue(true),
   };
   const capacities = { list: jest.fn().mockResolvedValue([]) };
   const ado = {
@@ -82,18 +86,22 @@ describe("SyncService.syncInitial", () => {
 });
 
 describe("SyncService.syncIncremental", () => {
-  it("recharge depuis la session persistée et renvoie un snapshot", async () => {
-    const { service, prisma, capacities, ado } = makeService();
-    prisma.planningSession.findUniqueOrThrow.mockResolvedValue({
+  function withSession() {
+    const ctx = makeService();
+    ctx.prisma.planningSession.findUniqueOrThrow.mockResolvedValue({
       id: "s1",
       adoOrg: "org1",
       adoProjectId: "p1",
       adoIterationIds: ["it1"],
       areaPaths: [],
     });
+    return ctx;
+  }
+
+  it("recharge les tickets seuls (pas les référentiels) et renvoie un snapshot", async () => {
+    const { service, capacities, ado } = withSession();
     ado.queryWorkItemIds.mockResolvedValue(["1"]);
     ado.getWorkItemsBatch.mockResolvedValue([raw]);
-    ado.getCapacities.mockResolvedValue([]);
 
     const snapshot = await service.syncIncremental("s1", "tkn");
 
@@ -102,5 +110,37 @@ describe("SyncService.syncIncremental", () => {
     expect(snapshot.participants).toEqual([]);
     // capacités lues en base par projet (persistantes hors session)
     expect(capacities.list).toHaveBeenCalledWith("p1", []);
+    // les référentiels semi-statiques ne sont plus rechargés depuis ADO
+    expect(ado.getTeamMembers).not.toHaveBeenCalled();
+    expect(ado.getBoardColumns).not.toHaveBeenCalled();
+    expect(ado.getCapacities).not.toHaveBeenCalled();
+  });
+
+  it("sert le cache Redis sans toucher ADO quand le créneau de sync est pris", async () => {
+    const { service, redis, ado } = withSession();
+    redis.acquireSyncSlot.mockResolvedValue(false);
+    const cached = [{ id: "1", title: "T" }];
+    redis.getTickets.mockResolvedValue(cached);
+
+    const snapshot = await service.syncIncremental("s1", "tkn");
+
+    expect(snapshot.tickets).toEqual(cached);
+    expect(ado.queryWorkItemIds).not.toHaveBeenCalled();
+    expect(ado.getWorkItemsBatch).not.toHaveBeenCalled();
+  });
+
+  it("ajoute les nouveaux assignés aux teamMembers sans appel ADO", async () => {
+    const { service, redis, ado } = withSession();
+    redis.getTeamMembers.mockResolvedValue([{ id: "m1", displayName: "Alice", capacityHoursPerDay: 8 }]);
+    ado.queryWorkItemIds.mockResolvedValue(["1"]);
+    ado.getWorkItemsBatch.mockResolvedValue([
+      { ...raw, fields: { ...raw.fields, "System.AssignedTo": { uniqueName: "m2", displayName: "Bob" } } },
+    ]);
+
+    const snapshot = await service.syncIncremental("s1", "tkn");
+
+    expect(snapshot.teamMembers.map((m) => m.id)).toEqual(["m1", "m2"]);
+    expect(redis.setTeamMembers).toHaveBeenCalled();
+    expect(ado.getTeamMembers).not.toHaveBeenCalled();
   });
 });

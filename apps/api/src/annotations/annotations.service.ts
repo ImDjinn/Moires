@@ -67,12 +67,16 @@ export class AnnotationsService {
     const patch: Record<string, unknown> = { ...data };
     // Déplacement de sprint : on met à jour la clé stable en même temps que l'index.
     if (data.iter !== undefined) patch.iterationPath = await this.pathForIter(sessionId, data.iter);
-    const m = await this.prisma.milestone.update({ where: { id }, data: patch });
+    // adoProjectId dans le where : interdit de modifier l'annotation d'un autre projet (IDOR).
+    const m = await this.prisma.milestone.update({
+      where: { id, adoProjectId: await this.projectOf(sessionId) },
+      data: patch,
+    });
     return { id: m.id, title: m.title, iter: m.iter, color: m.color };
   }
 
-  async deleteMilestone(id: string): Promise<void> {
-    await this.prisma.milestone.delete({ where: { id } });
+  async deleteMilestone(sessionId: string, id: string): Promise<void> {
+    await this.prisma.milestone.delete({ where: { id, adoProjectId: await this.projectOf(sessionId) } });
   }
 
   async createRowPin(sessionId: string, data: { rowKey: string; iter: number; title: string; color: string }): Promise<RowPin> {
@@ -85,11 +89,14 @@ export class AnnotationsService {
   async updateRowPin(sessionId: string, id: string, data: Partial<{ iter: number; title: string; color: string }>): Promise<RowPin> {
     const patch: Record<string, unknown> = { ...data };
     if (data.iter !== undefined) patch.iterationPath = await this.pathForIter(sessionId, data.iter);
-    const p = await this.prisma.rowPin.update({ where: { id }, data: patch });
+    const p = await this.prisma.rowPin.update({
+      where: { id, adoProjectId: await this.projectOf(sessionId) },
+      data: patch,
+    });
     return { id: p.id, rowKey: p.rowKey, iter: p.iter, title: p.title, color: p.color };
   }
 
-  async deleteRowPin(id: string): Promise<void> {
-    await this.prisma.rowPin.delete({ where: { id } });
+  async deleteRowPin(sessionId: string, id: string): Promise<void> {
+    await this.prisma.rowPin.delete({ where: { id, adoProjectId: await this.projectOf(sessionId) } });
   }
 }

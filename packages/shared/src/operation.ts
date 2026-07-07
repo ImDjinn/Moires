@@ -1,19 +1,22 @@
 import type { Ticket } from "./ticket";
 
-export type OperationField =
-  | "assigneeId"
-  | "startDate"
-  | "endDate"
-  | "targetDate"
-  | "iterationId"
-  | "state"
-  | "boardColumn"
-  | "storyPoints"
-  | "estimateHours"
-  | "tags"
-  | "areaPath"
-  | "priority"
-  | "title";
+export const OPERATION_FIELDS = [
+  "assigneeId",
+  "startDate",
+  "endDate",
+  "targetDate",
+  "iterationId",
+  "state",
+  "boardColumn",
+  "storyPoints",
+  "estimateHours",
+  "tags",
+  "areaPath",
+  "priority",
+  "title",
+] as const;
+
+export type OperationField = (typeof OPERATION_FIELDS)[number];
 
 /** Champ ADO custom (Ticket.customFields) : "custom:<referenceName>". */
 export type OperationFieldKey = OperationField | `custom:${string}`;

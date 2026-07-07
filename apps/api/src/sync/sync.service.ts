@@ -4,7 +4,7 @@ import { PrismaService } from "../database/prisma.service";
 import { RedisService } from "../database/redis.service";
 import { CapacitiesRepo } from "../database/capacities.repo";
 import { AdoService } from "../ado/ado.service";
-import { AdoMapper } from "../ado/ado.mapper";
+import { AdoMapper, RawAdoWorkItem } from "../ado/ado.mapper";
 
 @Injectable()
 export class SyncService {
@@ -16,15 +16,21 @@ export class SyncService {
     private mapper: AdoMapper,
   ) {}
 
-  async syncInitial(
+  /**
+   * Sync des tickets seuls (WIQL + batch + epics) : la partie répétable du
+   * sync, ~3 requêtes ADO. Les référentiels semi-statiques (équipe, boards,
+   * états, capacités) ne sont chargés que par syncInitial.
+   */
+  private async syncTickets(
     sessionId: string,
     org: string,
     projectId: string,
     iterationIds: string[],
     token: string,
     areaPaths?: string[],
-  ): Promise<{ tickets: Ticket[]; teamMembers: TeamMember[] }> {
-    const ids = await this.ado.queryWorkItemIds(org, projectId, iterationIds, token, areaPaths);
+    iterationPaths?: string[],
+  ): Promise<{ tickets: Ticket[]; rawItems: RawAdoWorkItem[] }> {
+    const ids = await this.ado.queryWorkItemIds(org, projectId, iterationIds, token, areaPaths, iterationPaths);
     const rawItems = ids.length ? await this.ado.getWorkItemsBatch(org, ids, token) : [];
     const tickets = rawItems.map((r) => this.mapper.toTicket(r));
 
@@ -95,6 +101,19 @@ export class SyncService {
       });
     }
 
+    return { tickets, rawItems };
+  }
+
+  async syncInitial(
+    sessionId: string,
+    org: string,
+    projectId: string,
+    iterationIds: string[],
+    token: string,
+    areaPaths?: string[],
+  ): Promise<{ tickets: Ticket[]; teamMembers: TeamMember[] }> {
+    const { tickets, rawItems } = await this.syncTickets(sessionId, org, projectId, iterationIds, token, areaPaths);
+
     // teamMembers = union dédupliquée de trois sources, sinon les assignés hors
     // capacités retombaient tous en « Non assigné » et le roster restait partiel :
     //  1. roster d'équipe (collaborateurs sans ticket),
@@ -137,17 +156,45 @@ export class SyncService {
       where: { id: sessionId },
     });
 
-    const { tickets, teamMembers } = await this.syncInitial(
-      sessionId,
-      session.adoOrg,
-      session.adoProjectId,
-      session.adoIterationIds,
-      token,
-      session.areaPaths.length ? session.areaPaths : undefined,
-    );
+    const iterations = await this.redis.getIterations(sessionId);
+    const teamMembers = await this.redis.getTeamMembers(sessionId);
+    let tickets: Ticket[];
+
+    // Anti-throttling ADO : 1 sync ADO max par fenêtre de 30s par session,
+    // tous clients confondus. Les polls intermédiaires reçoivent le cache
+    // Redis, déjà tenu à jour par les ops WebSocket et les webhooks ADO.
+    if (await this.redis.acquireSyncSlot(sessionId, 30)) {
+      const paths = iterations.map((i) => i.path);
+      const res = await this.syncTickets(
+        sessionId,
+        session.adoOrg,
+        session.adoProjectId,
+        session.adoIterationIds,
+        token,
+        session.areaPaths.length ? session.areaPaths : undefined,
+        paths.length ? paths : undefined,
+      );
+      tickets = res.tickets;
+
+      // Nouveaux assignés apparus depuis le sync initial — ajoutés depuis les
+      // work items déjà chargés, sans appel ADO supplémentaire.
+      const known = new Set(teamMembers.map((m) => m.id));
+      let grew = false;
+      for (const r of res.rawItems) {
+        const a = r.fields["System.AssignedTo"] as { uniqueName?: string; id?: string; displayName?: string } | undefined;
+        const id = a?.uniqueName || a?.id;
+        if (id && !known.has(id)) {
+          teamMembers.push({ id, displayName: a?.displayName || id, capacityHoursPerDay: 8 });
+          known.add(id);
+          grew = true;
+        }
+      }
+      if (grew) await this.redis.setTeamMembers(sessionId, teamMembers);
+    } else {
+      tickets = await this.redis.getTickets(sessionId);
+    }
 
     const presences = await this.redis.getPresences(sessionId);
-    const iterations = await this.redis.getIterations(sessionId);
     const capacities = await this.capacities.list(session.adoProjectId, teamMembers);
     const states = await this.redis.getStates(sessionId);
 

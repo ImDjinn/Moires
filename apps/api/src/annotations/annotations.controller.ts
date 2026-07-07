@@ -47,8 +47,8 @@ export class AnnotationsController {
   }
 
   @Delete("milestones/:mid")
-  deleteMilestone(@Param("mid") mid: string) {
-    return this.svc.deleteMilestone(mid);
+  deleteMilestone(@Param("id") id: string, @Param("mid") mid: string) {
+    return this.svc.deleteMilestone(id, mid);
   }
 
   @Post("row-pins")
@@ -71,7 +71,7 @@ export class AnnotationsController {
   }
 
   @Delete("row-pins/:pid")
-  deleteRowPin(@Param("pid") pid: string) {
-    return this.svc.deleteRowPin(pid);
+  deleteRowPin(@Param("id") id: string, @Param("pid") pid: string) {
+    return this.svc.deleteRowPin(id, pid);
   }
 }

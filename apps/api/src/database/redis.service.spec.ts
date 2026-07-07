@@ -25,7 +25,9 @@ jest.mock("ioredis", () => {
 import { RedisService } from "./redis.service";
 import type { Ticket } from "@moirai/shared";
 
-const config = { get: () => "redis://localhost:6379" } as any;
+const config = {
+  get: (k: string) => (k === "SESSION_SECRET" ? "test-secret" : "redis://localhost:6379"),
+} as any;
 
 const ticket: Ticket = {
   id: "t1",

@@ -43,9 +43,9 @@ describe("AnnotationsController", () => {
     expect(svc.updateRowPin).toHaveBeenCalledWith("s1", "p1", { iter: 4 });
   });
 
-  it("supprime un flag par id", async () => {
+  it("supprime un flag par id, scopé à la session", async () => {
     const { svc, ctrl } = make();
-    await ctrl.deleteRowPin("p1");
-    expect(svc.deleteRowPin).toHaveBeenCalledWith("p1");
+    await ctrl.deleteRowPin("s1", "p1");
+    expect(svc.deleteRowPin).toHaveBeenCalledWith("s1", "p1");
   });
 });

@@ -4,6 +4,9 @@ import { Request } from "express";
 export interface AuthenticatedUser {
   id: string;
   displayName: string;
+  // Expiration (epoch ms) embarquée dans le contenu signé : la signature seule
+  // n'expire jamais, maxAge n'est appliqué que par le navigateur.
+  exp: number;
 }
 
 @Injectable()
@@ -16,6 +19,7 @@ export class AuthGuard implements CanActivate {
     if (typeof cookie !== "string") throw new UnauthorizedException();
     try {
       const user: AuthenticatedUser = JSON.parse(cookie);
+      if (typeof user.exp !== "number" || Date.now() > user.exp) throw new Error("expired");
       (req as any).user = user;
       return true;
     } catch {

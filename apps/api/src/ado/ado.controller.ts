@@ -12,6 +12,7 @@ import {
 import { Request, Response } from "express";
 import { AuthGuard } from "../auth/auth.guard";
 import { signedCookieOpts } from "../auth/cookies";
+import { ADO_ORG_RE } from "../auth/org";
 import { PrismaService } from "../database/prisma.service";
 import { AdoService } from "./ado.service";
 
@@ -48,6 +49,8 @@ export class AdoController {
     @Res({ passthrough: true }) res: Response,
   ) {
     if (!body?.org) throw new BadRequestException("org is required");
+    // L'org est interpolée dans les URLs ADO par toutes les routes en aval.
+    if (!ADO_ORG_RE.test(body.org)) throw new BadRequestException("Invalid organization name");
     const user = (req as any).user;
     res.cookie("ado_org", body.org, signedCookieOpts(8 * 60 * 60 * 1000));
     if (user?.id) {

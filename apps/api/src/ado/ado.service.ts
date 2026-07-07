@@ -132,15 +132,22 @@ export class AdoService {
     iterationIds: string[],
     token: string,
     areaPaths?: string[],
+    // Chemins d'itération déjà connus (cache Redis) : évite un appel
+    // getIterations par sync.
+    iterationPaths?: string[],
   ): Promise<string[]> {
-    const iterations = await this.getIterations(org, projectId, token);
-    const pathById = new Map(iterations.map((i) => [i.id, i.path]));
+    let paths = iterationPaths;
+    if (!paths?.length) {
+      const iterations = await this.getIterations(org, projectId, token);
+      const pathById = new Map(iterations.map((i) => [i.id, i.path]));
+      paths = iterationIds
+        .map((id) => pathById.get(id))
+        .filter((path): path is string => !!path);
+    }
     // WIQL : littéraux entre apostrophes, échappées en doublant ('') — évite
     // qu'un chemin contenant une apostrophe casse ou injecte la requête.
     const q = (s: string) => `'${s.replace(/'/g, "''")}'`;
-    const iterationClauses = iterationIds
-      .map((id) => pathById.get(id))
-      .filter((path): path is string => !!path)
+    const iterationClauses = paths
       .map((path) => `[System.IterationPath] = ${q(path)}`)
       .join(" OR ");
     let wiql = `SELECT [System.Id] FROM WorkItems WHERE (${iterationClauses})`;

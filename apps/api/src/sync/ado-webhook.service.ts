@@ -17,6 +17,17 @@ export class AdoWebhookService {
     private broadcast: BroadcastService,
   ) {}
 
+  // Le webhook n'a pas de contexte utilisateur : on emprunte le PAT (par
+  // utilisateur, jamais partagé) du premier participant courant qui en a un —
+  // lecture seule du work item, pas d'écriture avec ce token.
+  private async anyParticipantToken(sessionId: string): Promise<string | null> {
+    for (const userId of await this.redis.getParticipants(sessionId)) {
+      const token = await this.redis.getUserToken(sessionId, userId);
+      if (token) return token;
+    }
+    return null;
+  }
+
   async handleWorkItemUpdated(workItemId: string, adoOrg: string): Promise<void> {
     const cacheEntries = await this.prisma.ticketsCache.findMany({
       where: { id: workItemId },
@@ -29,7 +40,7 @@ export class AdoWebhookService {
 
     for (const sessionId of uniqueSessions) {
       try {
-        const token = await this.redis.getSessionToken(sessionId);
+        const token = await this.anyParticipantToken(sessionId);
         if (!token) {
           this.logger.warn(`No token available for session ${sessionId}, skipping ADO fetch`);
           continue;

@@ -14,12 +14,26 @@ describe("AuthGuard", () => {
   const guard = new AuthGuard();
 
   it("autorise et attache l'utilisateur depuis un cookie signé JSON", () => {
+    const exp = Date.now() + 3600_000;
     const ctx = contextWithSignedCookies({
-      session_user: JSON.stringify({ id: "u1", displayName: "Alice" }),
+      session_user: JSON.stringify({ id: "u1", displayName: "Alice", exp }),
     });
     expect(guard.canActivate(ctx)).toBe(true);
     const req = ctx.switchToHttp().getRequest();
-    expect(req.user).toEqual({ id: "u1", displayName: "Alice" });
+    expect(req.user).toEqual({ id: "u1", displayName: "Alice", exp });
+  });
+
+  it("refuse un cookie expiré (exp dépassé) ou sans exp", () => {
+    expect(() =>
+      guard.canActivate(contextWithSignedCookies({
+        session_user: JSON.stringify({ id: "u1", displayName: "Alice", exp: Date.now() - 1 }),
+      })),
+    ).toThrow(UnauthorizedException);
+    expect(() =>
+      guard.canActivate(contextWithSignedCookies({
+        session_user: JSON.stringify({ id: "u1", displayName: "Alice" }),
+      })),
+    ).toThrow(UnauthorizedException);
   });
 
   it("refuse un cookie non signé (forgé) — absent de signedCookies", () => {

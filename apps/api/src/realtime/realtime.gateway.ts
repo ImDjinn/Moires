@@ -54,13 +54,17 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     // Identité dérivée du cookie signé — jamais des query params (falsifiables).
     const secret = this.config.get<string>("SESSION_SECRET")!;
     const raw = readSignedCookie(client.handshake.headers.cookie, "session_user", secret);
-    let identity: { id: string; displayName: string } | undefined;
+    let identity: { id: string; displayName: string; exp?: number } | undefined;
     if (raw) {
       try {
         identity = JSON.parse(raw);
       } catch {
         /* cookie illisible */
       }
+    }
+    // Même règle d'expiration que l'AuthGuard HTTP : exp porté par le contenu signé.
+    if (identity && (typeof identity.exp !== "number" || Date.now() > identity.exp)) {
+      identity = undefined;
     }
     if (!sessionId || !identity?.id) {
       client.disconnect();

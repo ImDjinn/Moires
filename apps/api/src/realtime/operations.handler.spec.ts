@@ -43,6 +43,40 @@ describe("OperationsHandler", () => {
     expect(client.emit).toHaveBeenCalledWith("operation:rejected", { op, reason: "conflit" });
   });
 
+  it("rejette un champ hors liste blanche sans l'appliquer (empoisonnement du cache)", async () => {
+    const sessions = { applyOperation: jest.fn() };
+    const handler = new OperationsHandler(sessions as any);
+    const { server } = makeServer();
+    const client = { data: { sessionId: "s1", userId: "u1" }, emit: jest.fn() };
+
+    for (const bad of [
+      { ...op, field: "adoRev" as any },      // propriété interne du ticket
+      { ...op, field: "custom:" as any },     // custom vide
+      { ...op, value: { nested: true } as any }, // valeur non scalaire
+      { ...op, ticketId: 42 as any },
+    ]) {
+      await handler.handle(server as any, client as any, bad);
+    }
+
+    expect(sessions.applyOperation).not.toHaveBeenCalled();
+    expect(client.emit).toHaveBeenCalledWith(
+      "operation:rejected",
+      expect.objectContaining({ reason: "Invalid operation" }),
+    );
+  });
+
+  it("accepte un champ custom: et un tableau de chaînes (tags)", async () => {
+    const sessions = { applyOperation: jest.fn().mockResolvedValue(undefined) };
+    const handler = new OperationsHandler(sessions as any);
+    const { server } = makeServer();
+    const client = { data: { sessionId: "s1", userId: "u1" }, emit: jest.fn() };
+
+    await handler.handle(server as any, client as any, { ...op, field: "custom:My.Field", value: 3 });
+    await handler.handle(server as any, client as any, { ...op, field: "tags", value: ["a", "b"] });
+
+    expect(sessions.applyOperation).toHaveBeenCalledTimes(2);
+  });
+
   it("écrase op.userId falsifié par l'identité de la socket", async () => {
     const sessions = { applyOperation: jest.fn().mockResolvedValue(undefined) };
     const handler = new OperationsHandler(sessions as any);

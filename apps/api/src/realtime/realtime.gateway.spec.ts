@@ -10,7 +10,10 @@ function signedCookie(name: string, value: string): string {
   return `${name}=${encodeURIComponent("s:" + value + "." + mac)}`;
 }
 
-const aliceCookie = signedCookie("session_user", JSON.stringify({ id: "u1", displayName: "Alice" }));
+const aliceCookie = signedCookie(
+  "session_user",
+  JSON.stringify({ id: "u1", displayName: "Alice", exp: Date.now() + 3600_000 }),
+);
 
 function makeGateway(createdBy = "u1") {
   const operationsHandler = { handle: jest.fn() };
@@ -88,6 +91,18 @@ describe("RealtimeGateway", () => {
     const { gateway } = makeGateway();
     const forged = "session_user=" + encodeURIComponent("s:" + JSON.stringify({ id: "attacker" }) + ".badsig");
     const client = makeClient(forged, { sessionId: "s1" });
+    await gateway.handleConnection(client);
+    expect(client.disconnect).toHaveBeenCalled();
+    expect(client.join).not.toHaveBeenCalled();
+  });
+
+  it("déconnecte un cookie expiré (exp dépassé)", async () => {
+    const { gateway } = makeGateway();
+    const expired = signedCookie(
+      "session_user",
+      JSON.stringify({ id: "u1", displayName: "Alice", exp: Date.now() - 1 }),
+    );
+    const client = makeClient(expired, { sessionId: "s1" });
     await gateway.handleConnection(client);
     expect(client.disconnect).toHaveBeenCalled();
     expect(client.join).not.toHaveBeenCalled();

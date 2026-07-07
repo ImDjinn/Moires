@@ -64,12 +64,12 @@ describe("AnnotationsService — persistance par projet & clé d'itération stab
   it("updateMilestone met à jour la clé stable en même temps que l'index", async () => {
     const { prisma, svc } = make();
     await svc.updateMilestone("s1", "m1", { iter: 0 });
-    expect(prisma.milestone.update).toHaveBeenCalledWith({ where: { id: "m1" }, data: { iter: 0, iterationPath: "P\\S1" } });
+    expect(prisma.milestone.update).toHaveBeenCalledWith({ where: { id: "m1", adoProjectId: "p1" }, data: { iter: 0, iterationPath: "P\\S1" } });
   });
 
   it("updateMilestone sans iter ne touche pas au chemin", async () => {
     const { prisma, svc } = make();
     await svc.updateMilestone("s1", "m1", { title: "X" });
-    expect(prisma.milestone.update).toHaveBeenCalledWith({ where: { id: "m1" }, data: { title: "X" } });
+    expect(prisma.milestone.update).toHaveBeenCalledWith({ where: { id: "m1", adoProjectId: "p1" }, data: { title: "X" } });
   });
 });
