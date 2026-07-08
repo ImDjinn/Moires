@@ -85,6 +85,15 @@ export class RedisService implements OnModuleDestroy {
     return res === "OK";
   }
 
+  /**
+   * Invalide le créneau de sync : le prochain poll refait un vrai sync ADO au
+   * lieu de servir le cache. Utilisé par le webhook ADO pour propager un
+   * changement externe sans appeler ADO lui-même (donc sans credential).
+   */
+  async clearSyncSlot(sessionId: string): Promise<void> {
+    await this.client.del(`session:${sessionId}:ado-sync-slot`);
+  }
+
   async setTeamMembers(sessionId: string, members: TeamMember[]) {
     await this.client.set(this.teamMembersKey(sessionId), JSON.stringify(members), "EX", TTL);
   }

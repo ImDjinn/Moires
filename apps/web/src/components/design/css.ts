@@ -7,7 +7,14 @@ import type { CSSProperties } from "react";
  * Les clés sont camelCase-ifiées (border-radius → borderRadius,
  * -webkit-line-clamp → WebkitLineClamp) ; les variables CSS (--x) gardées.
  */
+// Mémoïse le parsing : les chaînes statiques (headers, labels, badges…) sont
+// re-passées à chaque render sans changer. L'objet renvoyé est lu seul par
+// React (jamais muté), donc partageable.
+const cache = new Map<string, CSSProperties>();
+
 export function css(s: string): CSSProperties {
+  const hit = cache.get(s);
+  if (hit) return hit;
   const out: Record<string, string> = {};
   for (const part of s.split(";")) {
     const i = part.indexOf(":");
@@ -18,5 +25,10 @@ export function css(s: string): CSSProperties {
     if (key.startsWith("--")) out[key] = val;
     else out[key.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())] = val;
   }
-  return out as CSSProperties;
+  const result = out as CSSProperties;
+  // ponytail: cap borné — les styles à px variables (drag/scroll) gonfleraient
+  // le cache sans fin ; au-delà on repart de zéro (les statiques se recréent).
+  if (cache.size > 4000) cache.clear();
+  cache.set(s, result);
+  return result;
 }

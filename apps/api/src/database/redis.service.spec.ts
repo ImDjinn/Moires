@@ -16,6 +16,7 @@ jest.mock("ioredis", () => {
     smembers: jest.fn(),
     get: jest.fn(),
     set: jest.fn(),
+    del: jest.fn(),
     expire: jest.fn(),
     disconnect: jest.fn(),
   };
@@ -119,9 +120,19 @@ describe("RedisService", () => {
     expect(service.tokenKey("s1", "u1")).toBe("session:s1:token:u1");
   });
 
-  it("setUserToken écrit avec TTL 1h", async () => {
+  it("setUserToken écrit chiffré (jamais le PAT en clair) avec TTL 1h", async () => {
     await service.setUserToken("s1", "u1", "tok123");
-    expect(service.client.set).toHaveBeenCalledWith("session:s1:token:u1", "tok123", "EX", 3600);
+    const [key, value, ex, ttl] = (service.client.set as jest.Mock).mock.calls[0];
+    expect(key).toBe("session:s1:token:u1");
+    expect(value).not.toContain("tok123");
+    expect([ex, ttl]).toEqual(["EX", 3600]);
+  });
+
+  it("getUserToken déchiffre ce que setUserToken a écrit (aller-retour)", async () => {
+    await service.setUserToken("s1", "u1", "tok123");
+    const blob = (service.client.set as jest.Mock).mock.calls[0][1];
+    (service.client.get as jest.Mock).mockResolvedValue(blob);
+    expect(await service.getUserToken("s1", "u1")).toBe("tok123");
   });
 
   it("getUserToken renvoie null si absent", async () => {
@@ -129,14 +140,8 @@ describe("RedisService", () => {
     expect(await service.getUserToken("s1", "u1")).toBeNull();
   });
 
-  it("setUserToken écrit aussi le token de session", async () => {
-    await service.setUserToken("s1", "u1", "tok123");
-    expect(service.client.set).toHaveBeenCalledWith("session:s1:token", "tok123", "EX", 3600);
-  });
-
-  it("getSessionToken lit la clé de session", async () => {
-    (service.client.get as jest.Mock).mockResolvedValue("tok123");
-    expect(await service.getSessionToken("s1")).toBe("tok123");
-    expect(service.client.get).toHaveBeenCalledWith("session:s1:token");
+  it("clearSyncSlot supprime le créneau de sync de la session", async () => {
+    await service.clearSyncSlot("s1");
+    expect(service.client.del).toHaveBeenCalledWith("session:s1:ado-sync-slot");
   });
 });

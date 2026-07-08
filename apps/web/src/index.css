@@ -4,8 +4,8 @@
   --panel: #ffffff;
   --panel2: #fafafc;
   --ink: #1a1a20;
-  --muted: #86868f;
-  --faint: #abacb6;
+  --muted: #6b6b75;
+  --faint: #7c7c86;
   --line: #e8e8ee;
   --line2: #f1f1f5;
   --accent: #5b5bd6;
@@ -28,6 +28,8 @@
   --bar-height: 28px;
   --row-height: 44px;
   --color-synced: #2bbf73;
+  /* Vert lisible sur panel (texte) — le vert des pastilles est trop clair pour du texte. */
+  --color-synced-text: #1f8a54;
   --color-pending: #f5a623;
   --color-error: #ef4444;
 }
@@ -37,8 +39,9 @@
   --panel: #161619;
   --panel2: #1c1c21;
   --ink: #ececf1;
-  --muted: #8a8a94;
-  --faint: #55555f;
+  --muted: #9a9aa4;
+  --faint: #757580;
+  --color-synced-text: #3fd089;
   --line: #27272e;
   --line2: #1f1f25;
   --accent: #7e7ef2;
@@ -60,6 +63,17 @@ body {
   color: var(--ink);
   overflow: hidden;
   height: 100vh;
+  scrollbar-width: thin;
+  scrollbar-color: var(--faint) transparent;
+}
+
+/* Respecte le réglage système « réduire les animations » (curseurs, pulses, toasts). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
 
 #root {

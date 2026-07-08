@@ -25,7 +25,7 @@ export class AdoWebhookController {
     @Headers("authorization") authorization: string | undefined,
   ): Promise<void> {
     // Fail-closed : sans secret configuré, le webhook est refusé (un endpoint
-    // ouvert permettrait de déclencher des fetch ADO avec un org arbitraire).
+    // ouvert permettrait d'invalider le cache de sync à volonté → re-syncs ADO forcés).
     const secret = this.config.get<string>("ADO_WEBHOOK_SECRET");
     if (!secret) {
       this.logger.error("ADO_WEBHOOK_SECRET non configuré — webhook refusé");
@@ -43,13 +43,6 @@ export class AdoWebhookController {
     const workItemId = String(body?.resource?.workItemId ?? body?.resource?.id ?? "");
     if (!workItemId) return;
 
-    const baseUrl: string = body?.resourceContainers?.account?.baseUrl ?? "";
-    const org = baseUrl ? new URL(baseUrl).pathname.replace(/^\/|\/$/g, "") : "";
-    if (!org) {
-      this.logger.warn(`Could not extract org from webhook payload, baseUrl: ${baseUrl}`);
-      return;
-    }
-
-    await this.webhookService.handleWorkItemUpdated(workItemId, org);
+    await this.webhookService.handleWorkItemUpdated(workItemId);
   }
 }

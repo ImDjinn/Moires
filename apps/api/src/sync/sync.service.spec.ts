@@ -17,6 +17,7 @@ function makeService() {
   const prisma = {
     ticketsCache: { upsert: jest.fn().mockResolvedValue(undefined) },
     planningSession: { findUniqueOrThrow: jest.fn() },
+    $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   };
   const redis = {
     setTickets: jest.fn().mockResolvedValue(undefined),

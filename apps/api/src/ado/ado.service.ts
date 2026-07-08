@@ -298,11 +298,12 @@ export class AdoService {
       token,
     );
     const out: { name: string; category: string; color: string; type: string; state: string; columnField: string }[] = [];
-    for (const b of (boards.value as any[]) ?? []) {
-      const board = await this.adoFetch(
-        `${this.orgUrl(org)}/${projectId}/_apis/work/boards/${b.id}?api-version=7.1`,
-        token,
-      );
+    const details = await Promise.all(
+      ((boards.value as any[]) ?? []).map((b) =>
+        this.adoFetch(`${this.orgUrl(org)}/${projectId}/_apis/work/boards/${b.id}?api-version=7.1`, token),
+      ),
+    );
+    for (const board of details) {
       // Champ Kanban du board (WEF_xxx_Kanban.Column) : écrit au drop pour
       // déplacer la carte de colonne (System.BoardColumn est en lecture seule).
       const columnField = board.fields?.columnField?.referenceName || "";
@@ -333,23 +334,25 @@ export class AdoService {
     types: string[],
     token: string,
   ): Promise<{ name: string; category: string; color: string; type: string }[]> {
-    const out: { name: string; category: string; color: string; type: string }[] = [];
-    for (const type of types) {
-      try {
-        const data = await this.adoFetch(
-          `${this.orgUrl(org)}/${projectId}/_apis/wit/workItemTypes/${encodeURIComponent(type)}/states?api-version=7.1`,
-          token,
-        );
-        // États d'un type, ordonnés selon l'ordre du board ADO, tagués avec leur type.
-        (data.value as any[])
-          .map((s: any, i: number) => ({ name: s.name, category: s.category || "", color: s.color ? `#${s.color}` : "#8a8f98", order: s.order ?? i, type }))
-          .sort((a, b) => a.order - b.order)
-          .forEach(({ name, category, color }) => out.push({ name, category, color, type }));
-      } catch {
-        // type sans endpoint states (rare) : on ignore.
-      }
-    }
-    return out;
+    const perType = await Promise.all(
+      types.map(async (type) => {
+        try {
+          const data = await this.adoFetch(
+            `${this.orgUrl(org)}/${projectId}/_apis/wit/workItemTypes/${encodeURIComponent(type)}/states?api-version=7.1`,
+            token,
+          );
+          // États d'un type, ordonnés selon l'ordre du board ADO, tagués avec leur type.
+          return (data.value as any[])
+            .map((s: any, i: number) => ({ name: s.name, category: s.category || "", color: s.color ? `#${s.color}` : "#8a8f98", order: s.order ?? i, type }))
+            .sort((a, b) => a.order - b.order)
+            .map(({ name, category, color }) => ({ name, category, color, type }));
+        } catch {
+          // type sans endpoint states (rare) : on ignore.
+          return [];
+        }
+      }),
+    );
+    return perType.flat();
   }
 
   /**

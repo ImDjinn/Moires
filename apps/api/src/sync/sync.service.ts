@@ -54,52 +54,37 @@ export class SyncService {
 
     await this.redis.setTickets(sessionId, tickets);
 
-    for (const t of tickets) {
-      await this.prisma.ticketsCache.upsert({
-        where: { id: t.id },
-        update: {
-          sessionId,
-          title: t.title,
-          workItemType: t.workItemType,
-          parentId: t.parentId,
-          state: t.state,
-          tags: t.tags,
-          assigneeId: t.assigneeId,
-          areaPath: t.areaPath,
-          iterationId: t.iterationId,
-          epicId: t.epicId,
-          epicTitle: t.epicTitle,
-          startDate: new Date(t.startDate),
-          endDate: new Date(t.endDate),
-          targetDate: t.targetDate ? new Date(t.targetDate) : null,
-          estimateHours: t.estimateHours,
-          storyPoints: t.storyPoints,
-          adoRev: t.adoRev,
-          syncStatus: t.syncStatus,
-        },
-        create: {
-          id: t.id,
-          sessionId,
-          title: t.title,
-          workItemType: t.workItemType,
-          parentId: t.parentId,
-          state: t.state,
-          tags: t.tags,
-          assigneeId: t.assigneeId,
-          areaPath: t.areaPath,
-          iterationId: t.iterationId,
-          epicId: t.epicId,
-          epicTitle: t.epicTitle,
-          startDate: new Date(t.startDate),
-          endDate: new Date(t.endDate),
-          targetDate: t.targetDate ? new Date(t.targetDate) : null,
-          estimateHours: t.estimateHours,
-          storyPoints: t.storyPoints,
-          adoRev: t.adoRev,
-          syncStatus: t.syncStatus,
-        },
-      });
-    }
+    // Un seul aller-retour transactionnel au lieu de N upserts séquentiels
+    // (à chaque sync, y compris le sync incrémental toutes les 30s).
+    const fields = (t: Ticket) => ({
+      sessionId,
+      title: t.title,
+      workItemType: t.workItemType,
+      parentId: t.parentId,
+      state: t.state,
+      tags: t.tags,
+      assigneeId: t.assigneeId,
+      areaPath: t.areaPath,
+      iterationId: t.iterationId,
+      epicId: t.epicId,
+      epicTitle: t.epicTitle,
+      startDate: new Date(t.startDate),
+      endDate: new Date(t.endDate),
+      targetDate: t.targetDate ? new Date(t.targetDate) : null,
+      estimateHours: t.estimateHours,
+      storyPoints: t.storyPoints,
+      adoRev: t.adoRev,
+      syncStatus: t.syncStatus,
+    });
+    await this.prisma.$transaction(
+      tickets.map((t) =>
+        this.prisma.ticketsCache.upsert({
+          where: { id: t.id },
+          update: fields(t),
+          create: { id: t.id, ...fields(t) },
+        }),
+      ),
+    );
 
     return { tickets, rawItems };
   }
@@ -162,7 +147,8 @@ export class SyncService {
 
     // Anti-throttling ADO : 1 sync ADO max par fenêtre de 30s par session,
     // tous clients confondus. Les polls intermédiaires reçoivent le cache
-    // Redis, déjà tenu à jour par les ops WebSocket et les webhooks ADO.
+    // Redis, tenu à jour par les ops WebSocket ; un webhook ADO supprime ce
+    // créneau (clearSyncSlot) pour forcer un vrai sync au prochain poll.
     if (await this.redis.acquireSyncSlot(sessionId, 30)) {
       const paths = iterations.map((i) => i.path);
       const res = await this.syncTickets(

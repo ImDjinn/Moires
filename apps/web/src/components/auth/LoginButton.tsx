@@ -4,6 +4,7 @@ import { MoiraiMark } from "../Brand";
 export function LoginButton() {
   const [org, setOrg] = useState("");
   const [pat, setPat] = useState("");
+  const [showPat, setShowPat] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -107,15 +108,39 @@ export function LoginButton() {
           autoComplete="off"
           style={inputStyle}
         />
-        <input
-          type="password"
-          value={pat}
-          onChange={(e) => setPat(e.target.value)}
-          placeholder="Personal Access Token Azure DevOps"
-          aria-label="Personal Access Token Azure DevOps"
-          autoComplete="off"
-          style={inputStyle}
-        />
+        <div style={{ position: "relative", width: "100%" }}>
+          <input
+            type={showPat ? "text" : "password"}
+            value={pat}
+            onChange={(e) => setPat(e.target.value)}
+            placeholder="Personal Access Token Azure DevOps"
+            aria-label="Personal Access Token Azure DevOps"
+            autoComplete="off"
+            style={{ ...inputStyle, paddingRight: 78 }}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPat((s) => !s)}
+            aria-label={showPat ? "Masquer le jeton" : "Afficher le jeton"}
+            style={{
+              position: "absolute",
+              top: 0,
+              right: 0,
+              height: "100%",
+              padding: "0 14px",
+              display: "flex",
+              alignItems: "center",
+              background: "none",
+              border: "none",
+              color: "var(--muted)",
+              fontSize: 12,
+              fontWeight: 500,
+              cursor: "pointer",
+            }}
+          >
+            {showPat ? "Masquer" : "Afficher"}
+          </button>
+        </div>
         <button
           type="submit"
           disabled={loading || !org.trim() || !pat.trim()}

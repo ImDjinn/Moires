@@ -58,7 +58,7 @@ describe("App — rendu des 3 vues (pages)", () => {
     expect(await screen.findByText("Nouvelle session")).toBeInTheDocument();
   });
 
-  it("authentifié avec session active => board Gantt", async () => {
+  it("session active sans work item => état vide (pas de données de démo)", async () => {
     mockAuthMe({ ok: true, body: { id: "u1", displayName: "Alice" } });
     const snapshot: SessionSnapshot = {
       sessionId: "s1",
@@ -70,9 +70,9 @@ describe("App — rendu des 3 vues (pages)", () => {
     };
     useSessionStore.setState({ snapshot });
     render(<App />);
-    // Le board Gantt (design Claude Design) expose ses 3 modes en onglets.
-    expect(await screen.findByText("Sprint Planning")).toBeInTheDocument();
-    expect(screen.getByText("Release Planning")).toBeInTheDocument();
+    // Projet ADO vide : on affiche l'état vide au lieu de retomber sur le board de démo.
+    expect(await screen.findByText("Aucun work item")).toBeInTheDocument();
+    expect(screen.getByText("Choisir un autre projet")).toBeInTheDocument();
   });
 
   it("session réelle avec 1 seule itération => board monté sans crash (régression range)", async () => {

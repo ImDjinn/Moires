@@ -7,6 +7,8 @@ interface TicketsState {
   setTickets: (tickets: Ticket[]) => void;
   applyOperation: (op: Operation) => void;
   updateTicket: (ticket: Ticket) => void;
+  /** Remplace plusieurs tickets en un seul set (un re-render au lieu de N au poll). */
+  updateTickets: (tickets: Ticket[]) => void;
   updateSyncStatus: (ticketId: string, syncStatus: Ticket["syncStatus"], adoRev?: number) => void;
 }
 
@@ -26,6 +28,11 @@ export const useTicketsStore = create<TicketsState>((set) => ({
     set((state) => ({
       tickets: state.tickets.map((t) => (t.id === ticket.id ? ticket : t)),
     })),
+  updateTickets: (incoming) =>
+    set((state) => {
+      const byId = new Map(incoming.map((t) => [t.id, t]));
+      return { tickets: state.tickets.map((t) => byId.get(t.id) ?? t) };
+    }),
   updateSyncStatus: (ticketId, syncStatus, adoRev) =>
     set((state) => ({
       tickets: state.tickets.map((t) =>

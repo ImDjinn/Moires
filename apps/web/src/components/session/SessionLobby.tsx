@@ -10,6 +10,8 @@ export function SessionLobby() {
   const [selectedOrg, setSelectedOrg] = useState("");
   const [selectedProject, setSelectedProject] = useState("");
   const [loading, setLoading] = useState(false);
+  const [orgsLoading, setOrgsLoading] = useState(true);
+  const [projectsLoading, setProjectsLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -18,14 +20,16 @@ export function SessionLobby() {
         setOrganizations(organizations);
         if (selected) setSelectedOrg(selected);
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(e.message))
+      .finally(() => setOrgsLoading(false));
   }, []);
 
   useEffect(() => {
     if (!selectedOrg) return;
     setProjects([]);
     setSelectedProject("");
-    api.getProjects().then(setProjects).catch((e) => setError(e.message));
+    setProjectsLoading(true);
+    api.getProjects().then(setProjects).catch((e) => setError(e.message)).finally(() => setProjectsLoading(false));
   }, [selectedOrg]);
 
   const handleOrgChange = async (org: string) => {
@@ -120,11 +124,12 @@ export function SessionLobby() {
         <label style={{ display: "flex", flexDirection: "column", gap: 7 }}>
           <span style={labelStyle}>Organisation ADO</span>
           <select
-            style={selectStyle}
+            style={{ ...selectStyle, opacity: orgsLoading ? 0.5 : 1 }}
             value={selectedOrg}
+            disabled={orgsLoading}
             onChange={(e) => handleOrgChange(e.target.value)}
           >
-            <option value="">Sélectionner…</option>
+            <option value="">{orgsLoading ? "Chargement…" : "Sélectionner…"}</option>
             {organizations.map((o) => (
               <option key={o.id} value={o.name}>{o.name}</option>
             ))}
@@ -134,12 +139,12 @@ export function SessionLobby() {
         <label style={{ display: "flex", flexDirection: "column", gap: 7 }}>
           <span style={labelStyle}>Projet ADO</span>
           <select
-            style={{ ...selectStyle, opacity: selectedOrg ? 1 : 0.5 }}
+            style={{ ...selectStyle, opacity: selectedOrg && !projectsLoading ? 1 : 0.5 }}
             value={selectedProject}
-            disabled={!selectedOrg}
+            disabled={!selectedOrg || projectsLoading}
             onChange={(e) => setSelectedProject(e.target.value)}
           >
-            <option value="">Sélectionner…</option>
+            <option value="">{projectsLoading ? "Chargement…" : "Sélectionner…"}</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
