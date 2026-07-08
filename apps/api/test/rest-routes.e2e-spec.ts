@@ -25,9 +25,10 @@ function sign(name: string, value: string): string {
   return `${name}=${encodeURIComponent("s:" + value + "." + mac)}`;
 }
 
-// Cookie d'une session authentifiée : identité signée + org sélectionnée signée.
+// Cookie d'une session authentifiée : identité signée (avec expiration) + org sélectionnée signée.
+const authUser = { id: "u1", displayName: "Alice", exp: Date.now() + 60 * 60 * 1000 };
 const authCookie = [
-  sign("session_user", JSON.stringify({ id: "u1", displayName: "Alice" })),
+  sign("session_user", JSON.stringify(authUser)),
   sign("ado_org", "myorg"),
 ].join("; ");
 
@@ -119,7 +120,7 @@ describe("Routes REST (e2e, services mockés)", () => {
         .get("/auth/me")
         .set("Cookie", authCookie)
         .expect(200)
-        .expect({ id: "u1", displayName: "Alice" }));
+        .expect(authUser));
 
     it("401 sans cookie de session", () => http().get("/auth/me").expect(401));
   });
