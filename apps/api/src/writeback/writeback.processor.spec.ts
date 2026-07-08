@@ -81,16 +81,15 @@ describe("WritebackProcessor.process", () => {
     });
   });
 
-  it("utilise ADO_SYSTEM_TOKEN si aucun token utilisateur en Redis", async () => {
+  it("aucun token utilisateur en Redis : fail-closed, aucune écriture ADO", async () => {
     const { processor, redis, ado } = makeProcessor();
     redis.getTicket.mockResolvedValue({ ...ticket });
     redis.getUserToken.mockResolvedValue(null);
-    (processor as any).config.get.mockReturnValue("system-tok");
-    ado.patchWorkItem.mockResolvedValue(4);
 
-    await run(processor, { data: { sessionId: "s1", op, logId: "log1" }, attemptsMade: 0, opts: { attempts: 5 } });
-
-    expect(ado.patchWorkItem).toHaveBeenCalledWith("orgX", "t1", "endDate", "2026-06-20", 3, "system-tok");
+    await expect(
+      run(processor, { data: { sessionId: "s1", op, logId: "log1" }, attemptsMade: 0, opts: { attempts: 5 } }),
+    ).rejects.toThrow(/Token ADO absent/);
+    expect(ado.patchWorkItem).not.toHaveBeenCalled();
   });
 
   it("boardColumn : patch du seul champ Kanban WEF (ADO transitionne l'état), met à jour l'état Redis", async () => {

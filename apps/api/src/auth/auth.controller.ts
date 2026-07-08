@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Body, Req, Res, HttpCode, HttpException, BadRequestException, UnauthorizedException } from "@nestjs/common";
 import { Request, Response } from "express";
 import { AuthService } from "./auth.service";
+import { RedisService } from "../database/redis.service";
 import { signedCookieOpts, plainCookieOpts, clearCookieOpts } from "./cookies";
 import { ADO_ORG_RE } from "./org";
 
@@ -27,7 +28,10 @@ function recordFailure(ip: string): void {
 
 @Controller("auth")
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private redis: RedisService,
+  ) {}
 
   @Get("me")
   me(@Req() req: Request, @Res() res: Response) {
@@ -83,7 +87,18 @@ export class AuthController {
 
   @Post("logout")
   @HttpCode(204)
-  logout(@Res() res: Response) {
+  async logout(@Req() req: Request, @Res() res: Response) {
+    // Invalide aussi la copie chiffrée du PAT dans Redis (TTL 1h) : sans ça, le
+    // writeback pourrait continuer à écrire dans ADO après la déconnexion.
+    const cookie = req.signedCookies?.session_user;
+    if (typeof cookie === "string") {
+      try {
+        const { id } = JSON.parse(cookie);
+        if (typeof id === "string") await this.redis.deleteUserTokens(id);
+      } catch {
+        /* cookie illisible : rien à purger */
+      }
+    }
     res.clearCookie("session_user", clearCookieOpts());
     res.clearCookie("ado_token", clearCookieOpts());
     res.clearCookie("ado_org", clearCookieOpts());

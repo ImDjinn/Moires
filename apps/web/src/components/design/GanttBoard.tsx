@@ -668,33 +668,60 @@ export function GanttBoard() {
       if (tagged && !tagged._scrollBound) {
         tagged._scrollBound = true;
         tagged.addEventListener("scroll", () => {
-          // Recale le panneau gauche tout de suite (sans attendre React) → pas de saccade.
-          canvasRef.current?.style.setProperty("--sl", tagged.scrollLeft + "px");
-          canvasRef.current?.style.setProperty("--st", tagged.scrollTop + "px");
           if (scrollRaf.current) return;
           scrollRaf.current = requestAnimationFrame(() => {
             scrollRaf.current = 0;
             setState({ scrollLeft: tagged.scrollLeft });
           });
         });
-        // Board trop large (Release toujours, Sprint/Daily si trop d'itérations/états) :
-        // la molette verticale pilote le défilement horizontal, sauf au survol du panneau gauche.
-        tagged.addEventListener(
-          "wheel",
-          (e) => {
-            if (!e.deltaY || tagged.scrollWidth <= tagged.clientWidth) return;
-            if (e.clientX - tagged.getBoundingClientRect().left <= M.LEFT) return;
-            tagged.scrollLeft += e.deltaY;
-            e.preventDefault();
-          },
-          { passive: false },
-        );
       }
     },
     [setState],
   );
   const onCanvasRef = useCallback((el: HTMLDivElement | null) => {
     canvasRef.current = el;
+  }, []);
+
+  // ---- drag-to-pan ----
+  // Complément du scroll natif (molette/trackpad) : on peut aussi agripper le
+  // fond du board pour défiler dans les deux axes. Header et panneau gauche
+  // restent fixes via position:sticky (géré par le compositeur, aucun lag).
+  const pan = useRef<{ x: number; y: number; sl: number; st: number; moved: boolean } | null>(null);
+  const onPanDown = useCallback((e: React.PointerEvent) => {
+    const el = scrollRef.current;
+    if (e.button !== 0 || !el) return;
+    // Pas de pan depuis un champ/bouton (sélection de texte, clics rapides).
+    if ((e.target as HTMLElement).closest("input,select,textarea,button")) return;
+    pan.current = { x: e.clientX, y: e.clientY, sl: el.scrollLeft, st: el.scrollTop, moved: false };
+  }, []);
+  const onPanMove = useCallback((e: React.PointerEvent) => {
+    const p = pan.current, el = scrollRef.current;
+    if (!p || !el) return;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y;
+    if (!p.moved) {
+      // Seuil : en dessous, c'est un clic (sélection, toggle…), pas un pan.
+      if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+      p.moved = true;
+      // Peut lever si le pointeur n'est plus actif (relâché entre deux frames).
+      try { el.setPointerCapture(e.pointerId); } catch { /* pan sans capture */ }
+      el.style.cursor = "grabbing";
+      el.style.userSelect = "none";
+      window.getSelection()?.removeAllRanges();
+    }
+    el.scrollLeft = p.sl - dx;
+    el.scrollTop = p.st - dy;
+  }, []);
+  const onPanEnd = useCallback(() => {
+    const el = scrollRef.current;
+    // "grab" (pas "") : React ne réappliquerait pas le cursor du style inline.
+    if (el) { el.style.cursor = "grab"; el.style.userSelect = ""; }
+    // Après un pan, pan.current reste posé pour que le clic qui suit soit avalé
+    // (onPanClickCapture) au lieu de sélectionner/toggler ce qui est sous le curseur.
+    if (pan.current && !pan.current.moved) pan.current = null;
+  }, []);
+  const onPanClickCapture = useCallback((e: React.MouseEvent) => {
+    if (pan.current?.moved) { e.stopPropagation(); e.preventDefault(); }
+    pan.current = null;
   }, []);
 
   // ---- lifecycle ----
@@ -904,7 +931,7 @@ export function GanttBoard() {
             label: st, dates: "", sub: count + " ticket" + (count > 1 ? "s" : ""), tag: "", tagStyle: "display:none",
             showDot: true, dotColor: col, titleColor: col,
             bgStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${TH}px;background:${ci % 2 ? "var(--colalt,#fafafc)" : "transparent"};border-right:1px solid var(--gridline,#ececf1)`,
-            headStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${M.HEADER}px;padding:12px 14px;border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:47;box-sizing:border-box;transform:translateY(var(--st,0px));will-change:transform;box-shadow:inset 0 -2px 0 ${col}`,
+            headStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${M.HEADER}px;padding:12px 14px;border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:47;box-sizing:border-box;box-shadow:inset 0 -2px 0 ${col}`,
           };
         })
       : cols.map((real, vi) => {
@@ -918,7 +945,7 @@ export function GanttBoard() {
             label: it.label, dates: it.dates, sub: release ? "" : it.sub, tag, tagStyle, showDot: current, dotColor: "var(--accent,#5b5bd6)",
             titleColor: current ? "var(--accent,#5b5bd6)" : past ? "var(--muted,#86868f)" : "var(--ink,#1a1a20)",
             bgStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${TH}px;background:${vi % 2 ? "var(--colalt,#fafafc)" : "transparent"};border-right:1px solid var(--gridline,#ececf1)${real === M.BACKLOG ? ";border-left:1px dashed var(--line,#e8e8ee)" : ""}`,
-            headStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${M.HEADER}px;padding:12px 14px;border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:47;box-sizing:border-box;transform:translateY(var(--st,0px));will-change:transform${current ? ";box-shadow:inset 0 -2px 0 var(--accent,#5b5bd6)" : ""}`,
+            headStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${M.HEADER}px;padding:12px 14px;border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:47;box-sizing:border-box${current ? ";box-shadow:inset 0 -2px 0 var(--accent,#5b5bd6)" : ""}`,
           };
         });
 
@@ -939,7 +966,7 @@ export function GanttBoard() {
               ? (e: React.MouseEvent) => { e.stopPropagation(); setFieldPicker(null); setState({ selectedId: null, prefsOpen: false }); setPersonSel(p.id); }
               : undefined,
             // Épinglé au défilement horizontal (comme en Release) : au-dessus des barres (z drag = 40).
-            leftStyle: `position:absolute;left:0;top:${r.top}px;width:${M.LEFT}px;height:${r.height}px;background:var(--panel,#fff);border-right:1px solid var(--line,#e8e8ee);padding:0 14px;z-index:45;box-sizing:border-box;display:flex;align-items:center;gap:10px;transform:translateX(var(--sl,0px));will-change:transform${openable ? ";cursor:pointer" : ""}`,
+            leftStyle: `position:absolute;left:0;top:${r.top}px;width:${M.LEFT}px;height:${r.height}px;background:var(--panel,#fff);border-right:1px solid var(--line,#e8e8ee);padding:0 14px;z-index:45;box-sizing:border-box;display:flex;align-items:center;gap:10px${openable ? ";cursor:pointer" : ""}`,
             sepStyle: `position:absolute;left:0;top:${r.top + r.height}px;width:${TW}px;height:1px;background:var(--gridline,#ececf1);z-index:5`,
           };
         });
@@ -1188,7 +1215,7 @@ export function GanttBoard() {
             isArea: false, key: r.key, hasChildren: false, name: "", sub: "", ado: "", badge: "", title: "", chevron: "",
             chevStyle: "display:none", adoStyle: "display:none", badgeStyle: "display:none", dotColor: "transparent",
             statusStyle: "display:none", pinStyle: "display:none",
-            leftStyle: `position:absolute;left:0;top:${r.top}px;width:${M.LEFT}px;height:${r.height}px;background:var(--colalt,#fafafc);border-right:1px solid var(--line,#e8e8ee);z-index:32;box-sizing:border-box;transform:translateX(var(--sl,0px));will-change:transform`,
+            leftStyle: `position:absolute;left:0;top:${r.top}px;width:${M.LEFT}px;height:${r.height}px;background:var(--colalt,#fafafc);border-right:1px solid var(--line,#e8e8ee);z-index:32;box-sizing:border-box`,
             sepStyle: `position:absolute;left:0;top:${r.top + r.height}px;width:${TW}px;height:1px;background:var(--gridline,#ececf1);z-index:5`,
           };
         }
@@ -1215,7 +1242,7 @@ export function GanttBoard() {
           onDoubleClick: () => addFlag(r.key!, flagIter),
           ado: "", badge: "", title: "", adoStyle: "display:none", badgeStyle: "display:none",
           chevStyle: `font-size:9px;color:var(--muted,#86868f);width:14px;flex:0 0 auto;cursor:${r.hasChildren ? "pointer" : "default"};text-align:center`,
-          leftStyle: `position:absolute;left:0;top:${r.top}px;width:${M.LEFT}px;height:${r.height}px;background:${isFeat ? "var(--panel,#fff)" : "var(--panel2,#fafafc)"};border-right:1px solid var(--line,#e8e8ee);border-bottom:1px solid var(--line2,#f0f0f4);padding:0 12px 0 ${indent}px;z-index:32;box-sizing:border-box;display:flex;align-items:center;gap:8px;transform:translateX(var(--sl,0px));will-change:transform`,
+          leftStyle: `position:absolute;left:0;top:${r.top}px;width:${M.LEFT}px;height:${r.height}px;background:${isFeat ? "var(--panel,#fff)" : "var(--panel2,#fafafc)"};border-right:1px solid var(--line,#e8e8ee);border-bottom:1px solid var(--line2,#f0f0f4);padding:0 12px 0 ${indent}px;z-index:32;box-sizing:border-box;display:flex;align-items:center;gap:8px`,
           sepStyle: `position:absolute;left:0;top:${r.top + r.height}px;width:${TW}px;height:1px;background:var(--gridline,#ececf1);z-index:5`,
           onClick: () => { if (r.hasChildren) toggleNode(r.key!); },
         };
@@ -1330,7 +1357,7 @@ export function GanttBoard() {
         // Bande de charge intégrée au bas du header de colonnes (release garde
         // ainsi la même hauteur de header que les autres pages).
         return {
-          wrapStyle: `position:absolute;left:${left}px;top:${M.HEADER - M.RELBAND}px;width:${COLW}px;height:${M.RELBAND}px;padding:4px 12px 8px;border-right:1px solid var(--gridline,#ececf1);box-sizing:border-box;z-index:47;background:var(--panel,#fff);transform:translateY(var(--st,0px));will-change:transform`,
+          wrapStyle: `position:absolute;left:${left}px;top:${M.HEADER - M.RELBAND}px;width:${COLW}px;height:${M.RELBAND}px;padding:4px 12px 8px;border-right:1px solid var(--gridline,#ececf1);box-sizing:border-box;z-index:47;background:var(--panel,#fff)`,
           total: `${M.fmt(b.total)}j`, cap: `/ ${M.fmt(b.cap)}j`,
           totalStyle: `font-size:11.5px;font-weight:600;font-family:${mono};color:${over ? "#ef4444" : "var(--ink,#1a1a20)"}`,
           capStyle: `font-size:10px;font-family:${mono};color:var(--faint,#abacb6)`,
@@ -1394,7 +1421,7 @@ export function GanttBoard() {
     return {
       rootStyle: { position: "relative" as const, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" as const, fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "var(--canvas)", color: "var(--ink)", overflow: "hidden" },
       totalWidth: TW, totalHeight: TH, columns, personRows, banners, bars, cursors, presence, onlineLabel,
-      leftHeaderStyle: `position:absolute;top:0;left:0;width:${M.LEFT}px;height:${M.HEADER}px;padding:11px 14px;border-bottom:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:48;box-sizing:border-box;transform:translate(var(--sl,0px),var(--st,0px));will-change:transform`,
+      leftHeaderStyle: `position:absolute;top:0;left:0;width:${M.LEFT}px;height:${M.HEADER}px;padding:11px 14px;border-bottom:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:48;box-sizing:border-box`,
       currentLabel: M.iters[M.CURRENT].label, currentDates: M.iters[M.CURRENT].dates,
       levels,
       isDaily: daily,
@@ -1717,61 +1744,20 @@ export function GanttBoard() {
       )}
 
       {/* Canvas */}
-      <div ref={v.onScrollRef} style={C("flex:1;position:relative;overflow:auto;background:var(--canvas,#f6f6f8)")}>
+      <div ref={v.onScrollRef} onPointerDown={onPanDown} onPointerMove={onPanMove} onPointerUp={onPanEnd} onPointerCancel={onPanEnd} onClickCapture={onPanClickCapture} style={C("flex:1;position:relative;overflow:auto;background:var(--canvas,#f6f6f8);cursor:grab")}>
         <div ref={v.onCanvasRef} onClick={v.onBgClick} onPointerMove={emitCursor} style={C(`position:relative;width:${v.totalWidth}px;height:${v.totalHeight}px;min-height:100%`)}>
           {v.columns.map((col, i) => <div key={"bg" + i} style={C(col.bgStyle)} />)}
 
-          <div style={C(v.leftHeaderStyle)}>
-            <div style={C("font-size:10px;font-weight:600;letter-spacing:.08em;color:var(--faint,#aeaeb8);text-transform:uppercase")}>{v.leftKicker}</div>
-            <div style={C("font-size:12.5px;font-weight:600;color:var(--ink,#1a1a20);margin-top:3px")}>{v.leftTitle}</div>
-            {v.showSort && (
-              <div style={C("display:flex;align-items:center;gap:6px;margin-top:8px")}>
-                <select value={v.sortValue} onChange={v.onSort} style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:6px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:11.5px;cursor:pointer;outline:none")}>
-                  {v.sortOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-                <button onClick={v.onShuffle} aria-label="Tri aléatoire" title="Tri aléatoire (relance à chaque clic)" style={C(v.shuffleStyle)}>↻</button>
-              </div>
-            )}
-            {v.isRelease && (
-              <div style={C("display:flex;align-items:center;gap:6px;margin-top:9px")}>
-                <span style={C("font-size:9.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#abacb6);flex:0 0 auto")}>Trier</span>
-                <select value={v.epicSort} onChange={v.onEpicSort} style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:6px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:11.5px;cursor:pointer;outline:none")}>
-                  {v.epicSortOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-            )}
-          </div>
+          {/* Séparateurs de lignes (pleine largeur, défilent avec le contenu) */}
+          {(v.treeRows as Record<string, any>[]).map((row, i) => <div key={"trs" + i} style={C(row.sepStyle)} />)}
+          {v.personRows.map((row, i) => <div key={"prs" + i} style={C(row.sepStyle)} />)}
 
-          {v.columns.map((col, i) => (
-            <div key={"head" + i} style={C(col.headStyle)}>
-              <div style={C("display:flex;align-items:center;gap:7px")}>
-                {col.showDot && <div style={C(`width:7px;height:7px;border-radius:50%;background:${col.dotColor}`)} />}
-                <span style={C(`font-size:13px;font-weight:600;color:${col.titleColor};letter-spacing:-.01em`)}>{col.label}</span>
-                <span style={C(col.tagStyle)}>{col.tag}</span>
-              </div>
-              <div style={C("font-size:11px;color:var(--muted,#86868f);font-family:'IBM Plex Mono',monospace;margin-top:5px")}>{col.dates}</div>
-              <div style={C("font-size:10.5px;color:var(--faint,#aeaeb8);margin-top:2px")}>{col.sub}</div>
-            </div>
-          ))}
-
-          {(v.loadBand as Record<string, any>[]).map((b, i) => (
-            <div key={"lb" + i} style={C(b.wrapStyle)}>
-              <div style={C("display:flex;align-items:baseline;gap:5px")}>
-                <span style={C(b.totalStyle)}>{b.total}</span>
-                <span style={C(b.capStyle)}>{b.cap}</span>
-                <div style={{ flex: 1 }} />
-                <span style={C(b.pctStyle)}>{b.pct}</span>
-              </div>
-              <div style={C(b.trackStyle)}>
-                {b.segs.map((s: any, j: number) => <div key={j} title={s.title} style={C(s.style)} />)}
-              </div>
-            </div>
-          ))}
-
-          {(v.treeRows as Record<string, any>[]).map((row, i) => (
-            <div key={"tr" + i}>
-              <div style={C(row.sepStyle)} />
-              <div onClick={row.onClick} onDoubleClick={row.onDoubleClick} title={row.onDoubleClick ? "Double-cliquer pour poser un flag" : undefined} style={C(row.leftStyle)}>
+          {/* Panneau gauche, header et coin : bandes sticky de taille nulle (les
+              cellules absolues débordent). Le collage est fait par le compositeur
+              du navigateur → parfaitement fixe même pendant le scroll natif. */}
+          <div style={C("position:sticky;left:0;width:0;height:0;z-index:45")}>
+            {(v.treeRows as Record<string, any>[]).map((row, i) => (
+              <div key={"tr" + i} onClick={row.onClick} onDoubleClick={row.onDoubleClick} title={row.onDoubleClick ? "Double-cliquer pour poser un flag" : undefined} style={C(row.leftStyle)}>
                 <span onClick={row.onToggle} style={C(row.chevStyle)}>{row.chevron}</span>
                 {row.isArea && (
                   <>
@@ -1788,13 +1774,9 @@ export function GanttBoard() {
                 <span style={C(row.badgeStyle)}>{row.badge}</span>
                 <span style={C("font-size:11.5px;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0")}>{row.title}</span>
               </div>
-            </div>
-          ))}
-
-          {v.personRows.map((row, i) => (
-            <div key={"pr" + i}>
-              <div style={C(row.sepStyle)} />
-              <div style={C(row.leftStyle)} onClick={row.onOpen} title={row.onOpen ? "Capacités par itération" : undefined}>
+            ))}
+            {v.personRows.map((row, i) => (
+              <div key={"pr" + i} style={C(row.leftStyle)} onClick={row.onOpen} title={row.onOpen ? "Capacités par itération" : undefined}>
                 <div style={C(row.avatarStyle)}>{row.initials}</div>
                 <div style={C("line-height:1.25;min-width:0")}>
                   <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{row.name}</div>
@@ -1807,8 +1789,58 @@ export function GanttBoard() {
                   )}
                 </div>
               </div>
+            ))}
+          </div>
+
+          <div style={C("position:sticky;top:0;width:0;height:0;z-index:47")}>
+            {v.columns.map((col, i) => (
+              <div key={"head" + i} style={C(col.headStyle)}>
+                <div style={C("display:flex;align-items:center;gap:7px")}>
+                  {col.showDot && <div style={C(`width:7px;height:7px;border-radius:50%;background:${col.dotColor}`)} />}
+                  <span style={C(`font-size:13px;font-weight:600;color:${col.titleColor};letter-spacing:-.01em`)}>{col.label}</span>
+                  <span style={C(col.tagStyle)}>{col.tag}</span>
+                </div>
+                <div style={C("font-size:11px;color:var(--muted,#86868f);font-family:'IBM Plex Mono',monospace;margin-top:5px")}>{col.dates}</div>
+                <div style={C("font-size:10.5px;color:var(--faint,#aeaeb8);margin-top:2px")}>{col.sub}</div>
+              </div>
+            ))}
+            {(v.loadBand as Record<string, any>[]).map((b, i) => (
+              <div key={"lb" + i} style={C(b.wrapStyle)}>
+                <div style={C("display:flex;align-items:baseline;gap:5px")}>
+                  <span style={C(b.totalStyle)}>{b.total}</span>
+                  <span style={C(b.capStyle)}>{b.cap}</span>
+                  <div style={{ flex: 1 }} />
+                  <span style={C(b.pctStyle)}>{b.pct}</span>
+                </div>
+                <div style={C(b.trackStyle)}>
+                  {b.segs.map((s: any, j: number) => <div key={j} title={s.title} style={C(s.style)} />)}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={C("position:sticky;top:0;left:0;width:0;height:0;z-index:48")}>
+            <div style={C(v.leftHeaderStyle)}>
+              <div style={C("font-size:10px;font-weight:600;letter-spacing:.08em;color:var(--faint,#aeaeb8);text-transform:uppercase")}>{v.leftKicker}</div>
+              <div style={C("font-size:12.5px;font-weight:600;color:var(--ink,#1a1a20);margin-top:3px")}>{v.leftTitle}</div>
+              {v.showSort && (
+                <div style={C("display:flex;align-items:center;gap:6px;margin-top:8px")}>
+                  <select value={v.sortValue} onChange={v.onSort} style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:6px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:11.5px;cursor:pointer;outline:none")}>
+                    {v.sortOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <button onClick={v.onShuffle} aria-label="Tri aléatoire" title="Tri aléatoire (relance à chaque clic)" style={C(v.shuffleStyle)}>↻</button>
+                </div>
+              )}
+              {v.isRelease && (
+                <div style={C("display:flex;align-items:center;gap:6px;margin-top:9px")}>
+                  <span style={C("font-size:9.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#abacb6);flex:0 0 auto")}>Trier</span>
+                  <select value={v.epicSort} onChange={v.onEpicSort} style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:6px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:11.5px;cursor:pointer;outline:none")}>
+                    {v.epicSortOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+              )}
             </div>
-          ))}
+          </div>
 
           {v.banners.map((b, i) => (
             <div key={"bn" + i} style={C(b.style)} onClick={b.onClick} title="Cliquer pour modifier la capacité">

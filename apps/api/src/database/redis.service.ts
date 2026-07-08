@@ -76,6 +76,22 @@ export class RedisService implements OnModuleDestroy {
   }
 
   /**
+   * Supprime toutes les copies chiffrées du PAT d'un utilisateur (toutes
+   * sessions confondues). Appelé au logout : sans ça, le token survit jusqu'à
+   * 1h et le writeback pourrait continuer à écrire dans ADO après déconnexion.
+   */
+  async deleteUserTokens(userId: string): Promise<void> {
+    const keys: string[] = [];
+    for await (const batch of this.client.scanStream({
+      match: `session:*:token:${userId}`,
+      count: 100,
+    })) {
+      keys.push(...(batch as string[]));
+    }
+    if (keys.length) await this.client.del(...keys);
+  }
+
+  /**
    * Réserve le créneau de sync ADO de la session pour `seconds` secondes.
    * Renvoie false si un sync a déjà eu lieu dans la fenêtre — l'appelant sert
    * alors le cache Redis au lieu de re-interroger ADO.

@@ -17,6 +17,9 @@ RUN pnpm install --frozen-lockfile \
  && pnpm --filter api build
 
 WORKDIR /repo/apps/api
+# Après le build (l'install a besoin des devDeps) : active les cookies Secure
+# (cookies.ts teste NODE_ENV) et le mode production de NestJS.
+ENV NODE_ENV=production
 EXPOSE 3000
 
 # Applique les migrations puis démarre. La DB est prête (depends_on healthcheck).
