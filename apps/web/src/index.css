@@ -5,7 +5,8 @@
   --panel2: #fafafc;
   --ink: #1a1a20;
   --muted: #6b6b75;
-  --faint: #7c7c86;
+  /* ≥ 4,5:1 sur --panel et --panel2 (WCAG AA petit texte). */
+  --faint: #71717c;
   --line: #e8e8ee;
   --line2: #f1f1f5;
   --accent: #5b5bd6;
@@ -40,8 +41,11 @@
   --panel2: #1c1c21;
   --ink: #ececf1;
   --muted: #9a9aa4;
-  --faint: #757580;
+  /* ≥ 4,5:1 sur --panel et --panel2 (WCAG AA petit texte). */
+  --faint: #8a8a96;
   --color-synced-text: #3fd089;
+  /* Rouge saturé qui vibre sur fond sombre → variante adoucie. */
+  --color-error: #f87171;
   --line: #27272e;
   --line2: #1f1f25;
   --accent: #7e7ef2;
@@ -111,6 +115,12 @@ input[type="number"] {
 @keyframes ggtoast { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
 @keyframes ggpop { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes ggdrop { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Poignée de redimensionnement des barres : révélée au survol/focus de la carte
+   (l'opacité inline ne s'applique qu'aux états sélectionné/drag). */
+.gg-grip { opacity: 0.35; transition: opacity 0.12s; }
+.gg-bar:hover .gg-grip,
+.gg-bar:focus-visible .gg-grip { opacity: 0.85; }
 
 ::selection { background: rgba(123, 123, 242, 0.28); }
 

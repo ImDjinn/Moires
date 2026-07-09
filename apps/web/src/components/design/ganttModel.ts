@@ -118,6 +118,8 @@ export interface State {
   peopleOpen: boolean;
   sort: string;
   expanded: Record<string, boolean>;
+  /** Release : lignes (epic/feature) masquées — grisées et exclues de la charge. */
+  hiddenRows: Record<string, boolean>;
   loadBy: "person" | "role" | "none";
   releaseStart: number;
   rowPins: RowPin[];
@@ -133,7 +135,7 @@ export interface State {
 }
 
 // ---- Constantes de layout ----
-export const LEFT = 290;
+export const LEFT = 320;
 export const HEADER = 92;
 export const BARH = 76;
 export const LANEGAP = 10;
@@ -357,7 +359,7 @@ export function createInitialState(items: Item[] = buildInitialItems()): State {
     board: "sprint", level: "story", colorMode: "epic", hideClosed: false, epicFilter: "all", epicSort: "priority", containerW: 1100,
     rangeFrom: CURRENT, rangeTo: Math.min(CURRENT + 1, NITER - 1), backlog: true, rangeOpen: false, prefsOpen: false,
     items, hidden: {}, peopleOpen: false, sort: "az",
-    expanded: {}, loadBy: "person", releaseStart: CURRENT, rowPins: [], rowPinSel: null, scrollLeft: 0,
+    expanded: {}, hiddenRows: {}, loadBy: "person", releaseStart: CURRENT, rowPins: [], rowPinSel: null, scrollLeft: 0,
     milestones: [
       { id: "M1", title: "Livraison des API", iter: 3, color: "#D55E00" },
       { id: "M2", title: "Gel de code v2.4", iter: 5, color: "#0072B2" },
@@ -440,7 +442,8 @@ export const formatRange = (a: string, b: string) => {
   const A = fmtDate(a), B = fmtDate(b);
   return A && B ? `${A} → ${B}` : A || B;
 };
-export const capColor = (pct: number) => (pct > 1 ? "#ef4444" : pct >= 0.85 ? "#f5a623" : "#2bbf73");
+export const capColor = (pct: number) =>
+  pct > 1 ? "var(--color-error,#ef4444)" : pct >= 0.85 ? "var(--color-pending,#f5a623)" : "var(--color-synced,#2bbf73)";
 
 function hexToRgb(h: string): [number, number, number] {
   h = h.replace("#", "");
@@ -831,8 +834,26 @@ export function computeLayout(s: State, COLW: number): Layout {
   return { rows, bars, totalHeight: Math.max(y + 20, 520), cols };
 }
 
+/** Ids des US appartenant à une ligne (epic/feature) masquée en Release. */
+export function hiddenStoryIds(s: State): Set<string> {
+  const out = new Set<string>();
+  if (!Object.keys(s.hiddenRows).some((k) => s.hiddenRows[k])) return out;
+  const epicIds = new Set(s.items.filter((i) => i.level === "epic").map((e) => e.id));
+  const featHidden = new Set<string>();
+  s.items.forEach((f) => {
+    if (f.level !== "feature") return;
+    const epicKey = "epic:" + (f.epicId && epicIds.has(f.epicId) ? f.epicId : "__none__");
+    if (s.hiddenRows[f.id] || s.hiddenRows[epicKey]) featHidden.add(f.id);
+  });
+  s.items.forEach((it) => {
+    if (it.level === "story" && it.parent && featHidden.has(it.parent)) out.add(it.id);
+  });
+  return out;
+}
+
 export function relLoadBand(s: State, cols: number[], theme: Theme) {
   const by = s.loadBy;
+  const hiddenSt = hiddenStoryIds(s);
   return cols.map((real) => {
     const cap = people.filter((p) => !s.hidden[p.id] && !p.unassigned).reduce((sum, p) => sum + capOf(p, real), 0);
     const groups: Record<string, number> = {};
@@ -840,7 +861,7 @@ export function relLoadBand(s: State, cols: number[], theme: Theme) {
     s.items.forEach((it) => {
       if (it.level !== "story") return;
       if (s.hideClosed && isDone(it.state)) return;
-      if (it.iter !== real || s.hidden[it.person]) return;
+      if (it.iter !== real || s.hidden[it.person] || hiddenSt.has(it.id)) return;
       const eff = effortOf(it);
       total += eff;
       let key: string;
