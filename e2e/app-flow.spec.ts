@@ -43,9 +43,8 @@ async function stubBackend(page: Page, opts: { authenticated: boolean }) {
     opts.authenticated ? r.fulfill(json(user)) : r.fulfill({ status: 401, body: "" }),
   );
   await page.route("**/ado/organizations", (r) =>
-    r.fulfill(json({ organizations: [{ id: "o1", name: "Org1" }], selected: null })),
+    r.fulfill(json({ organizations: [{ id: "o1", name: "Org1" }], selected: "Org1" })),
   );
-  await page.route("**/ado/organizations/select", (r) => r.fulfill(json({ selected: "Org1" })));
   await page.route("**/ado/projects", (r) =>
     r.fulfill(json([{ id: "p1", name: "Projet Alpha" }])),
   );
@@ -70,12 +69,11 @@ test("parcours complet : lobby → sélection → board Gantt", async ({ page })
   // Lobby
   await expect(page.getByText("Nouvelle session")).toBeVisible();
 
-  // Sélection de l'organisation (1er select) → déclenche le chargement des projets
-  await page.locator("select").first().selectOption("Org1");
-  await expect(page.locator('select option[value="p1"]')).toHaveCount(1);
+  // L'org est choisie à la connexion : affichée en lecture seule dans le lobby
+  await expect(page.getByText("Org1")).toBeVisible();
 
-  // Sélection du projet (2e select) puis entrée dans la session
-  await page.locator("select").nth(1).selectOption("p1");
+  // Sélection du projet (seul select) puis entrée dans la session
+  await page.locator("select").selectOption("p1");
   await page.getByRole("button", { name: /Entrer dans la session/i }).click();
 
   // Board Gantt monté (onglets de mode) avec le ticket du snapshot
