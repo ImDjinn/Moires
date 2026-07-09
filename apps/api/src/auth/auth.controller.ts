@@ -59,7 +59,11 @@ export class AuthController {
   // les routes en aval. L'org validée est posée dans ado_org. PAT/org invalide → 401.
   @Post("login")
   @HttpCode(204)
-  async login(@Body() body: { pat?: string; org?: string }, @Req() req: Request, @Res() res: Response) {
+  async login(
+    @Body() body: { pat?: string; org?: string; remember?: boolean },
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
     const pat = body?.pat?.trim();
     const org = body?.org?.trim();
     if (!pat || !org) throw new BadRequestException("pat and org are required");
@@ -75,13 +79,16 @@ export class AuthController {
       recordFailure(ip);
       throw new UnauthorizedException("Invalid PAT or organization");
     }
+    // « Se souvenir de moi » : 30 jours au lieu de 8 h. Le PAT expire de toute
+    // façon côté ADO, indépendamment de la durée du cookie.
+    const ttl = body?.remember === true ? 30 * 24 * H : 8 * H;
     res.cookie(
       "session_user",
-      JSON.stringify({ id: user.id, displayName: user.displayName, exp: Date.now() + 8 * H }),
-      signedCookieOpts(8 * H),
+      JSON.stringify({ id: user.id, displayName: user.displayName, exp: Date.now() + ttl }),
+      signedCookieOpts(ttl),
     );
-    res.cookie("ado_token", token, plainCookieOpts(8 * H));
-    res.cookie("ado_org", validatedOrg, signedCookieOpts(8 * H));
+    res.cookie("ado_token", token, plainCookieOpts(ttl));
+    res.cookie("ado_org", validatedOrg, signedCookieOpts(ttl));
     res.status(204).send();
   }
 

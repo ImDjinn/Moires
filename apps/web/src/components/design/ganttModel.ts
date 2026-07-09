@@ -108,6 +108,7 @@ export interface State {
   /** Release : tri des Epics à l'intérieur des groupes de statut. */
   epicSort: "priority" | "name" | "effort";
   containerW: number;
+  containerH: number;
   rangeFrom: number;
   rangeTo: number;
   backlog: boolean;
@@ -356,7 +357,7 @@ export function buildInitialItems(): Item[] {
 
 export function createInitialState(items: Item[] = buildInitialItems()): State {
   return {
-    board: "sprint", level: "story", colorMode: "epic", hideClosed: false, epicFilter: "all", epicSort: "priority", containerW: 1100,
+    board: "sprint", level: "story", colorMode: "epic", hideClosed: false, epicFilter: "all", epicSort: "priority", containerW: 1100, containerH: 800,
     rangeFrom: CURRENT, rangeTo: Math.min(CURRENT + 1, NITER - 1), backlog: true, rangeOpen: false, prefsOpen: false,
     items, hidden: {}, peopleOpen: false, sort: "az",
     expanded: {}, hiddenRows: {}, loadBy: "person", releaseStart: CURRENT, rowPins: [], rowPinSel: null, scrollLeft: 0,

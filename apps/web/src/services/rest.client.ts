@@ -25,11 +25,6 @@ export const api = {
     request<{ organizations: { id: string; name: string }[]; selected: string | null }>(
       "/ado/organizations",
     ),
-  selectOrganization: (org: string) =>
-    request<{ selected: string }>("/ado/organizations/select", {
-      method: "POST",
-      body: JSON.stringify({ org }),
-    }),
   getProjects: () => request<{ id: string; name: string }[]>("/ado/projects"),
   getIterations: (projectId: string) =>
     request<{ id: string; name: string; startDate: string; finishDate: string }[]>(

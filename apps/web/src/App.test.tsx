@@ -10,7 +10,6 @@ import type { SessionSnapshot } from "@moirai/shared";
 vi.mock("./services/rest.client", () => ({
   api: {
     getOrganizations: vi.fn().mockResolvedValue({ organizations: [], selected: null }),
-    selectOrganization: vi.fn(),
     getProjects: vi.fn().mockResolvedValue([]),
     getIterations: vi.fn().mockResolvedValue([]),
     getAreas: vi.fn().mockResolvedValue([]),

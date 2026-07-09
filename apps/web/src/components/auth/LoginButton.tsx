@@ -5,6 +5,7 @@ export function LoginButton() {
   const [org, setOrg] = useState("");
   const [pat, setPat] = useState("");
   const [showPat, setShowPat] = useState(false);
+  const [remember, setRemember] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -18,7 +19,7 @@ export function LoginButton() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ org: org.trim(), pat: pat.trim() }),
+        body: JSON.stringify({ org: org.trim(), pat: pat.trim(), remember }),
       });
       if (res.status === 204) {
         window.location.reload();
@@ -103,7 +104,7 @@ export function LoginButton() {
           type="text"
           value={org}
           onChange={(e) => setOrg(e.target.value)}
-          placeholder="Organisation Azure DevOps (ex. Les-Moires)"
+          placeholder="Organisation (ex. dev.azure.com/monorganisation/)"
           aria-label="Organisation Azure DevOps"
           autoComplete="off"
           style={inputStyle}
@@ -141,6 +142,24 @@ export function LoginButton() {
             {showPat ? "Masquer" : "Afficher"}
           </button>
         </div>
+        <label
+          style={{
+            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            color: "var(--muted)",
+            fontSize: 13,
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(e) => setRemember(e.target.checked)}
+          />
+          Se souvenir de moi (30 jours)
+        </label>
         <button
           type="submit"
           disabled={loading || !org.trim() || !pat.trim()}

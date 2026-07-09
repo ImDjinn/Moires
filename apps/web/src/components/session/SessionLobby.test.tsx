@@ -3,14 +3,12 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { SessionLobby } from "./SessionLobby";
 
 const getOrganizations = vi.fn();
-const selectOrganization = vi.fn();
 const getProjects = vi.fn();
 const createSession = vi.fn();
 
 vi.mock("../../services/rest.client", () => ({
   api: {
     getOrganizations: (...a: unknown[]) => getOrganizations(...a),
-    selectOrganization: (...a: unknown[]) => selectOrganization(...a),
     getProjects: (...a: unknown[]) => getProjects(...a),
     createSession: (...a: unknown[]) => createSession(...a),
   },
@@ -20,7 +18,6 @@ beforeEach(() => {
   getOrganizations
     .mockReset()
     .mockResolvedValue({ organizations: [{ id: "o1", name: "OrgA" }], selected: "OrgA" });
-  selectOrganization.mockReset().mockResolvedValue({ selected: "OrgA" });
   getProjects.mockReset().mockResolvedValue([{ id: "p1", name: "Projet Alpha" }]);
   createSession.mockReset().mockResolvedValue({ tickets: [], participants: [], teamMembers: [], iterations: [] });
 });

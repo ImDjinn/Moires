@@ -761,7 +761,7 @@ export function GanttBoard() {
 
   // ---- lifecycle ----
   const measure = useCallback(() => {
-    if (scrollRef.current) setState({ containerW: scrollRef.current.clientWidth });
+    if (scrollRef.current) setState({ containerW: scrollRef.current.clientWidth, containerH: scrollRef.current.clientHeight });
   }, [setState]);
 
   const onKey = useCallback(
@@ -949,7 +949,8 @@ export function GanttBoard() {
     colwRef.current = COLW;
     colsRef.current = cols;
     const layout = M.computeLayout(state, COLW);
-    const TW = M.LEFT + cols.length * COLW, TH = layout.totalHeight;
+    // TH clampé à la hauteur du viewport : colonnes et panneau gauche vont jusqu'en bas même avec peu de lignes.
+    const TW = M.LEFT + cols.length * COLW, TH = Math.max(layout.totalHeight, state.containerH);
     const d = state.drag, sel = state.selectedId, edit = state.editing;
 
     const capUsed: Record<string, number[]> = {};
@@ -1483,6 +1484,9 @@ export function GanttBoard() {
     return {
       rootStyle: { position: "relative" as const, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" as const, fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "var(--canvas)", color: "var(--ink)", overflow: "hidden" },
       totalWidth: TW, totalHeight: TH, columns, personRows, banners, bars, dropGhost, cursors, presence, onlineLabel,
+      // Fond opaque pleine hauteur sous les cellules du panneau gauche : masque les
+      // barres qui défilent dessous (les lignes masquées sont en opacity:.45).
+      leftPanelStyle: `position:absolute;left:0;top:0;width:${M.LEFT}px;height:${TH}px;background:var(--panel,#fff);border-right:1px solid var(--line,#e8e8ee);box-sizing:border-box`,
       leftHeaderStyle: `position:absolute;top:0;left:0;width:${M.LEFT}px;height:${M.HEADER}px;padding:11px 14px;border-bottom:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:48;box-sizing:border-box`,
       currentLabel: M.iters[M.CURRENT].label, currentDates: M.iters[M.CURRENT].dates,
       levels,
@@ -1818,6 +1822,7 @@ export function GanttBoard() {
               cellules absolues débordent). Le collage est fait par le compositeur
               du navigateur → parfaitement fixe même pendant le scroll natif. */}
           <div style={C("position:sticky;left:0;width:0;height:0;z-index:45")}>
+            <div style={C(v.leftPanelStyle)} />
             {(v.treeRows as Record<string, any>[]).map((row, i) => (
               <div key={"tr" + i} onClick={row.onClick} onDoubleClick={row.onDoubleClick}
                 role={row.hasChildren ? "button" : undefined} tabIndex={row.hasChildren ? 0 : undefined}
