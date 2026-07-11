@@ -1262,8 +1262,16 @@ export function GanttBoard() {
     type TreeRow = Record<string, unknown>;
     let treeRows: TreeRow[] = [], loadBand: Record<string, unknown>[] = [], milestones: Record<string, unknown>[] = [],
       relCards: Record<string, unknown>[] = [], relBands: { style: string }[] = [], relEpics: Record<string, unknown>[] = [], relRowPins: Record<string, unknown>[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let relMetrics: Record<string, any> | null = null, relWaterline: Record<string, string> | null = null;
     if (release) {
       const SL = state.scrollLeft;
+      // Métriques macro sur l'intervalle choisi : Σ capa vs Σ effort, et ligne de
+      // flottaison = point où le cumul des epics (ordre d'affichage) épuise la capa.
+      const met = M.releaseMetrics(state);
+      const metShorts = `${M.iters[met.from].short} → ${M.iters[met.to].short}`;
+      const hiddenSt = M.hiddenStoryIds(state);
+      let cumEff = 0;
       treeRows = layout.rows.map((r) => {
         const indent = 12 + (r.depth || 0) * 16;
         if (r.kind === "band") {
@@ -1291,8 +1299,33 @@ export function GanttBoard() {
           else { statusTag = "terminé"; statusStyle = "font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;background:#009E7322;color:#009E73;flex:0 0 auto"; }
         }
         const prio = !isFeat && r.item?.priority != null ? `P${r.item.priority}` : "";
+        // Epic : effort compté sur l'intervalle de métriques + cumul (ligne de flottaison).
+        let stat = "", statTitle = "", overTag = "", overStyle = "display:none";
+        if (!isFeat) {
+          const intEff = M.countedEffort(state, r.us || [], met.from, met.to, hiddenSt);
+          const before = cumEff;
+          cumEff += intEff;
+          if (intEff > 0) {
+            const pct = met.cap ? Math.round((intEff / met.cap) * 100) : 0;
+            stat = `${pct}%`;
+            statTitle = `Effort sur ${metShorts} : ${M.fmt(intEff)} (${pct} % de la capacité ${M.fmt(met.cap)}j) · cumul dans l'ordre d'affichage : ${M.fmt(cumEff)}`;
+            if (before >= met.cap) {
+              overTag = "hors capa";
+              overStyle = "font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;background:#ef444422;color:var(--color-error,#ef4444);flex:0 0 auto";
+            } else if (cumEff > met.cap) {
+              overTag = "⚠ capa";
+              overStyle = "font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;background:#f5a62322;color:var(--color-pending,#f5a623);flex:0 0 auto";
+              relWaterline = {
+                lineStyle: `position:absolute;left:0;top:${r.top}px;width:${TW}px;height:0;border-top:2px dashed var(--color-error,#ef4444);z-index:44;pointer-events:none`,
+                flagStyle: `position:absolute;left:10px;top:${r.top - 9}px;z-index:44;background:var(--color-error,#ef4444);color:#fff;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:600;white-space:nowrap;pointer-events:auto`,
+                label: `Capacité épuisée · ${M.fmt(met.cap)}j (${metShorts})`,
+                title: `Cumul de l'effort des epics dans l'ordre d'affichage : tout ce qui est sous cette ligne ne tient pas dans la capacité de l'intervalle ${metShorts}.`,
+              };
+            }
+          }
+        }
         return {
-          isArea: true, isFeat, key: r.key, hasChildren: r.hasChildren, open: r.open, statusTag, statusStyle, prio,
+          isArea: true, isFeat, key: r.key, hasChildren: r.hasChildren, open: r.open, statusTag, statusStyle, prio, stat, statTitle, overTag, overStyle,
           hidden, hideTitle: hidden ? "Réafficher (compter dans la charge)" : "Masquer (exclure de la charge)",
           onToggleHidden: (e: React.MouseEvent) => { e.stopPropagation(); toggleRowHidden(r.key!); },
           chevron: r.open ? "▾" : r.hasChildren ? "▸" : "", onToggle: () => { if (r.hasChildren) toggleNode(r.key!); },
@@ -1385,7 +1418,7 @@ export function GanttBoard() {
             containerStyle: "display:none", segs: [], showL, showR,
             lHandleStyle: `position:absolute;left:${lx}px;top:${barTop}px;width:11px;height:${barH}px;cursor:ew-resize;z-index:18;display:flex;align-items:center;justify-content:center;background:transparent`,
             rHandleStyle: `position:absolute;left:${rx}px;top:${barTop}px;width:11px;height:${barH}px;cursor:ew-resize;z-index:18;display:flex;align-items:center;justify-content:center;background:transparent`,
-            gripStyle: `width:3px;height:${barH - 8}px;border-radius:2px;background:${theme === "dark" ? "rgba(255,255,255,.55)" : "rgba(0,0,0,.32)"}`,
+            gripStyle: "display:none",
             gripChar: "",
             onLeftDown: (e: React.PointerEvent) => startEpicResize(r.item!.id, "L", e),
             onRightDown: (e: React.PointerEvent) => startEpicResize(r.item!.id, "R", e),
@@ -1417,19 +1450,40 @@ export function GanttBoard() {
         const left = M.LEFT + vi * COLW, over = b.total > b.cap;
         const denom = Math.max(b.cap, b.total, 1);
         const segs = b.segs.map((s) => ({ style: `width:${(s.val / denom) * 100}%;height:100%;background:${s.color}`, title: `${s.label} · ${M.fmt(s.val)}j` }));
+        // Delta capa − effort du sprint (le chiffre de décision) ; colonnes de
+        // l'intervalle de métriques soulignées à l'accent.
+        const delta = b.cap - b.total;
+        const inMet = b.real >= met.from && b.real <= met.to;
         // Bande de charge intégrée au bas du header de colonnes (release garde
         // ainsi la même hauteur de header que les autres pages).
         return {
-          wrapStyle: `position:absolute;left:${left}px;top:${M.HEADER - M.RELBAND}px;width:${COLW}px;height:${M.RELBAND}px;padding:4px 12px 8px;border-right:1px solid var(--gridline,#ececf1);box-sizing:border-box;z-index:47;background:var(--panel,#fff)`,
+          wrapStyle: `position:absolute;left:${left}px;top:${M.HEADER - M.RELBAND}px;width:${COLW}px;height:${M.RELBAND}px;padding:4px 12px 8px;border-right:1px solid var(--gridline,#ececf1);box-sizing:border-box;z-index:47;background:var(--panel,#fff)${inMet ? ";box-shadow:inset 0 -2px 0 var(--accent,#5b5bd6)" : ""}`,
           total: `${M.fmt(b.total)}j`, cap: `/ ${M.fmt(b.cap)}j`,
           totalStyle: `font-size:12px;font-weight:600;font-family:${mono};color:${over ? "var(--color-error,#ef4444)" : "var(--ink,#1a1a20)"}`,
           capStyle: `font-size:10px;font-family:${mono};color:var(--faint,#abacb6)`,
+          delta: (delta >= 0 ? "+" : "−") + M.fmt(Math.abs(delta)),
+          deltaStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${delta < 0 ? "var(--color-error,#ef4444)" : "var(--color-synced,#2bbf73)"}`,
+          deltaTitle: `Capacité − effort : ${delta >= 0 ? "+" : "−"}${M.fmt(Math.abs(delta))}j`,
           pct: (over ? "⚠ " : "") + Math.round((b.total / (b.cap || 1)) * 100) + "%",
           pctStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${over ? "var(--color-error,#ef4444)" : "var(--muted,#86868f)"}`,
           trackStyle: `margin-top:3px;height:6px;border-radius:4px;background:var(--line2,#f0f0f4);overflow:hidden;display:flex;gap:1px;${over ? "box-shadow:0 0 0 1px var(--color-error,#ef4444)" : ""}`,
           segs,
         };
       });
+
+      // Bandeau de synthèse (header) : Σ capa / Σ effort / delta sur l'intervalle.
+      relMetrics = {
+        from: String(met.from), to: String(met.to),
+        options: M.iters.slice(0, M.NITER).map((it, i) => ({ value: String(i), label: it.short })),
+        onFrom: (e: React.ChangeEvent<HTMLSelectElement>) => { const val = Number(e.target.value); setState((s) => ({ metricsFrom: val, metricsTo: Math.max(val, s.metricsTo) })); },
+        onTo: (e: React.ChangeEvent<HTMLSelectElement>) => { const val = Number(e.target.value); setState((s) => ({ metricsTo: val, metricsFrom: Math.min(val, s.metricsFrom) })); },
+        capText: M.fmt(met.cap) + "j",
+        effortText: M.fmt(met.effort),
+        deltaText: (met.delta >= 0 ? "+" : "−") + M.fmt(Math.abs(met.delta)) + "j",
+        deltaStyle: `font-size:12px;font-weight:700;font-family:${mono};color:${met.delta < 0 ? "var(--color-error,#ef4444)" : "var(--color-synced,#2bbf73)"}`,
+        pctText: Math.round((met.effort / (met.cap || 1)) * 100) + "%",
+        title: `${metShorts} · capacité ${M.fmt(met.cap)}j − effort ${M.fmt(met.effort)} (personnes visibles, lignes masquées exclues)`,
+      };
 
       state.milestones.forEach((m) => {
         const vi = cols.indexOf(m.iter);
@@ -1533,7 +1587,9 @@ export function GanttBoard() {
       loadByOptions: [{ value: "person", label: "Personne" }, { value: "role", label: "Poste" }, { value: "none", label: "Global" }],
       onLoadBy: (e: React.ChangeEvent<HTMLSelectElement>) => setState({ loadBy: e.target.value as State["loadBy"] }),
       treeRows, loadBand, milestones, milestoneEditor,
-      relCards, relBands, relEpics, relRowPins, rowPinEditor,
+      relCards, relBands, relEpics, relRowPins, rowPinEditor, relMetrics,
+      // Assigné dans le .map des lignes (invisible pour le narrowing TS).
+      relWaterline: relWaterline as Record<string, string> | null,
       onAddMilestone: () => addMilestone(),
       epicSort: state.epicSort,
       epicSortOptions: [{ value: "priority", label: "Priorité" }, { value: "name", label: "Nom" }, { value: "effort", label: "Somme de l'effort" }],
@@ -1661,6 +1717,27 @@ export function GanttBoard() {
             <select value={v.epicFilter} onChange={v.onEpicFilter} style={C("height:30px;padding:0 8px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
               {v.epicFilterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
+          </>
+        )}
+        {v.isRelease && v.relMetrics && (
+          <>
+            <div style={C("width:1px;height:20px;background:var(--line,#e9e9ef)")} />
+            <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Métriques</span>
+            <select value={v.relMetrics.from} onChange={v.relMetrics.onFrom} style={C("height:30px;padding:0 8px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
+              {v.relMetrics.options.map((o: { value: string; label: string }) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <span style={C("font-size:11px;color:var(--faint,#abacb6)")}>→</span>
+            <select value={v.relMetrics.to} onChange={v.relMetrics.onTo} style={C("height:30px;padding:0 8px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
+              {v.relMetrics.options.map((o: { value: string; label: string }) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <div title={v.relMetrics.title} style={C("height:30px;display:flex;align-items:center;gap:8px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc)")}>
+              <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Capa</span>
+              <span style={C(`font-size:12px;font-weight:600;font-family:${"'IBM Plex Mono',monospace"};color:var(--ink,#1a1a20)`)}>{v.relMetrics.capText}</span>
+              <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Effort</span>
+              <span style={C(`font-size:12px;font-weight:600;font-family:${"'IBM Plex Mono',monospace"};color:var(--ink,#1a1a20)`)}>{v.relMetrics.effortText}</span>
+              <span style={C(v.relMetrics.deltaStyle)}>{v.relMetrics.deltaText}</span>
+              <span style={C("font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f)")}>{v.relMetrics.pctText}</span>
+            </div>
           </>
         )}
         <div style={{ flex: 1 }} />
@@ -1839,6 +1916,8 @@ export function GanttBoard() {
                     </div>
                     {row.prio && <span style={C("font-size:10px;font-weight:600;padding:1px 5px;border-radius:5px;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);flex:0 0 auto;font-family:'IBM Plex Mono',monospace")}>{row.prio}</span>}
                     <span style={C(row.statusStyle)}>{row.statusTag}</span>
+                    {row.stat && <span title={row.statTitle} style={C("font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f);flex:0 0 auto")}>{row.stat}</span>}
+                    {row.overTag && <span title={row.statTitle} style={C(row.overStyle)}>{row.overTag}</span>}
                     <button onClick={row.onToggleHidden} title={row.hideTitle} aria-label={row.hideTitle} style={C("margin-left:auto;flex:0 0 auto;border:none;background:transparent;color:var(--muted,#86868f);cursor:pointer;line-height:1;padding:2px;opacity:.7")}>{row.hidden ? <IconEyeOff size={13} /> : <IconEye size={13} />}</button>
                   </>
                 )}
@@ -1847,6 +1926,12 @@ export function GanttBoard() {
                 <span style={C("font-size:12px;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0")}>{row.title}</span>
               </div>
             ))}
+            {v.relWaterline && (
+              <>
+                <div style={C(v.relWaterline.lineStyle)} />
+                <div title={v.relWaterline.title} style={C(v.relWaterline.flagStyle)}>{v.relWaterline.label}</div>
+              </>
+            )}
             {v.personRows.map((row, i) => (
               <div key={"pr" + i} style={C(row.leftStyle)} onClick={row.onOpen}
                 role={row.onOpen ? "button" : undefined} tabIndex={row.onOpen ? 0 : undefined}
@@ -1886,6 +1971,7 @@ export function GanttBoard() {
                   <span style={C(b.totalStyle)}>{b.total}</span>
                   <span style={C(b.capStyle)}>{b.cap}</span>
                   <div style={{ flex: 1 }} />
+                  <span title={b.deltaTitle} style={C(b.deltaStyle)}>{b.delta}</span>
                   <span style={C(b.pctStyle)}>{b.pct}</span>
                 </div>
                 <div style={C(b.trackStyle)}>

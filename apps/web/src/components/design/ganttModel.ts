@@ -123,6 +123,9 @@ export interface State {
   hiddenRows: Record<string, boolean>;
   loadBy: "person" | "role" | "none";
   releaseStart: number;
+  /** Release : intervalle d'itérations des métriques macro (Σ capa/effort, ligne de flottaison). */
+  metricsFrom: number;
+  metricsTo: number;
   rowPins: RowPin[];
   rowPinSel: string | null;
   scrollLeft: number;
@@ -360,7 +363,10 @@ export function createInitialState(items: Item[] = buildInitialItems()): State {
     board: "sprint", level: "story", colorMode: "epic", hideClosed: false, epicFilter: "all", epicSort: "priority", containerW: 1100, containerH: 800,
     rangeFrom: CURRENT, rangeTo: Math.min(CURRENT + 1, NITER - 1), backlog: true, rangeOpen: false, prefsOpen: false,
     items, hidden: {}, peopleOpen: false, sort: "az",
-    expanded: {}, hiddenRows: {}, loadBy: "person", releaseStart: CURRENT, rowPins: [], rowPinSel: null, scrollLeft: 0,
+    expanded: {}, hiddenRows: {}, loadBy: "person", releaseStart: CURRENT,
+    // ~1 trimestre par défaut : 6 sprints de 2 semaines à partir du courant.
+    metricsFrom: CURRENT, metricsTo: Math.min(CURRENT + 5, NITER - 1),
+    rowPins: [], rowPinSel: null, scrollLeft: 0,
     milestones: [
       { id: "M1", title: "Livraison des API", iter: 3, color: "#D55E00" },
       { id: "M2", title: "Gel de code v2.4", iter: 5, color: "#0072B2" },
@@ -852,11 +858,41 @@ export function hiddenStoryIds(s: State): Set<string> {
   return out;
 }
 
+/** Capacité totale d'un sprint (personnes visibles, hors "Non assigné"). */
+export const sprintCap = (s: State, real: number) =>
+  people.filter((p) => !s.hidden[p.id] && !p.unassigned).reduce((sum, p) => sum + capOf(p, real), 0);
+
+/**
+ * Effort des US comptées dans la charge (mêmes exclusions que la bande de
+ * charge Release : terminés si masqués, personnes masquées, lignes masquées),
+ * restreint aux itérations [from, to].
+ */
+export function countedEffort(s: State, us: Item[], from: number, to: number, hiddenSt: Set<string>): number {
+  let t = 0;
+  us.forEach((it) => {
+    if (it.level !== "story") return;
+    if (s.hideClosed && isDone(it.state)) return;
+    if (it.iter < from || it.iter > to) return;
+    if (s.hidden[it.person] || hiddenSt.has(it.id)) return;
+    t += effortOf(it);
+  });
+  return t;
+}
+
+/** Métriques macro Release : Σ capacité vs Σ effort sur [metricsFrom, metricsTo]. */
+export function releaseMetrics(s: State) {
+  const from = Math.min(s.metricsFrom, s.metricsTo), to = Math.max(s.metricsFrom, s.metricsTo);
+  let cap = 0;
+  for (let i = from; i <= to; i++) cap += sprintCap(s, i);
+  const effort = countedEffort(s, s.items, from, to, hiddenStoryIds(s));
+  return { from, to, cap, effort, delta: cap - effort };
+}
+
 export function relLoadBand(s: State, cols: number[], theme: Theme) {
   const by = s.loadBy;
   const hiddenSt = hiddenStoryIds(s);
   return cols.map((real) => {
-    const cap = people.filter((p) => !s.hidden[p.id] && !p.unassigned).reduce((sum, p) => sum + capOf(p, real), 0);
+    const cap = sprintCap(s, real);
     const groups: Record<string, number> = {};
     let total = 0;
     s.items.forEach((it) => {
