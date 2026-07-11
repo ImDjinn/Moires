@@ -49,10 +49,9 @@ export class WritebackProcessor implements OnModuleInit {
 
       // Fail-closed : on écrit dans ADO avec le PAT de l'auteur de l'op, jamais
       // avec un token système (qui exécuterait l'écriture avec des privilèges
-      // qu'il n'a pas). Token absent (déconnecté, TTL expiré) → on lève : un
-      // écart transitoire est rattrapé au retry (le token est réécrit tous les
-      // 5s au poll) ; une vraie déconnexion épuise les retries et passe 'failed'.
-      const token = await this.redis.getUserToken(sessionId, op.userId);
+      // qu'il n'a pas). PAT absent (logout, session expirée) → on lève : les
+      // retries s'épuisent et l'op passe 'failed'.
+      const token = await this.redis.getUserPat(op.userId);
       if (!token) throw new Error(`Token ADO absent pour ${op.userId} — écriture annulée`);
 
       let newRev: number;

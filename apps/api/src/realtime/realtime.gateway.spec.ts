@@ -19,7 +19,6 @@ function makeGateway(createdBy = "u1") {
   const operationsHandler = { handle: jest.fn() };
   const presenceHandler = { handleJoin: jest.fn(), handleLeave: jest.fn(), handleUpdate: jest.fn() };
   const redis = {
-    setUserToken: jest.fn().mockResolvedValue(undefined),
     getParticipants: jest.fn().mockResolvedValue([]),
   };
   const broadcast = { setServer: jest.fn(), send: jest.fn() };
@@ -58,15 +57,6 @@ describe("RealtimeGateway", () => {
     expect(client.join).toHaveBeenCalledWith("session:s1");
     expect(presenceHandler.handleJoin).toHaveBeenCalled();
     expect(client.disconnect).not.toHaveBeenCalled();
-  });
-
-  it("stocke le token ADO issu du cookie", async () => {
-    const { gateway, redis } = makeGateway();
-    const client = makeClient(`${aliceCookie}; ado_token=tok123`, { sessionId: "s1" });
-
-    await gateway.handleConnection(client);
-
-    expect(redis.setUserToken).toHaveBeenCalledWith("s1", "u1", "tok123");
   });
 
   it("déconnecte sans cookie de session valide", async () => {

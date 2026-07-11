@@ -15,17 +15,6 @@ export function signedCookieOpts(maxAgeMs: number) {
   };
 }
 
-// Cookie opaque non signé (bearer ADO) : le falsifier est sans intérêt — un
-// token invalide échoue simplement côté Azure DevOps.
-export function plainCookieOpts(maxAgeMs: number) {
-  return {
-    httpOnly: true,
-    secure: isProd(),
-    sameSite: "lax" as const,
-    maxAge: maxAgeMs,
-  };
-}
-
 // Effacement d'un cookie : les options (hors maxAge) doivent correspondre à
 // celles de la pose, sinon le navigateur ne l'écrase pas.
 export function clearCookieOpts() {

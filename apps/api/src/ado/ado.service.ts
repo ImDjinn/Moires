@@ -25,6 +25,12 @@ export class AdoService {
     return `https://dev.azure.com/${org}`;
   }
 
+  // projectId vient du client : encodé pour empêcher d'injecter chemin ou query
+  // string dans les appels ADO (l'org, elle, est validée par ADO_ORG_RE).
+  private projectUrl(org: string, projectId: string): string {
+    return `${this.orgUrl(org)}/${encodeURIComponent(projectId)}`;
+  }
+
   private async adoFetch(url: string, token: string, options?: RequestInit) {
     if (!token) {
       throw new UnauthorizedException("Session Azure DevOps absente — reconnectez-vous.");
@@ -67,6 +73,10 @@ export class AdoService {
       token,
     );
     const user = data.authenticatedUser ?? {};
+    // Sans id, l'upsert utilisateur se ferait sur `undefined` : on refuse.
+    if (typeof user.id !== "string" || !user.id) {
+      throw new UnauthorizedException("Réponse Azure DevOps sans identité — reconnectez-vous.");
+    }
     return {
       id: user.id,
       displayName: user.providerDisplayName || user.customDisplayName || "User",
@@ -80,7 +90,7 @@ export class AdoService {
 
   async getIterations(org: string, projectId: string, token: string) {
     const data = await this.adoFetch(
-      `${this.orgUrl(org)}/${projectId}/_apis/work/teamsettings/iterations?api-version=7.1`,
+      `${this.projectUrl(org, projectId)}/_apis/work/teamsettings/iterations?api-version=7.1`,
       token,
     );
     return (data.value as any[]).map((i: any) => ({
@@ -94,7 +104,7 @@ export class AdoService {
 
   async getAreas(org: string, projectId: string, token: string) {
     const data = await this.adoFetch(
-      `${this.orgUrl(org)}/${projectId}/_apis/wit/classificationnodes/Areas?$depth=10&api-version=7.1`,
+      `${this.projectUrl(org, projectId)}/_apis/wit/classificationnodes/Areas?$depth=10&api-version=7.1`,
       token,
     );
     const paths: string[] = [];
@@ -109,14 +119,14 @@ export class AdoService {
 
   async getTeamMembers(org: string, projectId: string, token: string): Promise<TeamMember[]> {
     const data = await this.adoFetch(
-      `${this.orgUrl(org)}/_apis/projects/${projectId}/teams?api-version=7.1`,
+      `${this.orgUrl(org)}/_apis/projects/${encodeURIComponent(projectId)}/teams?api-version=7.1`,
       token,
     );
     const teams = data.value as any[];
     if (!teams.length) return [];
     const teamId = teams[0].id;
     const members = await this.adoFetch(
-      `${this.orgUrl(org)}/_apis/projects/${projectId}/teams/${teamId}/members?api-version=7.1`,
+      `${this.orgUrl(org)}/_apis/projects/${encodeURIComponent(projectId)}/teams/${encodeURIComponent(teamId)}/members?api-version=7.1`,
       token,
     );
     return (members.value as any[]).map((m: any) => ({
@@ -156,7 +166,7 @@ export class AdoService {
       wiql += ` AND (${areaClauses})`;
     }
     const data = await this.adoFetch(
-      `${this.orgUrl(org)}/${projectId}/_apis/wit/wiql?api-version=7.1`,
+      `${this.projectUrl(org, projectId)}/_apis/wit/wiql?api-version=7.1`,
       token,
       {
         method: "POST",
@@ -270,7 +280,7 @@ export class AdoService {
       "Microsoft.TaskCategory",
     ]);
     const data = await this.adoFetch(
-      `${this.orgUrl(org)}/${projectId}/_apis/wit/workitemtypecategories?api-version=7.1`,
+      `${this.projectUrl(org, projectId)}/_apis/wit/workitemtypecategories?api-version=7.1`,
       token,
     );
     return (data.value as any[])
@@ -294,13 +304,13 @@ export class AdoService {
     const COLORS: Record<string, string> = { incoming: "#8a8f98", inProgress: "#0072B2", outgoing: "#009E73" };
     const CATS: Record<string, string> = { incoming: "Proposed", inProgress: "InProgress", outgoing: "Completed" };
     const boards = await this.adoFetch(
-      `${this.orgUrl(org)}/${projectId}/_apis/work/boards?api-version=7.1`,
+      `${this.projectUrl(org, projectId)}/_apis/work/boards?api-version=7.1`,
       token,
     );
     const out: { name: string; category: string; color: string; type: string; state: string; columnField: string }[] = [];
     const details = await Promise.all(
       ((boards.value as any[]) ?? []).map((b) =>
-        this.adoFetch(`${this.orgUrl(org)}/${projectId}/_apis/work/boards/${b.id}?api-version=7.1`, token),
+        this.adoFetch(`${this.projectUrl(org, projectId)}/_apis/work/boards/${encodeURIComponent(b.id)}?api-version=7.1`, token),
       ),
     );
     for (const board of details) {
@@ -338,7 +348,7 @@ export class AdoService {
       types.map(async (type) => {
         try {
           const data = await this.adoFetch(
-            `${this.orgUrl(org)}/${projectId}/_apis/wit/workItemTypes/${encodeURIComponent(type)}/states?api-version=7.1`,
+            `${this.projectUrl(org, projectId)}/_apis/wit/workItemTypes/${encodeURIComponent(type)}/states?api-version=7.1`,
             token,
           );
           // États d'un type, ordonnés selon l'ordre du board ADO, tagués avec leur type.
@@ -367,7 +377,7 @@ export class AdoService {
     token: string,
   ): Promise<{ referenceName: string; name: string; defaultValue: string | number | boolean | null; alwaysRequired: boolean; allowedValues: string[] }[]> {
     const data = await this.adoFetch(
-      `${this.orgUrl(org)}/${projectId}/_apis/wit/workitemtypes/${encodeURIComponent(type)}/fields?$expand=allowedValues&api-version=7.1`,
+      `${this.projectUrl(org, projectId)}/_apis/wit/workitemtypes/${encodeURIComponent(type)}/fields?$expand=allowedValues&api-version=7.1`,
       token,
     );
     return ((data.value as any[]) ?? [])
@@ -391,7 +401,7 @@ export class AdoService {
     token: string,
   ): Promise<TeamMember[]> {
     const data = await this.adoFetch(
-      `${this.orgUrl(org)}/${projectId}/_apis/work/teamsettings/iterations/${iterationId}/capacities?api-version=7.1`,
+      `${this.projectUrl(org, projectId)}/_apis/work/teamsettings/iterations/${encodeURIComponent(iterationId)}/capacities?api-version=7.1`,
       token,
     );
     return ((data.value as any[]) ?? []).map((c: any) => ({
@@ -415,7 +425,7 @@ export class AdoService {
     finishDate: string,
     token: string,
   ): Promise<{ memberId: string; days: number }[]> {
-    const base = `${this.orgUrl(org)}/${projectId}/_apis/work/teamsettings/iterations/${iterationId}`;
+    const base = `${this.projectUrl(org, projectId)}/_apis/work/teamsettings/iterations/${encodeURIComponent(iterationId)}`;
     const [caps, teamOff] = await Promise.all([
       this.adoFetch(`${base}/capacities?api-version=7.1`, token),
       this.adoFetch(`${base}/teamdaysoff?api-version=7.1`, token),
@@ -451,7 +461,7 @@ export class AdoService {
     token: string,
   ): Promise<RawAdoWorkItem> {
     return this.adoFetch(
-      `${this.orgUrl(org)}/${projectId}/_apis/wit/workitems/$${encodeURIComponent(type)}?api-version=7.1`,
+      `${this.projectUrl(org, projectId)}/_apis/wit/workitems/$${encodeURIComponent(type)}?api-version=7.1`,
       token,
       {
         method: "POST",
@@ -469,7 +479,7 @@ export class AdoService {
     token: string,
   ): Promise<number> {
     const data = await this.adoFetch(
-      `${this.orgUrl(org)}/_apis/wit/workitems/${id}?api-version=7.1`,
+      `${this.orgUrl(org)}/_apis/wit/workitems/${encodeURIComponent(id)}?api-version=7.1`,
       token,
       {
         method: "PATCH",

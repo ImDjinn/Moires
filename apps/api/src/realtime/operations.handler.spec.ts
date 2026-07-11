@@ -40,7 +40,8 @@ describe("OperationsHandler", () => {
 
     await handler.handle(server as any, client as any, op);
 
-    expect(client.emit).toHaveBeenCalledWith("operation:rejected", { op, reason: "conflit" });
+    // Le détail ("conflit") reste côté serveur : le client reçoit un message générique.
+    expect(client.emit).toHaveBeenCalledWith("operation:rejected", { op, reason: "Operation failed" });
   });
 
   it("rejette un champ hors liste blanche sans l'appliquer (empoisonnement du cache)", async () => {
@@ -54,6 +55,8 @@ describe("OperationsHandler", () => {
       { ...op, field: "custom:" as any },     // custom vide
       { ...op, value: { nested: true } as any }, // valeur non scalaire
       { ...op, ticketId: 42 as any },
+      { ...op, value: "x".repeat(65537) },          // chaîne au-delà du plafond
+      { ...op, value: ["x".repeat(65537)] },        // tableau au-delà du plafond
     ]) {
       await handler.handle(server as any, client as any, bad);
     }

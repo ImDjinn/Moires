@@ -40,7 +40,7 @@ function makeProcessor() {
   const redis = {
     getTicket: jest.fn(),
     updateTicket: jest.fn().mockResolvedValue(undefined),
-    getUserToken: jest.fn().mockResolvedValue("tok"),
+    getUserPat: jest.fn().mockResolvedValue("tok"),
     getStates: jest.fn().mockResolvedValue([]),
   };
   const ado = { patchWorkItem: jest.fn(), patchWorkItemRaw: jest.fn() };
@@ -84,7 +84,7 @@ describe("WritebackProcessor.process", () => {
   it("aucun token utilisateur en Redis : fail-closed, aucune écriture ADO", async () => {
     const { processor, redis, ado } = makeProcessor();
     redis.getTicket.mockResolvedValue({ ...ticket });
-    redis.getUserToken.mockResolvedValue(null);
+    redis.getUserPat.mockResolvedValue(null);
 
     await expect(
       run(processor, { data: { sessionId: "s1", op, logId: "log1" }, attemptsMade: 0, opts: { attempts: 5 } }),

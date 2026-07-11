@@ -33,7 +33,9 @@ jobs:
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
-          password: ${{ secrets.DEPLOY_PASSWORD }}
+          # Clé SSH dédiée au déploiement (non brute-forçable, révocable
+          # indépendamment) : clé privée complète dans le secret DEPLOY_SSH_KEY.
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: 22
           script_stop: true
           script: |

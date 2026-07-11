@@ -1,10 +1,14 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { Server, Socket } from "socket.io";
 import type { Operation } from "@moirai/shared";
 import { ROOM, OPERATION_FIELDS } from "@moirai/shared";
 import { SessionsService } from "../sessions/sessions.service";
 
 const FIELDS = new Set<string>(OPERATION_FIELDS);
+
+// Plafond par valeur : au-delà, c'est un abus (ADO refuserait de toute façon) —
+// évite de gonfler Redis et le broadcast avec des chaînes énormes.
+const MAX_VALUE_LENGTH = 65536;
 
 // Le payload WS arrive non typé à l'exécution : sans cette garde, un champ
 // arbitraire écraserait n'importe quelle propriété du ticket en cache
@@ -13,12 +17,15 @@ function isValidOperation(op: Operation): boolean {
   if (typeof op?.ticketId !== "string" || typeof op.field !== "string") return false;
   if (!FIELDS.has(op.field) && !(op.field.startsWith("custom:") && op.field.length > "custom:".length)) return false;
   const v = op.value;
-  return v === null || typeof v === "string" || typeof v === "number" ||
-    (Array.isArray(v) && v.every((x) => typeof x === "string"));
+  if (typeof v === "string") return v.length <= MAX_VALUE_LENGTH;
+  return v === null || typeof v === "number" ||
+    (Array.isArray(v) && v.every((x) => typeof x === "string") && v.join().length <= MAX_VALUE_LENGTH);
 }
 
 @Injectable()
 export class OperationsHandler {
+  private readonly logger = new Logger(OperationsHandler.name);
+
   constructor(private sessions: SessionsService) {}
 
   async handle(server: Server, client: Socket, op: Operation) {
@@ -37,10 +44,12 @@ export class OperationsHandler {
         serverTimestamp: Date.now(),
       });
     } catch (error: any) {
-      client.emit("operation:rejected", {
-        op,
-        reason: error.message || "Unknown error",
-      });
+      // Détail complet côté serveur ; message générique au client (les erreurs
+      // internes — Redis, Prisma — ne doivent pas fuiter vers le navigateur).
+      this.logger.error(
+        `operation rejetée — session=${sessionId} ticket=${op.ticketId} field=${op.field}: ${error?.message ?? error}`,
+      );
+      client.emit("operation:rejected", { op, reason: "Operation failed" });
     }
   }
 }

@@ -2,7 +2,7 @@ import { validateEnv } from "./env";
 
 const required = {
   DATABASE_URL: "postgres://localhost/db",
-  SESSION_SECRET: "shhh",
+  SESSION_SECRET: "0123456789abcdef0123456789abcdef",
 };
 
 describe("validateEnv", () => {
@@ -21,5 +21,9 @@ describe("validateEnv", () => {
   it("rejette une configuration à laquelle il manque une variable requise", () => {
     const { DATABASE_URL, ...incomplete } = required;
     expect(() => validateEnv(incomplete)).toThrow();
+  });
+
+  it("rejette un SESSION_SECRET de moins de 32 caractères", () => {
+    expect(() => validateEnv({ ...required, SESSION_SECRET: "court" })).toThrow();
   });
 });

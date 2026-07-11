@@ -116,28 +116,33 @@ describe("RedisService", () => {
     expect(await service.getIterations("s1")).toEqual([]);
   });
 
-  it("tokenKey compose la clé par session/user", () => {
-    expect(service.tokenKey("s1", "u1")).toBe("session:s1:token:u1");
+  it("patKey compose la clé par utilisateur", () => {
+    expect(service.patKey("u1")).toBe("user:u1:pat");
   });
 
-  it("setUserToken écrit chiffré (jamais le PAT en clair) avec TTL 1h", async () => {
-    await service.setUserToken("s1", "u1", "tok123");
+  it("setUserPat écrit chiffré (jamais le PAT en clair) avec le TTL fourni", async () => {
+    await service.setUserPat("u1", "tok123", 28800);
     const [key, value, ex, ttl] = (service.client.set as jest.Mock).mock.calls[0];
-    expect(key).toBe("session:s1:token:u1");
+    expect(key).toBe("user:u1:pat");
     expect(value).not.toContain("tok123");
-    expect([ex, ttl]).toEqual(["EX", 3600]);
+    expect([ex, ttl]).toEqual(["EX", 28800]);
   });
 
-  it("getUserToken déchiffre ce que setUserToken a écrit (aller-retour)", async () => {
-    await service.setUserToken("s1", "u1", "tok123");
+  it("getUserPat déchiffre ce que setUserPat a écrit (aller-retour)", async () => {
+    await service.setUserPat("u1", "tok123", 28800);
     const blob = (service.client.set as jest.Mock).mock.calls[0][1];
     (service.client.get as jest.Mock).mockResolvedValue(blob);
-    expect(await service.getUserToken("s1", "u1")).toBe("tok123");
+    expect(await service.getUserPat("u1")).toBe("tok123");
   });
 
-  it("getUserToken renvoie null si absent", async () => {
+  it("getUserPat renvoie null si absent", async () => {
     (service.client.get as jest.Mock).mockResolvedValue(null);
-    expect(await service.getUserToken("s1", "u1")).toBeNull();
+    expect(await service.getUserPat("u1")).toBeNull();
+  });
+
+  it("deleteUserPat supprime la clé du PAT", async () => {
+    await service.deleteUserPat("u1");
+    expect(service.client.del).toHaveBeenCalledWith("user:u1:pat");
   });
 
   it("clearSyncSlot supprime le créneau de sync de la session", async () => {

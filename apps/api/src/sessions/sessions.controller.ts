@@ -16,13 +16,19 @@ export class SessionsController {
     private redis: RedisService,
   ) {}
 
-  @Post()
-  create(@Body() dto: CreateSessionDto, @Req() req: Request) {
+  // PAT chiffré côté serveur (posé au login) : le navigateur ne le porte plus.
+  // Absent (TTL expiré) → chaîne vide → adoFetch lève 401 → le front déconnecte.
+  private async getToken(req: Request): Promise<string> {
     const user = (req as any).user;
-    const token = req.cookies?.ado_token;
+    return (await this.redis.getUserPat(user.id)) ?? "";
+  }
+
+  @Post()
+  async create(@Body() dto: CreateSessionDto, @Req() req: Request) {
+    const user = (req as any).user;
     const org = req.signedCookies?.ado_org;
     if (!org) throw new BadRequestException("No Azure DevOps organization selected");
-    return this.sessions.createSession(dto, user.id, org, token);
+    return this.sessions.createSession(dto, user.id, org, await this.getToken(req));
   }
 
   @Get(":id")
@@ -33,29 +39,26 @@ export class SessionsController {
 
   @Post(":id/sync")
   @UseGuards(SessionMemberGuard)
-  sync(@Param("id") id: string, @Req() req: Request) {
-    const token = req.cookies?.ado_token;
-    const user = (req as any).user;
-    // Rafraîchit le token Redis à chaque poll (toutes les 5s) pour que le
-    // writeback BullMQ ait toujours un token valide, même après reconnexion WS.
-    if (token && user?.id) void this.redis.setUserToken(id, user.id, token);
-    return this.syncService.syncIncremental(id, token);
+  async sync(@Param("id") id: string, @Req() req: Request) {
+    // Le PAT vit côté serveur avec un TTL aligné sur la session : plus besoin
+    // de le rafraîchir à chaque poll comme quand il transitait par cookie.
+    return this.syncService.syncIncremental(id, await this.getToken(req));
   }
 
   @Post(":id/tickets/:ticketId/duplicate")
   @UseGuards(SessionMemberGuard)
-  duplicateTicket(
+  async duplicateTicket(
     @Param("id") id: string,
     @Param("ticketId") ticketId: string,
     @Req() req: Request,
   ) {
-    return this.sessions.duplicateTicket(id, ticketId, req.cookies?.ado_token);
+    return this.sessions.duplicateTicket(id, ticketId, await this.getToken(req));
   }
 
   @Get(":id/field-defs/:type")
   @UseGuards(SessionMemberGuard)
-  getTypeFields(@Param("id") id: string, @Param("type") type: string, @Req() req: Request) {
-    return this.sessions.getTypeFields(id, type, req.cookies?.ado_token);
+  async getTypeFields(@Param("id") id: string, @Param("type") type: string, @Req() req: Request) {
+    return this.sessions.getTypeFields(id, type, await this.getToken(req));
   }
 
   @Put(":id/capacities")

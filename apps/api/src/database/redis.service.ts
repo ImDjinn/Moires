@@ -62,33 +62,27 @@ export class RedisService implements OnModuleDestroy {
     return `session:${sessionId}:team-members`;
   }
 
-  tokenKey(sessionId: string, userId: string) {
-    return `session:${sessionId}:token:${userId}`;
-  }
-
-  async setUserToken(sessionId: string, userId: string, token: string): Promise<void> {
-    await this.client.set(this.tokenKey(sessionId, userId), this.encryptToken(token), "EX", 3600);
-  }
-
-  async getUserToken(sessionId: string, userId: string): Promise<string | null> {
-    const blob = await this.client.get(this.tokenKey(sessionId, userId));
-    return blob ? this.decryptToken(blob) : null;
+  patKey(userId: string) {
+    return `user:${userId}:pat`;
   }
 
   /**
-   * Supprime toutes les copies chiffrées du PAT d'un utilisateur (toutes
-   * sessions confondues). Appelé au logout : sans ça, le token survit jusqu'à
-   * 1h et le writeback pourrait continuer à écrire dans ADO après déconnexion.
+   * PAT chiffré au repos, stocké UNIQUEMENT côté serveur (jamais dans un cookie
+   * navigateur) avec un TTL aligné sur la durée de session : quand le cookie
+   * d'identité expire, le PAT disparaît en même temps.
    */
-  async deleteUserTokens(userId: string): Promise<void> {
-    const keys: string[] = [];
-    for await (const batch of this.client.scanStream({
-      match: `session:*:token:${userId}`,
-      count: 100,
-    })) {
-      keys.push(...(batch as string[]));
-    }
-    if (keys.length) await this.client.del(...keys);
+  async setUserPat(userId: string, pat: string, ttlSeconds: number): Promise<void> {
+    await this.client.set(this.patKey(userId), this.encryptToken(pat), "EX", ttlSeconds);
+  }
+
+  async getUserPat(userId: string): Promise<string | null> {
+    const blob = await this.client.get(this.patKey(userId));
+    return blob ? this.decryptToken(blob) : null;
+  }
+
+  /** Appelé au logout : sans ça, le writeback pourrait continuer à écrire dans ADO. */
+  async deleteUserPat(userId: string): Promise<void> {
+    await this.client.del(this.patKey(userId));
   }
 
   /**

@@ -7,6 +7,27 @@ import { RedisService } from "../database/redis.service";
 const COLORS = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD", "#98D8C8", "#F7DC6F"];
 let colorIdx = 0;
 
+const ACTIONS = new Set(["idle", "dragging", "resizing"]);
+
+// Le payload WS arrive non typé : on reconstruit un PresenceState propre au lieu
+// de stocker/rebroadcaster l'objet reçu (champs arbitraires, chaînes énormes).
+function sanitizePresence(p: PresenceState): Omit<PresenceState, "userId"> | null {
+  if (typeof p?.displayName !== "string" || typeof p.color !== "string") return null;
+  if (!ACTIONS.has(p.action)) return null;
+  if (p.targetTicketId !== null && typeof p.targetTicketId !== "string") return null;
+  const cursor =
+    p.cursor && typeof p.cursor.x === "number" && typeof p.cursor.y === "number"
+      ? { x: p.cursor.x, y: p.cursor.y }
+      : undefined;
+  return {
+    displayName: p.displayName.slice(0, 200),
+    color: p.color.slice(0, 32),
+    action: p.action,
+    targetTicketId: p.targetTicketId === null ? null : p.targetTicketId.slice(0, 64),
+    ...(cursor ? { cursor } : {}),
+  };
+}
+
 @Injectable()
 export class PresenceHandler {
   constructor(private redis: RedisService) {}
@@ -40,9 +61,11 @@ export class PresenceHandler {
 
   async handleUpdate(server: Server, client: Socket, p: PresenceState) {
     const { sessionId, userId } = client.data;
+    const clean = sanitizePresence(p);
+    if (!clean) return;
     // Identité imposée par la socket : empêche d'usurper la présence d'autrui.
-    p.userId = userId;
-    await this.redis.setPresence(sessionId, p);
-    client.to(ROOM(sessionId)).emit("presence:broadcast", p);
+    const presence: PresenceState = { ...clean, userId };
+    await this.redis.setPresence(sessionId, presence);
+    client.to(ROOM(sessionId)).emit("presence:broadcast", presence);
   }
 }

@@ -2,7 +2,7 @@ import { Controller, Get, Post, Body, Req, Res, HttpCode, HttpException, BadRequ
 import { Request, Response } from "express";
 import { AuthService } from "./auth.service";
 import { RedisService } from "../database/redis.service";
-import { signedCookieOpts, plainCookieOpts, clearCookieOpts } from "./cookies";
+import { signedCookieOpts, clearCookieOpts } from "./cookies";
 import { ADO_ORG_RE } from "./org";
 
 const H = 60 * 60 * 1000;
@@ -15,12 +15,20 @@ const WINDOW_MS = 15 * 60 * 1000;
 
 function isRateLimited(ip: string): boolean {
   const a = failedLogins.get(ip);
-  if (!a || Date.now() > a.reset) return false;
+  if (!a) return false;
+  if (Date.now() > a.reset) {
+    failedLogins.delete(ip);
+    return false;
+  }
   return a.count >= MAX_FAILURES;
 }
 
 function recordFailure(ip: string): void {
   const now = Date.now();
+  // Purge des fenêtres expirées : borne la mémoire sous un flood d'IPs.
+  if (failedLogins.size >= 10_000) {
+    for (const [k, v] of failedLogins) if (now > v.reset) failedLogins.delete(k);
+  }
   const a = failedLogins.get(ip);
   if (!a || now > a.reset) failedLogins.set(ip, { count: 1, reset: now + WINDOW_MS });
   else a.count++;
@@ -55,8 +63,8 @@ export class AuthController {
   }
 
   // Connexion par PAT Azure DevOps : le PAT est validé contre son organisation
-  // puis stocké dans le cookie ado_token, utilisé comme credential ADO par toutes
-  // les routes en aval. L'org validée est posée dans ado_org. PAT/org invalide → 401.
+  // puis stocké chiffré côté serveur (Redis, TTL = durée de session) — jamais
+  // dans un cookie navigateur. L'org validée est posée dans ado_org (signé).
   @Post("login")
   @HttpCode(204)
   async login(
@@ -82,12 +90,12 @@ export class AuthController {
     // « Se souvenir de moi » : 30 jours au lieu de 8 h. Le PAT expire de toute
     // façon côté ADO, indépendamment de la durée du cookie.
     const ttl = body?.remember === true ? 30 * 24 * H : 8 * H;
+    await this.redis.setUserPat(user.id, token, Math.floor(ttl / 1000));
     res.cookie(
       "session_user",
       JSON.stringify({ id: user.id, displayName: user.displayName, exp: Date.now() + ttl }),
       signedCookieOpts(ttl),
     );
-    res.cookie("ado_token", token, plainCookieOpts(ttl));
     res.cookie("ado_org", validatedOrg, signedCookieOpts(ttl));
     res.status(204).send();
   }
@@ -95,18 +103,19 @@ export class AuthController {
   @Post("logout")
   @HttpCode(204)
   async logout(@Req() req: Request, @Res() res: Response) {
-    // Invalide aussi la copie chiffrée du PAT dans Redis (TTL 1h) : sans ça, le
-    // writeback pourrait continuer à écrire dans ADO après la déconnexion.
+    // Supprime le PAT chiffré côté serveur : sans ça, le writeback pourrait
+    // continuer à écrire dans ADO après la déconnexion.
     const cookie = req.signedCookies?.session_user;
     if (typeof cookie === "string") {
       try {
         const { id } = JSON.parse(cookie);
-        if (typeof id === "string") await this.redis.deleteUserTokens(id);
+        if (typeof id === "string") await this.redis.deleteUserPat(id);
       } catch {
         /* cookie illisible : rien à purger */
       }
     }
     res.clearCookie("session_user", clearCookieOpts());
+    // ado_token : legacy (le PAT ne vit plus en cookie) — purge les sessions d'avant.
     res.clearCookie("ado_token", clearCookieOpts());
     res.clearCookie("ado_org", clearCookieOpts());
     res.status(204).send();

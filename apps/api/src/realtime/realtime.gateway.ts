@@ -20,13 +20,6 @@ import { BroadcastService } from "./broadcast.service";
 import { OperationsHandler } from "./operations.handler";
 import { PresenceHandler } from "./presence.handler";
 
-function parseAdoToken(cookieHeader: string | string[] | undefined): string | undefined {
-  const str = Array.isArray(cookieHeader) ? cookieHeader.join("; ") : cookieHeader;
-  if (!str) return undefined;
-  const match = str.match(/(?:^|;\s*)ado_token=([^;]*)/);
-  return match ? decodeURIComponent(match[1]) : undefined;
-}
-
 // Origine restreinte au front (identique au CORS HTTP) : empêche un site tiers
 // d'ouvrir une socket authentifiée par le cookie d'un utilisateur connecté.
 @WebSocketGateway({
@@ -77,9 +70,8 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     client.data = { sessionId, userId: identity.id, displayName: identity.displayName };
     client.join(ROOM(sessionId));
 
-    const token = parseAdoToken(client.handshake.headers.cookie);
-    if (token) await this.redis.setUserToken(sessionId, identity.id, token);
-
+    // Le PAT n'arrive plus par cookie : le writeback lit le store serveur
+    // (user:<id>:pat, posé au login avec un TTL aligné sur la session).
     await this.presenceHandler.handleJoin(this.server, client);
   }
 

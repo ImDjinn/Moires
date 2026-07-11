@@ -14,6 +14,7 @@ import { AuthGuard } from "../auth/auth.guard";
 import { signedCookieOpts } from "../auth/cookies";
 import { ADO_ORG_RE } from "../auth/org";
 import { PrismaService } from "../database/prisma.service";
+import { RedisService } from "../database/redis.service";
 import { AdoService } from "./ado.service";
 
 @Controller("ado")
@@ -22,10 +23,14 @@ export class AdoController {
   constructor(
     private ado: AdoService,
     private prisma: PrismaService,
+    private redis: RedisService,
   ) {}
 
-  private getToken(req: Request): string {
-    return req.cookies?.ado_token;
+  // PAT chiffré côté serveur (posé au login) : le navigateur ne le porte plus.
+  // Absent (TTL expiré) → chaîne vide → adoFetch lève 401 → le front déconnecte.
+  private async getToken(req: Request): Promise<string> {
+    const user = (req as any).user;
+    return (await this.redis.getUserPat(user.id)) ?? "";
   }
 
   private getOrg(req: Request): string {
@@ -63,22 +68,22 @@ export class AdoController {
   }
 
   @Get("projects")
-  getProjects(@Req() req: Request) {
-    return this.ado.getProjects(this.getOrg(req), this.getToken(req));
+  async getProjects(@Req() req: Request) {
+    return this.ado.getProjects(this.getOrg(req), await this.getToken(req));
   }
 
   @Get("projects/:id/iterations")
-  getIterations(@Param("id") id: string, @Req() req: Request) {
-    return this.ado.getIterations(this.getOrg(req), id, this.getToken(req));
+  async getIterations(@Param("id") id: string, @Req() req: Request) {
+    return this.ado.getIterations(this.getOrg(req), id, await this.getToken(req));
   }
 
   @Get("projects/:id/areas")
-  getAreas(@Param("id") id: string, @Req() req: Request) {
-    return this.ado.getAreas(this.getOrg(req), id, this.getToken(req));
+  async getAreas(@Param("id") id: string, @Req() req: Request) {
+    return this.ado.getAreas(this.getOrg(req), id, await this.getToken(req));
   }
 
   @Get("projects/:id/team-members")
-  getTeamMembers(@Param("id") id: string, @Req() req: Request) {
-    return this.ado.getTeamMembers(this.getOrg(req), id, this.getToken(req));
+  async getTeamMembers(@Param("id") id: string, @Req() req: Request) {
+    return this.ado.getTeamMembers(this.getOrg(req), id, await this.getToken(req));
   }
 }

@@ -46,9 +46,45 @@ describe("PresenceHandler", () => {
 
     await handler.handleUpdate({} as any, client as any, p);
 
-    expect(p.userId).toBe("u1");
-    expect(redis.setPresence).toHaveBeenCalledWith("s1", p);
-    expect(emit).toHaveBeenCalledWith("presence:broadcast", p);
+    const expected = { ...p, userId: "u1" };
+    expect(redis.setPresence).toHaveBeenCalledWith("s1", expected);
+    expect(emit).toHaveBeenCalledWith("presence:broadcast", expected);
+  });
+
+  it("handleUpdate ignore un payload malformé (champs arbitraires, types invalides)", async () => {
+    const redis = makeRedis();
+    const handler = new PresenceHandler(redis as any);
+    const { client, emit } = makeClient({ sessionId: "s1", userId: "u1" });
+
+    for (const bad of [
+      { displayName: 1, color: "#fff", action: "idle", targetTicketId: null },
+      { displayName: "A", color: "#fff", action: "hacked", targetTicketId: null },
+      { displayName: "A", color: "#fff", action: "idle", targetTicketId: 42 },
+    ]) {
+      await handler.handleUpdate({} as any, client as any, bad as any);
+    }
+
+    expect(redis.setPresence).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("handleUpdate tronque les chaînes hors gabarit et ignore les champs inconnus", async () => {
+    const redis = makeRedis();
+    const handler = new PresenceHandler(redis as any);
+    const { client } = makeClient({ sessionId: "s1", userId: "u1" });
+
+    await handler.handleUpdate({} as any, client as any, {
+      userId: "u1",
+      displayName: "x".repeat(500),
+      color: "#FF6B6B",
+      action: "idle",
+      targetTicketId: null,
+      injected: "payload",
+    } as any);
+
+    const stored = redis.setPresence.mock.calls[0][1];
+    expect(stored.displayName).toHaveLength(200);
+    expect(stored).not.toHaveProperty("injected");
   });
 
   it("handleLeave nettoie la présence et notifie user-left", async () => {

@@ -63,7 +63,10 @@ describe("Routes REST (e2e, services mockés)", () => {
   };
   const redis = {
     getParticipants: jest.fn().mockResolvedValue([]),
-    setUserToken: jest.fn().mockResolvedValue(undefined),
+    // PAT stocké chiffré côté serveur, résolu par user.id (plus de cookie ado_token).
+    getUserPat: jest.fn().mockResolvedValue("tok"),
+    setUserPat: jest.fn().mockResolvedValue(undefined),
+    deleteUserPat: jest.fn().mockResolvedValue(undefined),
   };
 
   beforeAll(async () => {
