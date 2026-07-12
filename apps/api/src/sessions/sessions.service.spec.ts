@@ -99,7 +99,8 @@ describe("SessionsService.createSession", () => {
     expect(prisma.planningSession.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ adoOrg: "orgX", adoIterationIds: ["it1"] }),
     });
-    expect(sync.syncInitial).toHaveBeenCalledWith("s1", "orgX", "p1", ["it1"], "token", undefined);
+    // Les chemins d'itération déjà résolus sont transmis (pas de getIterations redondant).
+    expect(sync.syncInitial).toHaveBeenCalledWith("s1", "orgX", "p1", ["it1"], "token", undefined, ["P\\S1"]);
   });
 
   it("amorce en base les capacités ADO des itérations à venir, sans écraser l'existant", async () => {

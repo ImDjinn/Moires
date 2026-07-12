@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { CreateSessionDto, SessionSnapshot, Operation, Ticket, Iteration, Capacity, MemberMeta, TeamMember } from "@moirai/shared";
+import type { CreateSessionDto, SessionSnapshot, Operation, Ticket, Iteration, Capacity, MemberMeta } from "@moirai/shared";
 import { setTicketField, getTicketField } from "@moirai/shared";
 import { PrismaService } from "../database/prisma.service";
 import { RedisService } from "../database/redis.service";
@@ -44,20 +44,29 @@ export class SessionsService {
       },
     });
 
-    const { tickets, teamMembers } = await this.syncService.syncInitial(
-      session.id,
-      org,
-      dto.adoProjectId,
-      iterationIds,
-      token,
-      dto.areaPaths,
-    );
+    // Sync initial et amorce des capacités en parallèle (le seed ne dépend que
+    // des itérations, déjà résolues) ; les chemins d'itération sont transmis
+    // pour épargner un getIterations redondant dans la requête WIQL.
+    const [{ tickets, teamMembers }] = await Promise.all([
+      this.syncService.syncInitial(
+        session.id,
+        org,
+        dto.adoProjectId,
+        iterationIds,
+        token,
+        dto.areaPaths,
+        iterations.map((i) => i.path),
+      ),
+      this.seedCapacities(dto.adoProjectId, iterations, token, org),
+    ]);
 
-    await this.redis.setIterations(session.id, iterations);
-    await this.redis.setTeamMembers(session.id, teamMembers);
-    await this.redis.addParticipant(session.id, userId);
+    await Promise.all([
+      this.redis.setIterations(session.id, iterations),
+      this.redis.setTeamMembers(session.id, teamMembers),
+      this.redis.addParticipant(session.id, userId),
+    ]);
 
-    const capacities = await this.seedCapacities(dto.adoProjectId, iterations, teamMembers, token, org);
+    const capacities = await this.capacities.list(dto.adoProjectId, teamMembers);
 
     return {
       sessionId: session.id,
@@ -73,17 +82,17 @@ export class SessionsService {
 
   /**
    * Amorce en base les capacités depuis ADO (jours ouvrés − jours off équipe/
-   * membre) sans écraser les saisies déjà persistées, puis renvoie l'état
-   * courant du projet. Itérations courantes et futures uniquement (la capacité
-   * des sprints passés n'est pas éditée).
+   * membre) sans écraser les saisies déjà persistées. Itérations courantes et
+   * futures uniquement (la capacité des sprints passés n'est pas éditée).
+   * L'état courant est relu ensuite via capacities.list (l'équipe n'est connue
+   * qu'après le sync initial, exécuté en parallèle).
    */
   private async seedCapacities(
     projectId: string,
     iterations: Iteration[],
-    teamMembers: TeamMember[],
     token: string,
     org: string,
-  ): Promise<Capacity[]> {
+  ): Promise<void> {
     const today = new Date().toISOString().slice(0, 10);
     const upcoming = iterations.filter((it) => it.finishDate.slice(0, 10) >= today);
     const perIter = await Promise.all(
@@ -97,7 +106,6 @@ export class SessionsService {
       }),
     );
     await this.capacities.seed(projectId, perIter.flat());
-    return this.capacities.list(projectId, teamMembers);
   }
 
   /** Itérations datées du projet, triées par date de début croissante. */

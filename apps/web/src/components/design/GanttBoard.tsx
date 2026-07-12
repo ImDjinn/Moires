@@ -959,6 +959,27 @@ export function GanttBoard() {
       if (it.level === lvl && !(state.hideClosed && M.isDone(it.state))) capUsed[it.person][it.iter] += M.effortOf(it);
     });
 
+    // Libellé/notice du champ de charge : les jauges comparent ce champ à une
+    // capacité en jours ouvrés (convention 1 pt ≈ 1 jour pour les Story Points).
+    const loadLabel = prefs.loadField === "points" ? "Story Points" : prefs.loadField === "effortDays" ? "estimation en jours" : prefs.loadField.split(".").pop() || prefs.loadField;
+    const loadNote = prefs.loadField === "points" ? " · convention 1 pt ≈ 1 jour" : "";
+    // Champ de charge sans valeur sur tous les tickets du niveau affiché (ex.
+    // Story Points en granularité Tâche) : les jauges liraient 0 à tort — signalé.
+    const lvlItems = release ? [] : state.items.filter((it) => it.level === lvl && !(state.hideClosed && M.isDone(it.state)));
+    const loadFieldDead = lvlItems.length > 0 && lvlItems.every((it) => M.effortOf(it) === 0);
+    // Tickets du niveau affiché planifiés hors de l'intervalle d'itérations
+    // choisi : invisibles sur le board — comptés pour éviter les « tickets perdus ».
+    let outOfRange = 0;
+    if (!daily && !release) {
+      const colSet = new Set(cols);
+      outOfRange = state.items.filter((it) => it.level === lvl && !colSet.has(it.iter) && !(state.hideClosed && M.isDone(it.state)) && !state.hidden[it.person]).length;
+    }
+    // Zone sous la dernière ligne (colonnes étirées jusqu'en bas du viewport) :
+    // estompée pour ne pas ressembler à des lignes de personnes manquantes.
+    const lastRow = layout.rows[layout.rows.length - 1];
+    const contentBottom = lastRow ? lastRow.top + lastRow.height : M.HEADER;
+    const emptyAreaStyle = TH > contentBottom + 1 ? `position:absolute;left:0;top:${contentBottom}px;width:${TW}px;height:${TH - contentBottom}px;background:var(--canvas,#f4f4f7);opacity:.5;z-index:6;pointer-events:none` : null;
+
     const columns = daily
       ? dailyCols.map((st, ci) => {
           const left = M.LEFT + ci * COLW, col = M.stateColors[st];
@@ -994,6 +1015,7 @@ export function GanttBoard() {
           return {
             id: p.id, name: p.name, role: p.role, initials: p.initials, loadShow: daily && !p.unassigned,
             loadText: `${lp > 1 ? "⚠ " : ""}${M.fmt(used)}/${M.fmt(cap)}j · ${Math.round(lp * 100)}%`,
+            loadTitle: `Charge ${M.fmt(used)} (${loadLabel}) / capacité ${M.fmt(cap)} jours ouvrés — ${M.iters[M.CURRENT].label}${loadNote}`,
             loadTextStyle: `font-size:10px;font-family:${mono};color:${lp > 1 ? "var(--color-error,#ef4444)" : "var(--muted,#86868f)"}`,
             loadFillStyle: `position:absolute;left:0;top:0;height:100%;width:${Math.min(lp, 1) * 100}%;background:${lc};border-radius:3px`,
             avatarStyle: `width:30px;height:30px;border-radius:50%;background:${p.color};color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
@@ -1007,7 +1029,7 @@ export function GanttBoard() {
           };
         });
 
-    const banners: { style: string; fillStyle: string; text: string; textStyle: string; pct: string; pctStyle: string; editing: boolean; capVal: number; onClick: (e: React.MouseEvent) => void; onCommit: (value: number) => void }[] = [];
+    const banners: { style: string; fillStyle: string; text: string; textStyle: string; title: string; pct: string; pctStyle: string; editing: boolean; capVal: number; onClick: (e: React.MouseEvent) => void; onCommit: (value: number) => void }[] = [];
     if (!daily && !release)
       layout.rows.forEach((r) => {
         const p = M.people.find((x) => x.id === r.personId)!;
@@ -1022,6 +1044,7 @@ export function GanttBoard() {
             fillStyle: `position:absolute;left:0;top:0;height:100%;width:${Math.min(pct, 1) * 100}%;background:${c};border-radius:3px`,
             text: `${M.fmt(used)}/${M.fmt(cap)}j`,
             textStyle: `font-size:10px;font-family:${mono};color:var(--muted,#86868f);white-space:nowrap;flex:0 0 auto`,
+            title: `Charge ${M.fmt(used)} (${loadLabel}) / capacité ${M.fmt(cap)} jours ouvrés${loadNote} — cliquer pour modifier la capacité`,
             pct: (pct > 1 ? "⚠ " : "") + Math.round(pct * 100) + "%",
             pctStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${pct > 1 ? "var(--color-error,#ef4444)" : c};flex:0 0 auto`,
             editing: !!capEdit && capEdit.personId === p.id && capEdit.real === real,
@@ -1104,7 +1127,7 @@ export function GanttBoard() {
     const onlineLabel = realSession ? `${peers.length + 1} en ligne` : "3 en ligne";
 
     const syncing = state.sync === "syncing";
-    const syncStyle = `display:flex;align-items:center;gap:7px;font-size:12px;font-weight:500;color:${syncing ? "var(--accent,#5b5bd6)" : "var(--color-synced-text,#1f8a54)"}`;
+    const syncStyle = `display:flex;align-items:center;gap:7px;font-size:12px;font-weight:500;min-width:0;white-space:nowrap;color:${syncing ? "var(--accent,#5b5bd6)" : "var(--color-synced-text,#1f8a54)"}`;
     const syncDotStyle = syncing
       ? "width:11px;height:11px;border-radius:50%;border:2px solid var(--accent,#5b5bd6);border-top-color:transparent;animation:ggspin .7s linear infinite"
       : "width:8px;height:8px;border-radius:50%;background:var(--color-synced,#2bbf73)";
@@ -1113,7 +1136,7 @@ export function GanttBoard() {
       const active = state.level === l.key;
       return {
         label: l.label, onClick: () => setState({ level: l.key, selectedId: null }),
-        style: `padding:5px 13px;border-radius:6px;border:none;font-size:12px;font-weight:${active ? 600 : 500};cursor:pointer;background:${active ? "var(--panel,#fff)" : "transparent"};color:${active ? "var(--ink,#1a1a20)" : "var(--muted,#86868f)"};box-shadow:${active ? "0 1px 2px rgba(20,20,40,.12)" : "none"}`,
+        style: `padding:5px 13px;border-radius:6px;border:none;font-size:12px;white-space:nowrap;font-weight:${active ? 600 : 500};cursor:pointer;background:${active ? "var(--panel,#fff)" : "transparent"};color:${active ? "var(--ink,#1a1a20)" : "var(--muted,#86868f)"};box-shadow:${active ? "0 1px 2px rgba(20,20,40,.12)" : "none"}`,
       };
     });
 
@@ -1154,7 +1177,7 @@ export function GanttBoard() {
         hasParent: !!item.parent, parentLabel: item.parent ? `${item.parent} · ${M.titleOf[item.parent] || ""}` : "",
         states: M.dailyStates(item.level).map((k) => {
           const active = item.state === k, col = M.stateColors[k];
-          return { label: k, onClick: () => setField(item.id, "state", k), style: `flex:1 1 auto;min-width:76px;padding:7px 9px;border-radius:7px;border:1px solid ${active ? col : "var(--line,#e8e8ee)"};background:${active ? col : "var(--panel2,#fafafc)"};color:${active ? "#fff" : "var(--muted,#86868f)"};font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap` };
+          return { label: k, onClick: () => setField(item.id, "state", k), style: `padding:7px 9px;border-radius:7px;border:1px solid ${active ? col : "var(--line,#e8e8ee)"};background:${active ? col : "var(--panel2,#fafafc)"};color:${active ? "#fff" : "var(--muted,#86868f)"};font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis` };
         }),
         assignee: item.person, onAssignee: (e: React.ChangeEvent<HTMLSelectElement>) => setField(item.id, "person", e.target.value),
         people: M.people.map((p) => ({ value: p.id, label: p.name })),
@@ -1288,7 +1311,8 @@ export function GanttBoard() {
         const hidden = !!state.hiddenRows[r.key!];
         const rg = r.range || null;
         const rangeSub = rg ? `${M.iters[rg[0]].short} → ${M.iters[rg[1]].short}` : "";
-        const sub = ch.total > 0 ? `${rangeSub ? rangeSub + " · " : ""}Σ ${M.fmt(ch.total)} pts` : rangeSub || "aucune US planifiée";
+        const sub = ch.total > 0 ? `${rangeSub ? rangeSub + " · " : ""}Σ ${M.fmt(ch.total)}` : rangeSub || "aucune US planifiée";
+        const subTitle = ch.total > 0 ? `${rangeSub ? rangeSub + " · " : ""}charge totale des US : ${M.fmt(ch.total)} (${loadLabel})` : undefined;
         // Double-clic sur une epic/feature → pose un flag au début de son sprint.
         const flagIter = rg ? rg[0] : M.CURRENT;
         let statusTag = "", statusStyle = "display:none";
@@ -1330,7 +1354,7 @@ export function GanttBoard() {
           onToggleHidden: (e: React.MouseEvent) => { e.stopPropagation(); toggleRowHidden(r.key!); },
           chevron: r.open ? "▾" : r.hasChildren ? "▸" : "", onToggle: () => { if (r.hasChildren) toggleNode(r.key!); },
           name: isFeat ? r.item!.ado + "  " + r.item!.title : r.epicName || "(Sans epic)",
-          sub, dotColor: r.accent,
+          sub, subTitle, dotColor: r.accent,
           onDoubleClick: () => addFlag(r.key!, flagIter),
           ado: "", badge: "", title: "", adoStyle: "display:none", badgeStyle: "display:none",
           chevStyle: `font-size:9px;color:var(--muted,#86868f);width:14px;flex:0 0 auto;cursor:${r.hasChildren ? "pointer" : "default"};text-align:center`,
@@ -1478,11 +1502,11 @@ export function GanttBoard() {
         onFrom: (e: React.ChangeEvent<HTMLSelectElement>) => { const val = Number(e.target.value); setState((s) => ({ metricsFrom: val, metricsTo: Math.max(val, s.metricsTo) })); },
         onTo: (e: React.ChangeEvent<HTMLSelectElement>) => { const val = Number(e.target.value); setState((s) => ({ metricsTo: val, metricsFrom: Math.min(val, s.metricsFrom) })); },
         capText: M.fmt(met.cap) + "j",
-        effortText: M.fmt(met.effort),
+        effortText: M.fmt(met.effort) + "j",
         deltaText: (met.delta >= 0 ? "+" : "−") + M.fmt(Math.abs(met.delta)) + "j",
         deltaStyle: `font-size:12px;font-weight:700;font-family:${mono};color:${met.delta < 0 ? "var(--color-error,#ef4444)" : "var(--color-synced,#2bbf73)"}`,
         pctText: Math.round((met.effort / (met.cap || 1)) * 100) + "%",
-        title: `${metShorts} · capacité ${M.fmt(met.cap)}j − effort ${M.fmt(met.effort)} (personnes visibles, lignes masquées exclues)`,
+        title: `${metShorts} · capacité ${M.fmt(met.cap)}j − effort ${M.fmt(met.effort)}j (charge en ${loadLabel}${loadNote} · personnes visibles, lignes masquées exclues)`,
       };
 
       state.milestones.forEach((m) => {
@@ -1534,10 +1558,16 @@ export function GanttBoard() {
       return [...seen].map(([value, label]) => ({ value, label }));
     })();
 
-    const visiblePeople = M.people.filter((p) => !state.hidden[p.id]).length;
+    // « Non assigné » est une ligne du board, pas un membre : exclu des compteurs.
+    const members = M.people.filter((p) => !p.unassigned);
+    const visiblePeople = members.filter((p) => !state.hidden[p.id]).length;
     return {
       rootStyle: { position: "relative" as const, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" as const, fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "var(--canvas)", color: "var(--ink)", overflow: "hidden" },
-      totalWidth: TW, totalHeight: TH, columns, personRows, banners, bars, dropGhost, cursors, presence, onlineLabel,
+      totalWidth: TW, totalHeight: TH, columns, personRows, banners, bars, dropGhost, cursors, presence, onlineLabel, emptyAreaStyle,
+      loadWarning: loadFieldDead ? "⚠ charge à 0" : null,
+      loadWarningTitle: `Aucun ticket affiché n'a de valeur « ${loadLabel} » : les jauges de charge affichent 0. Choisissez un autre champ dans le menu Charge ou renseignez les valeurs dans Azure DevOps.`,
+      outOfRange,
+      outOfRangeTitle: `${outOfRange} ticket${outOfRange > 1 ? "s" : ""} planifié${outOfRange > 1 ? "s" : ""} hors de l'intervalle d'itérations affiché — cliquer pour élargir l'intervalle`,
       // Fond opaque pleine hauteur sous les cellules du panneau gauche : masque les
       // barres qui défilent dessous (les lignes masquées sont en opacity:.45).
       leftPanelStyle: `position:absolute;left:0;top:0;width:${M.LEFT}px;height:${TH}px;background:var(--panel,#fff);border-right:1px solid var(--line,#e8e8ee);box-sizing:border-box`,
@@ -1566,7 +1596,7 @@ export function GanttBoard() {
         return opts;
       })(),
       onLoadField: (e: React.ChangeEvent<HTMLSelectElement>) => updatePrefs({ loadField: e.target.value as M.LoadField }),
-      peopleLabel: `${visiblePeople}/${M.people.length}`,
+      peopleLabel: `${visiblePeople}/${members.length}`,
       peopleList: M.people.map((p) => ({
         name: p.name, role: p.role, checked: !state.hidden[p.id],
         dotStyle: `width:24px;height:24px;border-radius:50%;background:${p.color};color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
@@ -1598,10 +1628,10 @@ export function GanttBoard() {
       epicFilterOptions: [{ value: "all", label: "Tous les epics" }, { value: "hideDone", label: "Masquer terminés" }, { value: "activeOnly", label: "Actifs seulement" }],
       onEpicFilter: (e: React.ChangeEvent<HTMLSelectElement>) => setState({ epicFilter: e.target.value as State["epicFilter"] }),
       rangeLabel, range, rangeOpen: state.rangeOpen,
-      rangeBtnStyle: `height:30px;padding:0 12px;border-radius:7px;border:1px solid ${state.rangeOpen ? "var(--accent,#5b5bd6)" : "var(--line,#e9e9ef)"};background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:7px`,
+      rangeBtnStyle: `height:30px;padding:0 12px;border-radius:7px;border:1px solid ${state.rangeOpen ? "var(--accent,#5b5bd6)" : "var(--line,#e9e9ef)"};background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:7px;white-space:nowrap;flex:0 0 auto`,
       onRangeToggle: (e: React.MouseEvent) => { e.stopPropagation(); setState((s) => ({ rangeOpen: !s.rangeOpen, peopleOpen: false, prefsOpen: false })); },
       syncLabel: syncing ? "Synchronisation…" : "Azure DevOps synchronisé", syncStyle, syncDotStyle,
-      themeLabel: theme === "dark" ? "Clair" : "Sombre", themeIcon: theme === "dark" ? "☀" : "☾",
+      themeTitle: theme === "dark" ? "Passer en thème clair" : "Passer en thème sombre", themeIcon: theme === "dark" ? "☀" : "☾",
       onToggleTheme: () => toggleTheme(),
       onScrollRef, onCanvasRef,
       onBgClick: () => { setPersonSel(null); setUserMenuOpen(false); setState({ selectedId: null, rangeOpen: false, peopleOpen: false, prefsOpen: false }); },
@@ -1627,35 +1657,36 @@ export function GanttBoard() {
       {/* Header row 1 */}
       <div style={C("height:54px;flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:0 18px;border-bottom:1px solid var(--line,#e9e9ef);background:var(--panel,#fff);position:relative;z-index:70")}>
         <Brand size={24} />
-        <div style={C("display:flex;background:var(--panel2,#fafafc);border:1px solid var(--line,#e9e9ef);border-radius:8px;padding:2px;gap:2px")}>
+        <div style={C("display:flex;flex:0 0 auto;background:var(--panel2,#fafafc);border:1px solid var(--line,#e9e9ef);border-radius:8px;padding:2px;gap:2px")}>
           {v.boardTabs.map((t) => (
             <button key={t.label} onClick={t.onClick} style={C(t.style)}>{t.label}</button>
           ))}
         </div>
-        <div style={C("width:1px;height:22px;background:var(--line,#e9e9ef)")} />
-        <div style={C("display:flex;align-items:center;gap:8px")}>
-          <div style={C("width:7px;height:7px;border-radius:50%;background:var(--accent,#5b5bd6);box-shadow:0 0 0 3px var(--accentsoft,#ececfb)")} />
-          <div style={C("line-height:1.2")}>
-            <div style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Itération courante</div>
-            <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20)")}>{v.currentLabel} <span style={C("font-weight:400;color:var(--muted,#86868f);font-family:'IBM Plex Mono',monospace;font-size:11px")}>· {v.currentDates}</span></div>
+        <div style={C("width:1px;height:22px;flex:0 0 auto;background:var(--line,#e9e9ef)")} />
+        {/* Bloc rétrécissable (ellipse) : le header tient sur une ligne aux petites largeurs. */}
+        <div style={C("display:flex;align-items:center;gap:8px;min-width:0;flex:0 1 auto")}>
+          <div style={C("width:7px;height:7px;flex:0 0 auto;border-radius:50%;background:var(--accent,#5b5bd6);box-shadow:0 0 0 3px var(--accentsoft,#ececfb)")} />
+          <div style={C("line-height:1.2;min-width:0")}>
+            <div style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6);white-space:nowrap")}>Itération courante</div>
+            <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{v.currentLabel} <span style={C("font-weight:400;color:var(--muted,#86868f);font-family:'IBM Plex Mono',monospace;font-size:11px")}>· {v.currentDates}</span></div>
           </div>
         </div>
         <div style={{ flex: 1 }} />
         <div style={C(v.syncStyle)}>
           <div style={C(v.syncDotStyle)} />
-          <span>{v.syncLabel}</span>
+          <span style={C("overflow:hidden;text-overflow:ellipsis")}>{v.syncLabel}</span>
         </div>
-        <div style={C("width:1px;height:22px;background:var(--line,#e9e9ef)")} />
-        <div style={C("display:flex;align-items:center;gap:9px")}>
+        <div style={C("width:1px;height:22px;flex:0 0 auto;background:var(--line,#e9e9ef)")} />
+        <div style={C("display:flex;align-items:center;gap:9px;flex:0 0 auto")}>
           <div style={{ display: "flex" }}>
             {v.presence.map((p, i) => (
               <div key={i} style={C(p.style)} title={p.name}>{p.initials}</div>
             ))}
           </div>
-          <span style={C("font-size:12px;color:var(--muted,#86868f)")}>{v.onlineLabel}</span>
+          <span style={C("font-size:12px;color:var(--muted,#86868f);white-space:nowrap")}>{v.onlineLabel}</span>
         </div>
-        <div style={C("width:1px;height:22px;background:var(--line,#e9e9ef)")} />
-        <button onClick={v.onToggleTheme} style={C("height:30px;padding:0 12px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px")}>{v.themeIcon} {v.themeLabel}</button>
+        <div style={C("width:1px;height:22px;flex:0 0 auto;background:var(--line,#e9e9ef)")} />
+        <button onClick={v.onToggleTheme} title={v.themeTitle} aria-label={v.themeTitle} style={C("width:30px;height:30px;flex:0 0 auto;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center")}>{v.themeIcon}</button>
         {user && (
           <div style={C("width:1px;height:22px;background:var(--line,#e9e9ef)")} />
         )}
@@ -1691,8 +1722,9 @@ export function GanttBoard() {
         )}
       </div>
 
-      {/* Header row 2 */}
-      <div style={C("height:46px;flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:0 18px;border-bottom:1px solid var(--line,#e9e9ef);background:var(--panel,#fff);position:relative;z-index:60")}>
+      {/* Header row 2 — défile horizontalement aux petites largeurs (ses popovers
+          sont rendus au niveau racine, donc jamais rognés par l'overflow). */}
+      <div style={C("height:46px;flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:0 18px;border-bottom:1px solid var(--line,#e9e9ef);background:var(--panel,#fff);position:relative;z-index:60;overflow-x:auto;overflow-y:hidden")}>
         {v.showGranularity && (
           <>
             <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Granularité</span>
@@ -1705,7 +1737,7 @@ export function GanttBoard() {
         )}
         {v.isRelease && (
           <>
-            <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Charge par</span>
+            <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6);white-space:nowrap")}>Charge par</span>
             <select value={v.loadByValue} onChange={v.onLoadBy} style={C("height:30px;padding:0 8px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
               {v.loadByOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
@@ -1745,7 +1777,8 @@ export function GanttBoard() {
         <select value={v.loadFieldValue} onChange={v.onLoadField} title="Champ utilisé pour les jauges de charge et le tri « Charge »" style={C("height:30px;padding:0 8px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
           {v.loadFieldOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
-        <button onClick={v.onPeopleToggle} style={C("height:30px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px")}>
+        {v.loadWarning && <span title={v.loadWarningTitle} style={C("font-size:11px;font-weight:600;color:var(--color-pending-text,#8a5a00);white-space:nowrap;cursor:help")}>{v.loadWarning}</span>}
+        <button onClick={v.onPeopleToggle} style={C("height:30px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;flex:0 0 auto")}>
           <span style={C("opacity:.7;display:flex")}><IconUsers size={13} /></span> Personnes {v.peopleLabel} <span style={C("opacity:.5;font-size:9px")}>▾</span>
         </button>
         {v.isRelease && (
@@ -1757,6 +1790,9 @@ export function GanttBoard() {
         {!v.isRelease && !v.isDaily && (
           <>
             <div style={C("width:1px;height:20px;background:var(--line,#e9e9ef)")} />
+            {v.outOfRange > 0 && (
+              <button onClick={v.onRangeToggle} title={v.outOfRangeTitle} style={C("height:30px;padding:0 10px;border-radius:7px;border:1px solid var(--color-pending,#f5a623);background:transparent;color:var(--color-pending-text,#8a5a00);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap")}>⚠ {v.outOfRange} hors intervalle</button>
+            )}
             <button onClick={v.onRangeToggle} style={C(v.rangeBtnStyle)}>
               <span style={C("opacity:.7;display:flex")}><IconCalendar size={13} /></span> {v.rangeLabel} <span style={C("opacity:.5;font-size:9px")}>▾</span>
             </button>
@@ -1890,6 +1926,7 @@ export function GanttBoard() {
       <div ref={v.onScrollRef} onPointerDown={onPanDown} onPointerMove={onPanMove} onPointerUp={onPanEnd} onPointerCancel={onPanEnd} onClickCapture={onPanClickCapture} style={C("flex:1;position:relative;overflow:auto;background:var(--canvas,#f6f6f8);cursor:grab")}>
         <div ref={v.onCanvasRef} onClick={v.onBgClick} onPointerMove={emitCursor} style={C(`position:relative;width:${v.totalWidth}px;height:${v.totalHeight}px;min-height:100%`)}>
           {v.columns.map((col, i) => <div key={"bg" + i} style={C(col.bgStyle)} />)}
+          {v.emptyAreaStyle && <div style={C(v.emptyAreaStyle)} />}
 
           {/* Séparateurs de lignes (pleine largeur, défilent avec le contenu) */}
           {(v.treeRows as Record<string, any>[]).map((row, i) => <div key={"trs" + i} style={C(row.sepStyle)} />)}
@@ -1912,7 +1949,7 @@ export function GanttBoard() {
                     <div style={C(`width:9px;height:9px;border-radius:3px;background:${row.dotColor};flex:0 0 auto`)} />
                     <div style={C("min-width:0")}>
                       <div title={row.name} style={C("font-size:12px;font-weight:600;color:var(--ink,#1a1a20);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere")}>{row.name}</div>
-                      <div style={C("font-size:10px;color:var(--muted,#86868f);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:'IBM Plex Mono',monospace")}>{row.sub}</div>
+                      <div title={row.subTitle} style={C("font-size:10px;color:var(--muted,#86868f);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:'IBM Plex Mono',monospace")}>{row.sub}</div>
                     </div>
                     {row.prio && <span style={C("font-size:10px;font-weight:600;padding:1px 5px;border-radius:5px;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);flex:0 0 auto;font-family:'IBM Plex Mono',monospace")}>{row.prio}</span>}
                     <span style={C(row.statusStyle)}>{row.statusTag}</span>
@@ -1943,7 +1980,7 @@ export function GanttBoard() {
                   <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{row.name}</div>
                   <div style={C("font-size:11px;color:var(--muted,#86868f)")}>{row.role}</div>
                   {row.loadShow && (
-                    <div style={C("display:flex;align-items:center;gap:6px;margin-top:5px")}>
+                    <div title={row.loadTitle} style={C("display:flex;align-items:center;gap:6px;margin-top:5px")}>
                       <div style={C("width:46px;height:5px;border-radius:3px;background:var(--line2,#f0f0f4);position:relative;overflow:hidden;flex:0 0 auto")}><div style={C(row.loadFillStyle)} /></div>
                       <span style={C(row.loadTextStyle)}>{row.loadText}</span>
                     </div>
@@ -2008,7 +2045,7 @@ export function GanttBoard() {
             <div key={"bn" + i} style={C(b.style)} onClick={b.onClick} role="button" tabIndex={0}
               aria-label="Modifier la capacité"
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); b.onClick(e as unknown as React.MouseEvent); } }}
-              title="Cliquer pour modifier la capacité">
+              title={b.title}>
               <span style={C("font-size:10px;color:var(--faint,#abacb6);font-weight:500;flex:0 0 auto")}>charge</span>
               <div style={C("flex:1;height:5px;border-radius:3px;background:var(--line2,#f0f0f4);overflow:hidden;position:relative")}>
                 <div style={C(b.fillStyle)} />
@@ -2206,7 +2243,9 @@ export function GanttBoard() {
             {v.insp.show.state && (
               <div>
                 <div style={C(v.labelCss)}>État</div>
-                <div style={C("display:flex;gap:5px;flex-wrap:wrap")}>
+                {/* Grille (2 colonnes au-delà de 3 états) : évite un dernier bouton
+                    orphelin pleine largeur qui ressemble à une action à part. */}
+                <div style={C(`display:grid;grid-template-columns:repeat(${v.insp.states.length <= 3 ? Math.max(v.insp.states.length, 1) : 2},1fr);gap:5px`)}>
                   {v.insp.states.map((s) => <button key={s.label} onClick={s.onClick} style={C(s.style)}>{s.label}</button>)}
                 </div>
               </div>

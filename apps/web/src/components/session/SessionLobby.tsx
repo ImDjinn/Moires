@@ -103,9 +103,10 @@ export function SessionLobby() {
           </div>
         )}
 
+        {/* Lecture seule (choisie à la connexion) : texte simple, pas un faux champ. */}
         <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
           <span style={labelStyle}>Organisation ADO</span>
-          <div style={{ ...selectStyle, cursor: "default", display: "flex", alignItems: "center", color: org ? "var(--ink)" : "var(--muted)" }}>
+          <div style={{ fontSize: 14, fontWeight: 500, padding: "2px 0", color: org ? "var(--ink)" : "var(--muted)" }}>
             {org || "Chargement…"}
           </div>
         </div>
@@ -144,6 +145,11 @@ export function SessionLobby() {
         >
           {loading ? "Chargement…" : "Entrer dans la session"}
         </button>
+        {!loading && !projectsLoading && !selectedProject && (
+          <p style={{ fontSize: 12, color: "var(--faint)", textAlign: "center", marginTop: -12 }}>
+            Sélectionnez un projet pour entrer dans la session.
+          </p>
+        )}
       </div>
     </div>
   );

@@ -32,6 +32,8 @@
   /* Vert lisible sur panel (texte) — le vert des pastilles est trop clair pour du texte. */
   --color-synced-text: #1f8a54;
   --color-pending: #f5a623;
+  /* Ambre lisible sur panel (texte) — même logique que --color-synced-text. */
+  --color-pending-text: #8a5a00;
   --color-error: #ef4444;
 }
 
@@ -44,6 +46,7 @@
   /* ≥ 4,5:1 sur --panel et --panel2 (WCAG AA petit texte). */
   --faint: #8a8a96;
   --color-synced-text: #3fd089;
+  --color-pending-text: #f0b429;
   /* Rouge saturé qui vibre sur fond sombre → variante adoucie. */
   --color-error: #f87171;
   --line: #27272e;

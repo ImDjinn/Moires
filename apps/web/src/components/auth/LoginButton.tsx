@@ -48,6 +48,17 @@ export function LoginButton() {
     fontSize: 14,
     outline: "none",
   };
+  const labelStyle: React.CSSProperties = {
+    color: "var(--muted)",
+    fontSize: 10,
+    fontWeight: 600,
+    letterSpacing: ".06em",
+    textTransform: "uppercase",
+  };
+  const missing = !org.trim() || !pat.trim();
+  // Lien direct vers la page des jetons de l'organisation saisie (racine sinon).
+  const orgSlug = org.trim().replace(/^https?:\/\//, "").replace(/^dev\.azure\.com\//i, "").replace(/\/+$/, "");
+  const patHref = orgSlug ? `https://dev.azure.com/${encodeURIComponent(orgSlug)}/_usersSettings/tokens` : "https://dev.azure.com";
 
   return (
     <div style={{
@@ -75,7 +86,10 @@ export function LoginButton() {
           textAlign: "center",
         }}
       >
-        <MoiraiMark size={48} />
+        {/* Même couleur de marque que partout ailleurs (Brand force l'accent). */}
+        <div style={{ color: "var(--accent)", display: "flex" }}>
+          <MoiraiMark size={48} />
+        </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.01em", color: "var(--ink)" }}>Moirai</h1>
           <p style={{ color: "var(--muted)", fontSize: 14, lineHeight: 1.5 }}>
@@ -100,21 +114,26 @@ export function LoginButton() {
             {error}
           </div>
         )}
-        <input
-          type="text"
-          value={org}
-          onChange={(e) => setOrg(e.target.value)}
-          placeholder="Organisation (ex. dev.azure.com/monorganisation/)"
-          aria-label="Organisation Azure DevOps"
-          autoComplete="off"
-          style={inputStyle}
-        />
-        <div style={{ position: "relative", width: "100%" }}>
+        <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 7, textAlign: "left" }}>
+          <span style={labelStyle}>Organisation ADO</span>
+          <input
+            type="text"
+            value={org}
+            onChange={(e) => setOrg(e.target.value)}
+            placeholder="ex. monorganisation"
+            aria-label="Organisation Azure DevOps"
+            autoComplete="off"
+            style={inputStyle}
+          />
+        </div>
+        <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 7, textAlign: "left" }}>
+          <span style={labelStyle}>Personal Access Token</span>
+          <div style={{ position: "relative", width: "100%" }}>
           <input
             type={showPat ? "text" : "password"}
             value={pat}
             onChange={(e) => setPat(e.target.value)}
-            placeholder="Personal Access Token Azure DevOps"
+            placeholder="Collez votre jeton"
             aria-label="Personal Access Token Azure DevOps"
             autoComplete="off"
             style={{ ...inputStyle, paddingRight: 78 }}
@@ -141,6 +160,7 @@ export function LoginButton() {
           >
             {showPat ? "Masquer" : "Afficher"}
           </button>
+          </div>
         </div>
         <label
           style={{
@@ -157,12 +177,13 @@ export function LoginButton() {
             type="checkbox"
             checked={remember}
             onChange={(e) => setRemember(e.target.checked)}
+            style={{ accentColor: "var(--accent)" }}
           />
           Se souvenir de moi (30 jours)
         </label>
         <button
           type="submit"
-          disabled={loading || !org.trim() || !pat.trim()}
+          disabled={loading || missing}
           style={{
             width: "100%",
             height: 46,
@@ -175,14 +196,19 @@ export function LoginButton() {
             borderRadius: 10,
             fontSize: 15,
             fontWeight: 600,
-            cursor: loading || !org.trim() || !pat.trim() ? "default" : "pointer",
-            opacity: loading || !org.trim() || !pat.trim() ? 0.55 : 1,
+            cursor: loading || missing ? "default" : "pointer",
+            opacity: loading || missing ? 0.55 : 1,
           }}
         >
           {loading ? "Connexion…" : "Se connecter"}
         </button>
+        {!loading && missing && (
+          <p style={{ color: "var(--faint)", fontSize: 12, marginTop: -14 }}>
+            Renseignez l'organisation et le jeton pour activer la connexion.
+          </p>
+        )}
         <a
-          href="https://dev.azure.com"
+          href={patHref}
           target="_blank"
           rel="noreferrer"
           style={{ color: "var(--muted)", fontSize: 12, textDecoration: "underline" }}

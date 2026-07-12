@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import type { Ticket, TeamMember, SessionSnapshot } from "@moirai/shared";
 import { PrismaService } from "../database/prisma.service";
 import { RedisService } from "../database/redis.service";
@@ -8,6 +8,8 @@ import { AdoMapper, RawAdoWorkItem } from "../ado/ado.mapper";
 
 @Injectable()
 export class SyncService {
+  private readonly logger = new Logger(SyncService.name);
+
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
@@ -56,6 +58,9 @@ export class SyncService {
 
     // Un seul aller-retour transactionnel au lieu de N upserts séquentiels
     // (à chaque sync, y compris le sync incrémental toutes les 30s).
+    // Écrit hors chemin critique (pas de await) : Redis est la source de
+    // vérité de la session, ce cache ne sert qu'au mapping work item → session
+    // du webhook ADO — une écriture en retard ou perdue est sans effet visible.
     const fields = (t: Ticket) => ({
       sessionId,
       title: t.title,
@@ -76,15 +81,17 @@ export class SyncService {
       adoRev: t.adoRev,
       syncStatus: t.syncStatus,
     });
-    await this.prisma.$transaction(
-      tickets.map((t) =>
-        this.prisma.ticketsCache.upsert({
-          where: { id: t.id },
-          update: fields(t),
-          create: { id: t.id, ...fields(t) },
-        }),
-      ),
-    );
+    void this.prisma
+      .$transaction(
+        tickets.map((t) =>
+          this.prisma.ticketsCache.upsert({
+            where: { id: t.id },
+            update: fields(t),
+            create: { id: t.id, ...fields(t) },
+          }),
+        ),
+      )
+      .catch((e) => this.logger.warn(`ticketsCache write failed for session ${sessionId}: ${e}`));
 
     return { tickets, rawItems };
   }
@@ -96,24 +103,33 @@ export class SyncService {
     iterationIds: string[],
     token: string,
     areaPaths?: string[],
+    iterationPaths?: string[],
   ): Promise<{ tickets: Ticket[]; teamMembers: TeamMember[] }> {
-    const { tickets, rawItems } = await this.syncTickets(sessionId, org, projectId, iterationIds, token, areaPaths);
+    // Référentiels indépendants des tickets, chargés en parallèle du sync :
+    // chaque await séquentiel est un aller-retour ADO de plus sur le chemin
+    // critique de l'ouverture de session.
+    const [{ tickets, rawItems }, caps, roster, boardCols, backlogTypes] = await Promise.all([
+      this.syncTickets(sessionId, org, projectId, iterationIds, token, areaPaths, iterationPaths),
+      iterationIds.length
+        ? this.ado.getCapacities(org, projectId, iterationIds[0], token)
+        : Promise.resolve([] as TeamMember[]),
+      this.ado.getTeamMembers(org, projectId, token),
+      this.ado.getBoardColumns(org, projectId, token),
+      this.ado.getBacklogTypes(org, projectId, token),
+    ]);
 
     // teamMembers = union dédupliquée de trois sources, sinon les assignés hors
     // capacités retombaient tous en « Non assigné » et le roster restait partiel :
     //  1. roster d'équipe (collaborateurs sans ticket),
     //  2. assignés réels des tickets (garantit qu'un assigné apparaît toujours),
     //  3. capacités configurées (heures/jour réelles quand renseignées).
-    const caps = iterationIds.length
-      ? await this.ado.getCapacities(org, projectId, iterationIds[0], token)
-      : [];
     const capById = new Map(caps.map((c) => [c.id, c.capacityHoursPerDay]));
     const byId = new Map<string, TeamMember>();
     const add = (id: string | null | undefined, displayName: string) => {
       if (!id || byId.has(id)) return;
       byId.set(id, { id, displayName: displayName || id, capacityHoursPerDay: capById.get(id) ?? 8 });
     };
-    for (const m of await this.ado.getTeamMembers(org, projectId, token)) add(m.id, m.displayName);
+    for (const m of roster) add(m.id, m.displayName);
     for (const r of rawItems) {
       const a = r.fields["System.AssignedTo"] as { uniqueName?: string; id?: string; displayName?: string } | undefined;
       if (a) add(a.uniqueName || a.id, a.displayName || "");
@@ -124,9 +140,7 @@ export class SyncService {
     // Colonnes Daily : les vraies colonnes des boards d'équipe ADO (avec leur
     // mapping colonne → état pour le writeback). Les types sans board (Task :
     // taskboard) retombent sur leurs états.
-    const boardCols = await this.ado.getBoardColumns(org, projectId, token);
     const covered = new Set(boardCols.map((c) => c.type));
-    const backlogTypes = await this.ado.getBacklogTypes(org, projectId, token);
     const rest = [
       ...new Set([...backlogTypes, ...tickets.map((t) => t.workItemType)]),
     ].filter((t) => t && !covered.has(t));
