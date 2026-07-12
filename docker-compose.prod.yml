@@ -49,6 +49,10 @@ services:
       - api
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Portail byimad.net (statique) : repo byimad cloné à côté de ce repo
+      - ../byimad:/srv/byimad:ro
+      # Releases Parthenon (installeurs + latest.yml), uploadées en scp
+      - /opt/parthenon-releases:/srv/parthenon-releases:ro
       - caddy_data:/data
       - caddy_config:/config
 
