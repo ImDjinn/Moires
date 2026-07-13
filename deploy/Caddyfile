@@ -1,6 +1,8 @@
-# HTTPS auto (Let's Encrypt) pour le domaine. Front statique + proxy vers l'API.
-# moires.byimad.net = alias du portail byimad, même app.
-themoirai.net, moires.byimad.net {
+# Derrière l'edge proxy partagé (repo byimad, ./proxy) : le TLS est terminé en
+# amont, ce Caddy ne sert QUE l'app Moires en HTTP interne. Les domaines
+# themoirai.net / moires.byimad.net sont routés vers ce conteneur par l'edge, qui
+# préserve le Host. byimad.net et parthenon.byimad.net ont leurs propres stacks.
+:80 {
 	encode gzip zstd
 
 	# En-têtes de sécurité. HSTS (Caddy sert déjà en HTTPS), anti-sniffing,
@@ -34,39 +36,6 @@ themoirai.net, moires.byimad.net {
 		@notassets not path /assets/*
 		header @notassets Cache-Control "no-cache"
 		try_files {path} /index.html
-		file_server
-	}
-}
-
-# Portail byimad.net : landing statique + page Parthenon. Contenu monté depuis
-# le repo byimad cloné à côté du repo moirai (voir docker-compose.prod.yml).
-byimad.net {
-	encode gzip zstd
-	root * /srv/byimad
-	file_server
-}
-
-www.byimad.net {
-	redir https://byimad.net{uri} permanent
-}
-
-# Parthenon est une app desktop (Electron) : page de présentation + releases
-# auto-hébergées (installeurs + manifestes latest.yml pour electron-updater).
-parthenon.byimad.net {
-	encode gzip zstd
-
-	# Installeurs uploadés dans /opt/parthenon-releases sur le VPS (voir
-	# docker-compose.prod.yml). Pas de cache sur les manifestes latest*.yml :
-	# l'auto-updater doit toujours voir la dernière version.
-	handle_path /releases/* {
-		root * /srv/parthenon-releases
-		@manifests path *.yml
-		header @manifests Cache-Control "no-cache"
-		file_server
-	}
-
-	handle {
-		root * /srv/byimad/parthenon
 		file_server
 	}
 }

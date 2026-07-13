@@ -4,12 +4,18 @@ Stack de prod : 4 conteneurs sur une seule machine.
 
 | Service    | Rôle                                                        |
 |------------|-------------------------------------------------------------|
-| `caddy`    | Sert le front statique + reverse-proxy API + **HTTPS auto** |
+| `caddy`    | Sert le front statique + reverse-proxy API (HTTP interne)   |
 | `api`      | NestJS (migrations Prisma au démarrage)                     |
 | `postgres` | Base de données (volume persistant)                         |
 | `redis`    | Cache / pub-sub temps réel                                  |
 
-Domaine cible : **themoirai.net**
+Domaine cible : **themoirai.net** (alias `moires.byimad.net`)
+
+> **Architecture autonome.** Ce stack ne gère QUE l'app Moires. Le TLS et le
+> routage des domaines sont assurés par l'**edge proxy dédié** (repo `byimad`,
+> `proxy/`), seul service exposé sur `80/443`. Le `caddy` de Moires n'expose
+> aucun port : il rejoint le réseau Docker partagé `web` sur lequel l'edge le
+> route (`themoirai.net`, `moires.byimad.net`). Voir `byimad/DEPLOY.md`.
 
 ---
 
@@ -49,7 +55,10 @@ git clone <URL_DU_REPO> moirai && cd moirai
 cp .env.production.example .env.production
 nano .env.production        # remplir les secrets (voir ci-dessous)
 
-# 3. Lancer
+# 3. Réseau partagé avec l'edge proxy (une fois, si pas déjà créé)
+docker network create web 2>/dev/null || true
+
+# 4. Lancer
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 ```
 
@@ -66,10 +75,10 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 
 ```bash
 docker compose -f docker-compose.prod.yml ps          # tous "Up"
-docker compose -f docker-compose.prod.yml logs -f caddy   # certificat obtenu
+docker compose -f docker-compose.prod.yml logs -f caddy   # sert sur :80 (TLS géré par l'edge)
 docker compose -f docker-compose.prod.yml logs -f api     # "migrate deploy" OK + listen
 ```
-Puis ouvrir **https://themoirai.net**.
+Puis ouvrir **https://themoirai.net** (le certificat est délivré par l'edge proxy).
 
 ---
 
@@ -125,6 +134,6 @@ docker compose -f docker-compose.prod.yml exec postgres \
 
 ## Dépannage
 
-- **Pas de HTTPS / erreur certificat** : le DNS ne pointe pas encore (attendre la propagation) ou proxy Cloudflare en orange. Logs : `docker compose ... logs caddy`.
+- **Pas de HTTPS / erreur certificat** : le certificat est géré par l'**edge proxy** (repo `byimad`), pas par ce stack. Vérifier que le conteneur `moires-web` a bien rejoint le réseau `web` (`docker network inspect web`) et voir les logs de l'edge. Sinon : DNS pas encore propagé, ou proxy Cloudflare en orange.
 - **Login échoue (PAT invalide)** : le PAT est expiré, révoqué, ou n'a pas les portées *Work Items* / *Project and Team*. En régénérer un sur dev.azure.com.
 - **API redémarre en boucle** : souvent `DATABASE_URL` faux (doit viser l'hôte `postgres`). Voir `logs api`.

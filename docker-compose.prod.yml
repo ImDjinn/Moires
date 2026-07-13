@@ -41,22 +41,26 @@ services:
     build:
       context: .
       dockerfile: deploy/Dockerfile.web
+    container_name: moires-web
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
     depends_on:
       - api
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      # Portail byimad.net (statique) : repo byimad cloné à côté de ce repo
-      - ../byimad:/srv/byimad:ro
-      # Releases Parthenon (installeurs + latest.yml), uploadées en scp
-      - /opt/parthenon-releases:/srv/parthenon-releases:ro
       - caddy_data:/data
       - caddy_config:/config
+    networks:
+      # `default` : pour joindre l'API. `web` : réseau partagé sur lequel l'edge
+      # proxy (repo byimad) route themoirai.net / moires.byimad.net vers ce
+      # conteneur. Le TLS est terminé par l'edge, ce Caddy n'expose aucun port.
+      - default
+      - web
 
 volumes:
   pgdata:
   caddy_data:
   caddy_config:
+
+networks:
+  web:
+    external: true
