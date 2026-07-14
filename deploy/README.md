@@ -94,22 +94,21 @@ qui casse les tests ne déploie donc pas. Déclenchable aussi à la main (onglet
 | Secret | Valeur |
 |--------|--------|
 | `DEPLOY_HOST` | IP publique du VPS ou `themoirai.net` — hostname nu, **sans** schéma ni port |
-| `DEPLOY_USER` | utilisateur SSH (ex. `ubuntu` ou `root`) |
-| `DEPLOY_PASSWORD` | mot de passe SSH de cet utilisateur (voir prérequis serveur ci-dessous) |
+| `DEPLOY_USER` | utilisateur SSH (ex. `deploy` ou `ubuntu`) |
+| `DEPLOY_SSH_KEY` | clé **privée** SSH dédiée au déploiement (générer avec `ssh-keygen -t ed25519 -f deploy_key -N ""`) |
 | `DEPLOY_PATH` | chemin du repo cloné (ex. `~/Moires` ou `/root/moirai`) |
 
 > Le port SSH est fixé à `22` dans le workflow ; pour un port custom, éditer
 > `port:` dans `.github/workflows/deploy.yml`.
 
-**Prérequis serveur pour l'auth par mot de passe :**
-- SSH par mot de passe activé : `PasswordAuthentication yes` dans `/etc/ssh/sshd_config`
-  (souvent désactivé par défaut sur les images cloud → sinon la connexion échoue).
+**Prérequis serveur :**
+- La clé **publique** correspondante (`deploy_key.pub`) est ajoutée dans
+  `~/.ssh/authorized_keys` de l'utilisateur de déploiement sur le VPS.
 - L'utilisateur peut lancer Docker sans `sudo` : `sudo usermod -aG docker $USER` puis
   reconnexion (sinon `docker` renvoie *permission denied*).
 
-> Plus sûr : une **clé SSH** dédiée (remplacer `password:` par `key:` dans le
-> workflow et le secret par la clé privée). Le mot de passe reste un secret en
-> clair rejouable — à réserver à un usage simple.
+> Clé dédiée = révocable indépendamment sans rejouabilité d'un mot de passe en
+> clair. Ne pas réutiliser une clé personnelle ; en générer une par repo.
 
 > Le workflow fait `git reset --hard origin/main` : tout changement local non
 > commité sur le VPS est écrasé. `.env.production` est hors git → préservé.
