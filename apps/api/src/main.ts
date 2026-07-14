@@ -5,10 +5,13 @@ import { AppModule } from "./app.module";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
-  // Derrière Caddy (un seul proxy) : req.ip = X-Forwarded-For réel au lieu de
-  // l'IP du conteneur proxy — sinon le rate-limit login partage un unique bucket
+  // Derrière DEUX proxys en prod (edge byimad → Caddy interne) : il faut
+  // remonter 2 sauts dans X-Forwarded-For pour retrouver l'IP client réelle —
+  // sinon req.ip = IP de l'edge, le rate-limit login partage un unique bucket
   // global et 10 échecs cumulés verrouillent la connexion de tout le monde.
-  app.set("trust proxy", 1);
+  // Nécessite trusted_proxies sur le Caddy interne (deploy/Caddyfile), sans quoi
+  // il remplace le X-Forwarded-For posé par l'edge.
+  app.set("trust proxy", 2);
   // Secret requis (validé par le schéma env) : signe les cookies d'identité.
   app.use(cookieParser(process.env.SESSION_SECRET));
   app.enableCors({

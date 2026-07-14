@@ -28,9 +28,9 @@ function makeService() {
     list: jest.fn().mockResolvedValue([]),
     set: jest.fn().mockResolvedValue(undefined),
   };
-  const ado = { getIterations: jest.fn().mockResolvedValue([]), getCapacityDays: jest.fn().mockResolvedValue([]), createWorkItem: jest.fn() };
+  const ado = { getCapacityDays: jest.fn().mockResolvedValue([]), createWorkItem: jest.fn() };
   const mapper = { toTicket: jest.fn() };
-  const sync = { syncInitial: jest.fn() };
+  const sync = { syncInitial: jest.fn(), resolveIterations: jest.fn().mockResolvedValue([]) };
   const writeback = { enqueue: jest.fn() };
   const service = new SessionsService(
     prisma as any,
@@ -68,10 +68,10 @@ const ticket: Ticket = {
 
 describe("SessionsService.createSession", () => {
   it("dérive les itérations du projet, lance la sync initiale et renvoie le snapshot", async () => {
-    const { service, prisma, redis, ado, sync } = makeService();
-    ado.getIterations.mockResolvedValue([
+    const { service, prisma, redis, sync } = makeService();
+    // resolveIterations (SyncService) ne renvoie que les itérations datées, triées.
+    sync.resolveIterations.mockResolvedValue([
       { id: "it1", name: "Sprint 1", path: "P\\S1", startDate: "2026-06-01", finishDate: "2026-06-14" },
-      { id: "it0", name: "Backlog", path: "P", startDate: undefined, finishDate: undefined },
     ]);
     prisma.planningSession.create.mockResolvedValue({ id: "s1" });
     sync.syncInitial.mockResolvedValue({
@@ -90,7 +90,7 @@ describe("SessionsService.createSession", () => {
     expect(snapshot.sessionId).toBe("s1");
     expect(snapshot.tickets).toEqual([ticket]);
     expect(snapshot.teamMembers).toHaveLength(1);
-    // seule l'itération datée est retenue, et exposée dans le snapshot
+    // les itérations résolues sont exposées dans le snapshot
     expect(snapshot.iterations).toEqual([
       { id: "it1", name: "Sprint 1", path: "P\\S1", startDate: "2026-06-01", finishDate: "2026-06-14" },
     ]);
@@ -105,7 +105,7 @@ describe("SessionsService.createSession", () => {
 
   it("amorce en base les capacités ADO des itérations à venir, sans écraser l'existant", async () => {
     const { service, prisma, capacities, ado, sync } = makeService();
-    ado.getIterations.mockResolvedValue([
+    sync.resolveIterations.mockResolvedValue([
       { id: "past", name: "S0", path: "P\\S0", startDate: "2020-01-06", finishDate: "2020-01-17" },
       { id: "next", name: "S1", path: "P\\S1", startDate: "2199-01-04", finishDate: "2199-01-15" },
     ]);
@@ -125,7 +125,7 @@ describe("SessionsService.createSession", () => {
 
   it("ignore les erreurs ADO au seed (capacité non configurée)", async () => {
     const { service, prisma, capacities, ado, sync } = makeService();
-    ado.getIterations.mockResolvedValue([
+    sync.resolveIterations.mockResolvedValue([
       { id: "next", name: "S1", path: "P\\S1", startDate: "2199-01-04", finishDate: "2199-01-15" },
     ]);
     prisma.planningSession.create.mockResolvedValue({ id: "s1" });
@@ -273,20 +273,5 @@ describe("SessionsService.duplicateTicket", () => {
     // Champs dérivés recopiés de la source, ticket persisté dans la session.
     expect(created).toMatchObject({ id: "42", parentId: "f1", epicId: "e1", epicTitle: "Epic" });
     expect(redis.updateTicket).toHaveBeenCalledWith("s1", created);
-  });
-});
-
-describe("SessionsService.getAuditLog", () => {
-  it("renvoie le journal trié par date décroissante", async () => {
-    const { service, prisma } = makeService();
-    prisma.operationsLog.findMany.mockResolvedValue([{ id: "log1" }]);
-
-    const log = await service.getAuditLog("s1");
-
-    expect(log).toEqual([{ id: "log1" }]);
-    expect(prisma.operationsLog.findMany).toHaveBeenCalledWith({
-      where: { sessionId: "s1" },
-      orderBy: { performedAt: "desc" },
-    });
   });
 });

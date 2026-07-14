@@ -42,7 +42,16 @@ function SessionRoot() {
     if (!id) return;
     let cancelled = false;
     api.getSnapshot(id)
-      .then((snap) => { if (!cancelled) applySnapshot(snap); })
+      .then(async (snap) => {
+        // Snapshot vide = cache Redis expiré (TTL 24h) ou session rejointe via
+        // lien d'invitation : un sync ré-hydrate le cache serveur avant de
+        // conclure (à tort) que le projet n'a aucun work item.
+        if (snap.tickets.length === 0) {
+          await api.syncSession(id);
+          snap = await api.getSnapshot(id);
+        }
+        if (!cancelled) applySnapshot(snap);
+      })
       .catch(() => { if (!cancelled) useSessionStore.getState().clear(); })
       .finally(() => { if (!cancelled) setRestoring(false); });
     return () => { cancelled = true; };

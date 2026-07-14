@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
-import { createHash } from "node:crypto";
 import type { Capacity, TeamMember } from "@moirai/shared";
 import { PrismaService } from "./prisma.service";
+import { memberHash } from "./member-hash";
 
 /**
  * Persistance des capacités par projet ADO (et non par session) : elles
@@ -13,17 +13,12 @@ import { PrismaService } from "./prisma.service";
 export class CapacitiesRepo {
   constructor(private prisma: PrismaService) {}
 
-  /** Hash déterministe de l'identifiant ADO — non réversible en base. */
-  private hash(memberId: string): string {
-    return createHash("sha256").update(memberId).digest("hex");
-  }
-
   /**
    * Capacités du projet, remappées vers les membres de l'équipe courante.
    * Les lignes dont le membre n'est plus dans l'équipe sont ignorées.
    */
   async list(adoProjectId: string, teamMembers: TeamMember[]): Promise<Capacity[]> {
-    const byHash = new Map(teamMembers.map((m) => [this.hash(m.id), m.id]));
+    const byHash = new Map(teamMembers.map((m) => [memberHash(m.id), m.id]));
     const rows = await this.prisma.capacity.findMany({ where: { adoProjectId } });
     return rows.flatMap((r) => {
       const memberId = byHash.get(r.memberHash);
@@ -33,16 +28,16 @@ export class CapacitiesRepo {
 
   /** Définit une capacité. 0 = absent (ligne conservée) ; négatif = suppression (retour au défaut). */
   async set(adoProjectId: string, cap: Capacity): Promise<void> {
-    const memberHash = this.hash(cap.memberId);
-    const id = { adoProjectId_iterationPath_memberHash: { adoProjectId, iterationPath: cap.iterationPath, memberHash } };
+    const hash = memberHash(cap.memberId);
+    const id = { adoProjectId_iterationPath_memberHash: { adoProjectId, iterationPath: cap.iterationPath, memberHash: hash } };
     if (cap.storyPoints < 0) {
-      await this.prisma.capacity.deleteMany({ where: { adoProjectId, iterationPath: cap.iterationPath, memberHash } });
+      await this.prisma.capacity.deleteMany({ where: { adoProjectId, iterationPath: cap.iterationPath, memberHash: hash } });
       return;
     }
     await this.prisma.capacity.upsert({
       where: id,
       update: { value: cap.storyPoints },
-      create: { adoProjectId, iterationPath: cap.iterationPath, memberHash, value: cap.storyPoints },
+      create: { adoProjectId, iterationPath: cap.iterationPath, memberHash: hash, value: cap.storyPoints },
     });
   }
 
@@ -56,7 +51,7 @@ export class CapacitiesRepo {
       data: capacities.map((c) => ({
         adoProjectId,
         iterationPath: c.iterationPath,
-        memberHash: this.hash(c.memberId),
+        memberHash: memberHash(c.memberId),
         value: c.storyPoints,
       })),
       skipDuplicates: true,

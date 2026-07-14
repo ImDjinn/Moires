@@ -5,13 +5,10 @@ import { MONTHS_FR, stateProgress } from "./ganttModel";
 const PEOPLE_PALETTE = ["#6366f1", "#14b8a6", "#f97316", "#ec4899", "#0ea5e9", "#8b5cf6", "#22c55e", "#ef4444", "#eab308", "#06b6d4"];
 const EPIC_PALETTE = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9", "#8b5cf6"];
 export const UNASSIGNED_ID = "__unassigned__";
-const UNASSIGNED = UNASSIGNED_ID;
 
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  const ini = (parts[0]?.[0] || "") + (parts[1]?.[0] || "");
-  return (ini || name.slice(0, 2)).toUpperCase();
-}
+/** Initiales (2 max) d'un nom, pour les avatars. "?" si vide. */
+export const initials = (name: string): string =>
+  name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "?";
 
 function shortIter(name: string): string {
   const m = name.match(/(\d+)\s*$/);
@@ -101,8 +98,8 @@ export function buildDataset(
 
   const items: Item[] = snapshot.tickets.map((t) => {
     if (t.areaPath) areaSet.add(t.areaPath);
-    let person = t.assigneeId && memberIds.has(t.assigneeId) ? t.assigneeId : UNASSIGNED;
-    if (person === UNASSIGNED) hasUnassigned = true;
+    let person = t.assigneeId && memberIds.has(t.assigneeId) ? t.assigneeId : UNASSIGNED_ID;
+    if (person === UNASSIGNED_ID) hasUnassigned = true;
     const iter = pathToIndex.has(t.iterationId) ? pathToIndex.get(t.iterationId)! : niter;
     const iso = iters[iter].iso;
     // Placement Daily : colonne de board ADO si dispo (les colonnes ≠ états),
@@ -138,7 +135,7 @@ export function buildDataset(
   });
 
   if (hasUnassigned) {
-    people.push({ id: UNASSIGNED, name: "Non assigné", role: "", initials: "?", color: "#94a3b8", cap: new Array(niter).fill(10), unassigned: true });
+    people.push({ id: UNASSIGNED_ID, name: "Non assigné", role: "", initials: "?", color: "#94a3b8", cap: new Array(niter).fill(10), unassigned: true });
   }
 
   const storyToFeature: Record<string, string> = {};

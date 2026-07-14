@@ -15,25 +15,21 @@ const aliceCookie = signedCookie(
   JSON.stringify({ id: "u1", displayName: "Alice", exp: Date.now() + 3600_000 }),
 );
 
-function makeGateway(createdBy = "u1") {
+function makeGateway(createdBy = "u1", adoOrg = "acme") {
   const operationsHandler = { handle: jest.fn() };
   const presenceHandler = { handleJoin: jest.fn(), handleLeave: jest.fn(), handleUpdate: jest.fn() };
-  const redis = {
-    getParticipants: jest.fn().mockResolvedValue([]),
-  };
   const broadcast = { setServer: jest.fn(), send: jest.fn() };
-  const prisma = { planningSession: { findUnique: jest.fn().mockResolvedValue({ createdBy }) } };
+  const prisma = { planningSession: { findUnique: jest.fn().mockResolvedValue({ createdBy, adoOrg }) } };
   const config = { get: (k: string) => (k === "SESSION_SECRET" ? SECRET : undefined) };
   const gateway = new RealtimeGateway(
     operationsHandler as any,
     presenceHandler as any,
-    redis as any,
     broadcast as any,
     prisma as any,
     config as any,
   );
   gateway.server = {} as any;
-  return { gateway, operationsHandler, presenceHandler, redis, broadcast, prisma };
+  return { gateway, operationsHandler, presenceHandler, broadcast, prisma };
 }
 
 function makeClient(cookie: string | undefined, query: Record<string, string>): any {
@@ -98,12 +94,29 @@ describe("RealtimeGateway", () => {
     expect(client.join).not.toHaveBeenCalled();
   });
 
-  it("déconnecte un utilisateur qui n'est pas membre de la session", async () => {
+  it("déconnecte un utilisateur qui n'est ni créateur ni de la même org", async () => {
     const { gateway, presenceHandler } = makeGateway("someone-else");
-    const client = makeClient(aliceCookie, { sessionId: "s1" });
+    // Alice a un cookie ado_org d'une AUTRE org que celle de la session.
+    const client = makeClient(`${aliceCookie}; ${signedCookie("ado_org", "other-org")}`, { sessionId: "s1" });
     await gateway.handleConnection(client);
     expect(client.disconnect).toHaveBeenCalled();
     expect(presenceHandler.handleJoin).not.toHaveBeenCalled();
+  });
+
+  it("déconnecte un non-créateur sans cookie ado_org", async () => {
+    const { gateway } = makeGateway("someone-else");
+    const client = makeClient(aliceCookie, { sessionId: "s1" });
+    await gateway.handleConnection(client);
+    expect(client.disconnect).toHaveBeenCalled();
+  });
+
+  it("accepte un non-créateur dont l'org validée est celle de la session (lien d'invitation)", async () => {
+    const { gateway, presenceHandler } = makeGateway("someone-else", "acme");
+    const client = makeClient(`${aliceCookie}; ${signedCookie("ado_org", "acme")}`, { sessionId: "s1" });
+    await gateway.handleConnection(client);
+    expect(client.disconnect).not.toHaveBeenCalled();
+    expect(client.join).toHaveBeenCalledWith("session:s1");
+    expect(presenceHandler.handleJoin).toHaveBeenCalled();
   });
 
   it("afterInit enregistre le server dans BroadcastService", () => {

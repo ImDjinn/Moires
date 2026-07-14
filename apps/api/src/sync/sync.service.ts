@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import type { Ticket, TeamMember, SessionSnapshot } from "@moirai/shared";
+import type { Ticket, TeamMember, SessionSnapshot, Iteration } from "@moirai/shared";
 import { PrismaService } from "../database/prisma.service";
 import { RedisService } from "../database/redis.service";
 import { CapacitiesRepo } from "../database/capacities.repo";
@@ -17,6 +17,21 @@ export class SyncService {
     private ado: AdoService,
     private mapper: AdoMapper,
   ) {}
+
+  /** Itérations datées du projet, triées par date de début croissante. */
+  async resolveIterations(org: string, projectId: string, token: string): Promise<Iteration[]> {
+    const raw = await this.ado.getIterations(org, projectId, token);
+    return raw
+      .filter((i) => i.startDate && i.finishDate)
+      .map((i) => ({
+        id: i.id,
+        name: i.name,
+        path: i.path,
+        startDate: i.startDate,
+        finishDate: i.finishDate,
+      }))
+      .sort((a, b) => a.startDate.localeCompare(b.startDate));
+  }
 
   /**
    * Sync des tickets seuls (WIQL + batch + epics) : la partie répétable du
@@ -155,8 +170,8 @@ export class SyncService {
       where: { id: sessionId },
     });
 
-    const iterations = await this.redis.getIterations(sessionId);
-    const teamMembers = await this.redis.getTeamMembers(sessionId);
+    let iterations = await this.redis.getIterations(sessionId);
+    let teamMembers = await this.redis.getTeamMembers(sessionId);
     let tickets: Ticket[];
 
     // Anti-throttling ADO : 1 sync ADO max par fenêtre de 30s par session,
@@ -164,32 +179,54 @@ export class SyncService {
     // Redis, tenu à jour par les ops WebSocket ; un webhook ADO supprime ce
     // créneau (clearSyncSlot) pour forcer un vrai sync au prochain poll.
     if (await this.redis.acquireSyncSlot(sessionId, 30)) {
-      const paths = iterations.map((i) => i.path);
-      const res = await this.syncTickets(
-        sessionId,
-        session.adoOrg,
-        session.adoProjectId,
-        session.adoIterationIds,
-        token,
-        session.areaPaths.length ? session.areaPaths : undefined,
-        paths.length ? paths : undefined,
-      );
-      tickets = res.tickets;
+      if (!iterations.length) {
+        // Cache Redis expiré (TTL 24h) : ré-hydratation complète comme à la
+        // création — sinon la session restaurée paraît vide (tickets [], équipe
+        // et états absents) et le front conclut à tort « aucun work item ».
+        iterations = await this.resolveIterations(session.adoOrg, session.adoProjectId, token);
+        const res = await this.syncInitial(
+          sessionId,
+          session.adoOrg,
+          session.adoProjectId,
+          iterations.map((i) => i.id),
+          token,
+          session.areaPaths.length ? session.areaPaths : undefined,
+          iterations.map((i) => i.path),
+        );
+        tickets = res.tickets;
+        teamMembers = res.teamMembers;
+        await Promise.all([
+          this.redis.setIterations(sessionId, iterations),
+          this.redis.setTeamMembers(sessionId, teamMembers),
+        ]);
+      } else {
+        const paths = iterations.map((i) => i.path);
+        const res = await this.syncTickets(
+          sessionId,
+          session.adoOrg,
+          session.adoProjectId,
+          session.adoIterationIds,
+          token,
+          session.areaPaths.length ? session.areaPaths : undefined,
+          paths.length ? paths : undefined,
+        );
+        tickets = res.tickets;
 
-      // Nouveaux assignés apparus depuis le sync initial — ajoutés depuis les
-      // work items déjà chargés, sans appel ADO supplémentaire.
-      const known = new Set(teamMembers.map((m) => m.id));
-      let grew = false;
-      for (const r of res.rawItems) {
-        const a = r.fields["System.AssignedTo"] as { uniqueName?: string; id?: string; displayName?: string } | undefined;
-        const id = a?.uniqueName || a?.id;
-        if (id && !known.has(id)) {
-          teamMembers.push({ id, displayName: a?.displayName || id, capacityHoursPerDay: 8 });
-          known.add(id);
-          grew = true;
+        // Nouveaux assignés apparus depuis le sync initial — ajoutés depuis les
+        // work items déjà chargés, sans appel ADO supplémentaire.
+        const known = new Set(teamMembers.map((m) => m.id));
+        let grew = false;
+        for (const r of res.rawItems) {
+          const a = r.fields["System.AssignedTo"] as { uniqueName?: string; id?: string; displayName?: string } | undefined;
+          const id = a?.uniqueName || a?.id;
+          if (id && !known.has(id)) {
+            teamMembers.push({ id, displayName: a?.displayName || id, capacityHoursPerDay: 8 });
+            known.add(id);
+            grew = true;
+          }
         }
+        if (grew) await this.redis.setTeamMembers(sessionId, teamMembers);
       }
-      if (grew) await this.redis.setTeamMembers(sessionId, teamMembers);
     } else {
       tickets = await this.redis.getTickets(sessionId);
     }

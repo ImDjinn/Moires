@@ -1,35 +1,29 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from "@nestjs/common";
 import type { Request } from "express";
 import { PrismaService } from "../database/prisma.service";
-import { RedisService } from "../database/redis.service";
 
-// Un utilisateur accède à une session s'il l'a créée (persistant en base) ou
-// s'il en est participant courant (présent dans Redis, ajouté au join WS).
-// ponytail: pas de table de membres — createdBy + participants suffit tant qu'il
-// n'existe pas de flux d'invitation ; ajouter une table `SessionMember` le jour
-// où l'on partage une session à des utilisateurs qui ne l'ont pas créée.
+// Un utilisateur accède à une session s'il l'a créée, ou si son organisation ADO
+// validée (cookie signé ado_org, posé au login) est celle de la session : l'id
+// de session (UUID non devinable) sert de lien d'invitation au sein de l'org.
+// ponytail: pas de table de membres — ajouter une table `SessionMember` le jour
+// où il faut des invitations nominatives plus fines que l'org.
 export async function isSessionMember(
   prisma: PrismaService,
-  redis: RedisService,
   sessionId: string,
   userId: string,
+  org: string | undefined,
 ): Promise<boolean> {
   const session = await prisma.planningSession.findUnique({
     where: { id: sessionId },
-    select: { createdBy: true },
+    select: { createdBy: true, adoOrg: true },
   });
   if (!session) return false;
-  if (session.createdBy === userId) return true;
-  const participants = await redis.getParticipants(sessionId);
-  return participants.includes(userId);
+  return session.createdBy === userId || (!!org && session.adoOrg === org);
 }
 
 @Injectable()
 export class SessionMemberGuard implements CanActivate {
-  constructor(
-    private prisma: PrismaService,
-    private redis: RedisService,
-  ) {}
+  constructor(private prisma: PrismaService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<Request>();
@@ -37,7 +31,8 @@ export class SessionMemberGuard implements CanActivate {
     const raw = req.params?.id;
     const sessionId = typeof raw === "string" ? raw : undefined;
     if (!user?.id || !sessionId) throw new ForbiddenException();
-    if (!(await isSessionMember(this.prisma, this.redis, sessionId, user.id))) {
+    const org = req.signedCookies?.ado_org as string | undefined;
+    if (!(await isSessionMember(this.prisma, sessionId, user.id, org))) {
       throw new ForbiddenException("Not a member of this session");
     }
     return true;

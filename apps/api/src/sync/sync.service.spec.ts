@@ -24,6 +24,7 @@ function makeService() {
     getTickets: jest.fn().mockResolvedValue([]),
     getPresences: jest.fn().mockResolvedValue([]),
     getIterations: jest.fn().mockResolvedValue([]),
+    setIterations: jest.fn().mockResolvedValue(undefined),
     getStates: jest.fn().mockResolvedValue([]),
     setStates: jest.fn().mockResolvedValue(undefined),
     getTeamMembers: jest.fn().mockResolvedValue([]),
@@ -35,6 +36,7 @@ function makeService() {
     queryWorkItemIds: jest.fn(),
     getWorkItemsBatch: jest.fn(),
     getCapacities: jest.fn(),
+    getIterations: jest.fn().mockResolvedValue([]),
     getTeamMembers: jest.fn().mockResolvedValue([]),
     resolveEpics: jest.fn().mockResolvedValue(new Map()),
     getStates: jest.fn().mockResolvedValue([]),
@@ -96,6 +98,10 @@ describe("SyncService.syncIncremental", () => {
       adoIterationIds: ["it1"],
       areaPaths: [],
     });
+    // Cache Redis « chaud » par défaut : itérations présentes → chemin incrémental.
+    ctx.redis.getIterations.mockResolvedValue([
+      { id: "it1", name: "S1", path: "P\\S1", startDate: "2026-06-01", finishDate: "2026-06-14" },
+    ]);
     return ctx;
   }
 
@@ -143,5 +149,26 @@ describe("SyncService.syncIncremental", () => {
     expect(snapshot.teamMembers.map((m) => m.id)).toEqual(["m1", "m2"]);
     expect(redis.setTeamMembers).toHaveBeenCalled();
     expect(ado.getTeamMembers).not.toHaveBeenCalled();
+  });
+
+  it("ré-hydrate depuis ADO quand le cache Redis a expiré (itérations absentes)", async () => {
+    const { service, redis, ado } = withSession();
+    redis.getIterations.mockResolvedValue([]); // TTL 24h dépassé
+    ado.getIterations.mockResolvedValue([
+      { id: "it1", name: "S1", path: "P\\S1", startDate: "2026-06-01", finishDate: "2026-06-14" },
+      { id: "it0", name: "Backlog", path: "P" }, // non datée : filtrée
+    ]);
+    ado.queryWorkItemIds.mockResolvedValue(["1"]);
+    ado.getWorkItemsBatch.mockResolvedValue([raw]);
+    ado.getCapacities.mockResolvedValue([]);
+
+    const snapshot = await service.syncIncremental("s1", "tkn");
+
+    // Sync complet (référentiels inclus), et cache Redis repeuplé.
+    expect(snapshot.tickets).toHaveLength(1);
+    expect(snapshot.iterations.map((i: any) => i.id)).toEqual(["it1"]);
+    expect(ado.getTeamMembers).toHaveBeenCalled();
+    expect(redis.setIterations).toHaveBeenCalledWith("s1", snapshot.iterations);
+    expect(redis.setTeamMembers).toHaveBeenCalled();
   });
 });

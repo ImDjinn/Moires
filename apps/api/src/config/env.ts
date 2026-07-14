@@ -9,6 +9,10 @@ export const envSchema = z.object({
   PORT: z.coerce.number().default(3000),
   FRONTEND_URL: z.string().default("http://localhost:5173"),
   ADO_WEBHOOK_SECRET: z.string().optional(),
+  // Kill-switch du write-back ADO (env de test) : les ops sont appliquées dans
+  // Redis + journalisées, mais jamais écrites vers ADO. Lu via process.env dans
+  // SessionsService (relu à chaque op, pas figé au bootstrap).
+  WRITEBACK_ENABLED: z.enum(["true", "false"]).default("true"),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -10,7 +10,7 @@ import { usePresenceStore } from "../../stores/presence.store";
 import { connectSocket, submitOperation, setRejectionHandler, disconnectSocket } from "../../services/operations.client";
 import { initPresenceListeners, emitPresence } from "../../services/presence.client";
 import { api } from "../../services/rest.client";
-import { buildDataset, UNASSIGNED_ID } from "./adapter";
+import { buildDataset, UNASSIGNED_ID, initials } from "./adapter";
 import { Brand } from "../Brand";
 import { IconEye, IconEyeOff, IconGear, IconCopy, IconSwap, IconLogout, IconUsers, IconCalendar } from "./icons";
 import * as M from "./ganttModel";
@@ -26,8 +26,6 @@ const modLabel = isMac ? "⌘" : "Ctrl";
 // Les curseurs simulés (mock) bougent en continu : coupés si l'utilisateur
 // demande moins d'animations (et pour les captures d'écran).
 const reduceMotion = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-const initialsOf = (n: string) =>
-  n.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "?";
 
 // Préférences d'affichage (champs du panneau ticket par type, champ de charge) — localStorage.
 const PREFS_KEY = "moirai.uiPrefs";
@@ -250,6 +248,17 @@ export function GanttBoard() {
     },
     [setState],
   );
+  // Lien d'invitation : l'id de session (UUID) donne accès à la session aux
+  // utilisateurs connectés de la même organisation ADO.
+  const copyInvite = useCallback(() => {
+    const sid = useSessionStore.getState().snapshot?.sessionId;
+    if (!sid) return;
+    setUserMenuOpen(false);
+    navigator.clipboard
+      .writeText(`${window.location.origin}/?session=${sid}`)
+      .then(() => toast("Lien d'invitation copié — valable pour votre organisation ADO"))
+      .catch(() => toast("Impossible de copier le lien"));
+  }, [toast]);
   const sync = useCallback(
     (msg?: string) => {
       setState({ sync: "syncing" });
@@ -1116,8 +1125,8 @@ export function GanttBoard() {
     }));
     const presenceSrc = realSession
       ? [
-          { initials: initialsOf(user!.displayName), name: `${user!.displayName} (vous)`, color: myColor },
-          ...peers.map((p) => ({ initials: initialsOf(p.displayName), name: p.displayName, color: p.color })),
+          { initials: initials(user!.displayName), name: `${user!.displayName} (vous)`, color: myColor },
+          ...peers.map((p) => ({ initials: initials(p.displayName), name: p.displayName, color: p.color })),
         ]
       : M.presenceList;
     const presence = presenceSrc.map((p, i) => ({
@@ -1696,7 +1705,7 @@ export function GanttBoard() {
               onClick={(e) => { e.stopPropagation(); setUserMenuOpen((o) => !o); }}
               style={C("height:30px;padding:0 10px 0 4px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:7px")}
             >
-              <span style={C(`width:22px;height:22px;border-radius:50%;background:${myColor};color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`)}>{initialsOf(user.displayName)}</span>
+              <span style={C(`width:22px;height:22px;border-radius:50%;background:${myColor};color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`)}>{initials(user.displayName)}</span>
               <span style={{ maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.displayName}</span>
               <span style={C("opacity:.5;font-size:9px")}>▾</span>
             </button>
@@ -1709,6 +1718,11 @@ export function GanttBoard() {
                   <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>{user.displayName}</div>
                 </div>
                 <div style={C("height:1px;background:var(--line,#e9e9ef);margin:2px 0")} />
+                {realSession && (
+                  <button onClick={copyInvite} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:7px;background:transparent;color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
+                    <span style={C("opacity:.7;display:flex")}><IconUsers size={13} /></span> Copier le lien d'invitation
+                  </button>
+                )}
                 <button onClick={exitSession} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:7px;background:transparent;color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
                   <span style={C("opacity:.7;display:flex")}><IconSwap size={13} /></span> Changer de projet / d'organisation
                 </button>

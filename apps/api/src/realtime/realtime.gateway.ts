@@ -12,7 +12,6 @@ import { Server, Socket } from "socket.io";
 import { ConfigService } from "@nestjs/config";
 import type { Operation, PresenceState } from "@moirai/shared";
 import { ROOM } from "@moirai/shared";
-import { RedisService } from "../database/redis.service";
 import { PrismaService } from "../database/prisma.service";
 import { readSignedCookie } from "../auth/cookies";
 import { isSessionMember } from "../sessions/session-access";
@@ -32,7 +31,6 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
   constructor(
     private operationsHandler: OperationsHandler,
     private presenceHandler: PresenceHandler,
-    private redis: RedisService,
     private broadcast: BroadcastService,
     private prisma: PrismaService,
     private config: ConfigService,
@@ -63,7 +61,10 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
       client.disconnect();
       return;
     }
-    if (!(await isSessionMember(this.prisma, this.redis, sessionId, identity.id))) {
+    // Même règle d'accès que le SessionMemberGuard HTTP : créateur, ou même org
+    // ADO (cookie signé ado_org) que la session.
+    const org = readSignedCookie(client.handshake.headers.cookie, "ado_org", secret);
+    if (!(await isSessionMember(this.prisma, sessionId, identity.id, org))) {
       client.disconnect();
       return;
     }

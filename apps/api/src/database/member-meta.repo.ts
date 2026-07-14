@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
-import { createHash } from "node:crypto";
 import type { MemberMeta, TeamMember } from "@moirai/shared";
 import { PrismaService } from "./prisma.service";
+import { memberHash } from "./member-hash";
 
 /**
  * Poste/rôle par membre, persistés par projet ADO (pas par session) — survivent
@@ -13,13 +13,9 @@ import { PrismaService } from "./prisma.service";
 export class MemberMetaRepo {
   constructor(private prisma: PrismaService) {}
 
-  private hash(memberId: string): string {
-    return createHash("sha256").update(memberId).digest("hex");
-  }
-
   /** Métadonnées du projet, remappées vers les membres de l'équipe courante. */
   async list(adoProjectId: string, teamMembers: TeamMember[]): Promise<MemberMeta[]> {
-    const byHash = new Map(teamMembers.map((m) => [this.hash(m.id), m.id]));
+    const byHash = new Map(teamMembers.map((m) => [memberHash(m.id), m.id]));
     const rows = await this.prisma.memberMeta.findMany({ where: { adoProjectId } });
     return rows.flatMap((r) => {
       const memberId = byHash.get(r.memberHash);
@@ -29,11 +25,11 @@ export class MemberMetaRepo {
 
   /** Définit le poste/rôle d'un membre. */
   async set(adoProjectId: string, meta: MemberMeta): Promise<void> {
-    const memberHash = this.hash(meta.memberId);
+    const hash = memberHash(meta.memberId);
     await this.prisma.memberMeta.upsert({
-      where: { adoProjectId_memberHash: { adoProjectId, memberHash } },
+      where: { adoProjectId_memberHash: { adoProjectId, memberHash: hash } },
       update: { poste: meta.poste, role: meta.role },
-      create: { adoProjectId, memberHash, poste: meta.poste, role: meta.role },
+      create: { adoProjectId, memberHash: hash, poste: meta.poste, role: meta.role },
     });
   }
 }

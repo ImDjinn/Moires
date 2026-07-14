@@ -5,7 +5,7 @@ import { workingDays } from "../../utils/dates";
 
 export type Theme = "light" | "dark";
 export type Level = "epic" | "feature" | "story" | "task";
-export type Board = "sprint" | "daily" | "release";
+type Board = "sprint" | "daily" | "release";
 
 export interface Person {
   id: string;
@@ -23,7 +23,7 @@ export interface Person {
 }
 
 /** Repli ultime si la période du sprint est inconnue (backlog…). */
-export const DEFAULT_CAP = 10;
+const DEFAULT_CAP = 10;
 /** Capacité par défaut d'un sprint = ses jours ouvrés (lun–ven). */
 export const iterCap = (iter: number): number => {
   const it = iters[iter];
@@ -80,7 +80,7 @@ export interface Milestone {
   color: string;
 }
 
-export interface RowPin {
+interface RowPin {
   id: string;
   rowKey: string;
   iter: number;
@@ -141,22 +141,22 @@ export interface State {
 // ---- Constantes de layout ----
 export const LEFT = 320;
 export const HEADER = 92;
-export const BARH = 76;
-export const LANEGAP = 10;
+const BARH = 76;
+const LANEGAP = 10;
 export const TOPPAD = 14;
 export const BANNER = 24;
-export const GAPBELOW = 8;
-export const BOTPAD = 12;
+const GAPBELOW = 8;
+const BOTPAD = 12;
 export const MINCOL = 252;
 export let CURRENT = 1;
 export const RELCOL = 184;
 export const RELBAND = 40;
-export const RELPARENT = 58;
-export const CUS = 58;
-export const CTASK = 44;
-export const CGAP = 7;
-export const BPAD = 9;
-export const RELSPAN = 9;
+const RELPARENT = 58;
+const CUS = 58;
+const CTASK = 44;
+const CGAP = 7;
+const BPAD = 9;
+const RELSPAN = 9;
 
 export let NITER = 12;
 export let BACKLOG = 12;
@@ -276,8 +276,8 @@ export let epics: Record<string, { label: string; short: string; color: string }
   "EP-400": { label: "Qualité & release", short: "Qualité", color: "#CC79A7" },
   "EP-500": { label: "Infrastructure & résilience", short: "Infra", color: "#E69F00" },
 };
-export const featureEpic: Record<string, string> = { "ADO-1200": "EP-200", "ADO-1201": "EP-100", "ADO-1202": "EP-300", "ADO-1203": "EP-400", "ADO-1209": "EP-500" };
-export const featureArea: Record<string, string> = {
+const featureEpic: Record<string, string> = { "ADO-1200": "EP-200", "ADO-1201": "EP-100", "ADO-1202": "EP-300", "ADO-1203": "EP-400", "ADO-1209": "EP-500" };
+const featureArea: Record<string, string> = {
   "ADO-1200": "Platform\\Authentification",
   "ADO-1201": "Platform\\Frontend",
   "ADO-1202": "Platform\\Backend",
@@ -285,7 +285,7 @@ export const featureArea: Record<string, string> = {
   "ADO-1209": "Platform\\Infra",
 };
 export let areaOptions = ["Platform\\Authentification", "Platform\\Frontend", "Platform\\Backend", "Platform\\QA", "Platform\\Infra", "Platform\\Shared"];
-export let DAILY_STATES = ["New", "Active", "Resolved", "Closed"];
+let DAILY_STATES = ["New", "Active", "Resolved", "Closed"];
 // Colonnes Daily par niveau (Epic/Feature/US/Tâche) — vide en mock (repli sur DAILY_STATES).
 let dailyStatesByLevel: Record<string, string[]> = {};
 /** Colonnes Daily pour un niveau donné, dans l'ordre du board ADO. */
@@ -304,8 +304,8 @@ let stateColumn: Record<string, Record<string, string>> = {};
 export const columnForState = (level: string, state: string): string | undefined => stateColumn[level]?.[state];
 /** Ticket "fermé" : catégorie ADO Completed (colonne "Done", "Closed"…). */
 export const isDone = (s: string) => (stateCat[s] ? stateCat[s] === "Completed" : s === "Closed");
-export const roleColors: Record<string, string> = { "Backend Lead": "#0072B2", Frontend: "#009E73", Backend: "#56B4E9", "QA / Tests": "#CC79A7", DevOps: "#E69F00" };
-export const typeColors: Record<string, string> = { epic: "#7c3aed", feature: "#0072B2", story: "#009E73", bug: "#D55E00", spike: "#CC79A7", task: "#6b7280" };
+const roleColors: Record<string, string> = { "Backend Lead": "#0072B2", Frontend: "#009E73", Backend: "#56B4E9", "QA / Tests": "#CC79A7", DevOps: "#E69F00" };
+const typeColors: Record<string, string> = { epic: "#7c3aed", feature: "#0072B2", story: "#009E73", bug: "#D55E00", spike: "#CC79A7", task: "#6b7280" };
 
 export const presenceList: Presence[] = [
   { initials: "TM", name: "Toi (Théo Marchand)", color: "#5b5bd6" },
@@ -327,18 +327,18 @@ defs.forEach((r) => {
   titleOf[r[0]] = r[3];
 });
 
-export function featureOf(it: Item): string {
+function featureOf(it: Item): string {
   return it.level === "feature" ? it.id : it.level === "story" ? (it.parent as string) : storyToFeature[it.parent as string];
 }
 export function epicOf(it: Item): string {
   // Données réelles : epicId porté par le ticket ; mock : dérivé via featureEpic.
   return (it.epicId ?? featureEpic[featureOf(it)]) as string;
 }
-export function areaInit(it: Item): string {
+function areaInit(it: Item): string {
   return featureArea[featureOf(it)] || "Platform\\Shared";
 }
 
-export function buildInitialItems(): Item[] {
+function buildInitialItems(): Item[] {
   const items = defs.map((r) => {
     const it: Item = {
       id: r[0], ado: r[0], level: r[1], type: r[2], title: r[3], points: r[4], effortDays: r[5],
@@ -439,7 +439,7 @@ export const stateProgress = (s: string) => {
   // Mock / états inconnus : heuristique historique.
   return s === "New" ? 0 : s === "Active" ? 0.5 : 1;
 };
-export const fmtDate = (iso: string) => {
+const fmtDate = (iso: string) => {
   if (!iso) return "";
   const [, m, dd] = iso.split("-").map(Number);
   return dd + " " + MONTHS_FR[m - 1];
@@ -466,13 +466,13 @@ export function hashColor(s: string, theme: Theme): string {
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
   return `hsl(${h % 360} 58% ${theme === "dark" ? 60 : 48}%)`;
 }
-export interface Toned {
+interface Toned {
   bg: string;
   border: string;
   text: string;
   accent: string;
 }
-export function toned(base: string, theme: Theme): Toned {
+function toned(base: string, theme: Theme): Toned {
   return theme === "dark"
     ? { bg: mix(base, "#161619", 0.76), border: mix(base, "#161619", 0.5), text: mix(base, "#ffffff", 0.4), accent: mix(base, "#ffffff", 0.12) }
     : { bg: mix(base, "#ffffff", 0.9), border: mix(base, "#ffffff", 0.72), text: mix(base, "#000000", 0.28), accent: base };
@@ -483,7 +483,7 @@ export function colorForBar(it: Item, colorMode: State["colorMode"], theme: Them
   if (colorMode === "epic") return toned((epics[epicOf(it)] || {}).color || "#888", theme);
   return colorMap(it.type, theme);
 }
-export function loadColor(by: string, key: string, theme: Theme): string {
+function loadColor(by: string, key: string, theme: Theme): string {
   if (by === "none") return "#5b5bd6"; // Global : barre unique, couleur accent
   if (by === "person") {
     const p = people.find((x) => x.id === key);
@@ -493,7 +493,7 @@ export function loadColor(by: string, key: string, theme: Theme): string {
   // (postes saisis librement dans le panneau utilisateur).
   return roleColors[key] || hashColor(key, theme);
 }
-export function loadKeyLabel(by: string, key: string): string {
+function loadKeyLabel(by: string, key: string): string {
   if (by === "none") return "Charge totale";
   if (by === "person") {
     const p = people.find((x) => x.id === key);
@@ -521,12 +521,12 @@ export function isOpen(s: State, key: string): boolean {
   return false;
 }
 
-export const storiesOfFeature = (s: State, fid: string) => s.items.filter((x) => x.level === "story" && x.parent === fid);
-export const storiesOfArea = (s: State, area: string) => {
+const storiesOfFeature = (s: State, fid: string) => s.items.filter((x) => x.level === "story" && x.parent === fid);
+const storiesOfArea = (s: State, area: string) => {
   const fids = s.items.filter((f) => f.level === "feature" && f.area === area).map((f) => f.id);
   return s.items.filter((x) => x.level === "story" && fids.includes(x.parent as string));
 };
-export function derivedRange(us: Item[]): [number, number] | null {
+function derivedRange(us: Item[]): [number, number] | null {
   let mn = 99, mx = -1;
   us.forEach((sx) => {
     if (sx.iter < NITER) {
@@ -542,7 +542,7 @@ export function derivedRange(us: Item[]): [number, number] | null {
  * `which='start'` : premier sprint finissant à/après la date.
  * `which='end'` : dernier sprint commençant à/avant la date.
  */
-export function sprintIndexForDate(iso: string, which: "start" | "end"): number | null {
+function sprintIndexForDate(iso: string, which: "start" | "end"): number | null {
   const d = iso.slice(0, 10);
   if (!d) return null;
   if (which === "start") {
@@ -568,11 +568,11 @@ export function featRange(s: State, f: Item): [number, number] {
   return d || [f.iter, f.iter];
 }
 
-export interface FeatureNode {
+interface FeatureNode {
   item: Item;
   stories: { item: Item; tasks: { item: Item }[] }[];
 }
-export interface TreeNode {
+interface TreeNode {
   epicId: string | null;
   epic: Item | null;
   features: FeatureNode[];
@@ -593,7 +593,7 @@ function statusBucket(range: [number, number] | null): number {
 }
 
 /** Intervalle d'un Epic : ses dates Start/Target sinon dérivé des US descendantes. */
-export function epicRange(epic: Item | null, features: FeatureNode[]): [number, number] | null {
+function epicRange(epic: Item | null, features: FeatureNode[]): [number, number] | null {
   if (epic && epic.hasDateRange && epic.startISO && epic.endISO) {
     const a = sprintIndexForDate(epic.startISO, "start");
     const b = sprintIndexForDate(epic.endISO, "end");
@@ -659,7 +659,7 @@ export function parentCharge(s: State, usList: Item[]) {
   return { per, max, total, minIter, maxIter, startISO, endISO };
 }
 
-export function personLoad(s: State): Record<string, number> {
+function personLoad(s: State): Record<string, number> {
   const daily = s.board === "daily";
   const cols = daily ? [CURRENT] : visibleCols(s).filter((c) => c < NITER);
   const L: Record<string, number> = {};
@@ -674,7 +674,7 @@ export function personLoad(s: State): Record<string, number> {
 }
 
 /** Écart absolu |charge − capacité| par personne, sur les itérations visibles (Daily : la courante). */
-export function personGap(s: State): Record<string, number> {
+function personGap(s: State): Record<string, number> {
   const L = personLoad(s);
   const cols = s.board === "daily" ? [CURRENT] : visibleCols(s).filter((c) => c < NITER);
   const G: Record<string, number> = {};
@@ -689,7 +689,7 @@ let _randOrder: string[] | null = null;
 export function resetRandOrder() {
   _randOrder = null;
 }
-export function sortedPeople(s: State, list: Person[]): Person[] {
+function sortedPeople(s: State, list: Person[]): Person[] {
   const sort = s.sort;
   const a = list.slice();
   if (sort === "az" || sort === "za") {
@@ -711,7 +711,7 @@ export function sortedPeople(s: State, list: Person[]): Person[] {
 }
 
 // ---- layout ----
-export interface LayoutRow {
+interface LayoutRow {
   personId?: string;
   top: number;
   height: number;
@@ -730,14 +730,14 @@ export interface LayoutRow {
   /** Intervalle [sprintDébut, sprintFin] de l'Epic (pour la barre + statut). */
   range?: [number, number] | null;
 }
-export interface LayoutBar {
+interface LayoutBar {
   item: Item;
   left: number;
   top: number;
   width: number;
   height: number;
 }
-export interface LayoutCard {
+interface LayoutCard {
   item: Item;
   level: Level;
   ci: number;
@@ -748,7 +748,7 @@ export interface LayoutCard {
   hasChildren?: boolean;
   open?: boolean;
 }
-export interface Layout {
+interface Layout {
   rows: LayoutRow[];
   bars: LayoutBar[];
   cards?: LayoutCard[];
@@ -756,7 +756,7 @@ export interface Layout {
   cols?: number[];
 }
 
-export function releaseLayout(s: State, COLW: number): Layout {
+function releaseLayout(s: State, COLW: number): Layout {
   const cols = relCols(), rows: LayoutRow[] = [], cards: LayoutCard[] = [];
   let y = HEADER;
   const tree = buildTree(s);
@@ -859,7 +859,7 @@ export function hiddenStoryIds(s: State): Set<string> {
 }
 
 /** Capacité totale d'un sprint (personnes visibles, hors "Non assigné"). */
-export const sprintCap = (s: State, real: number) =>
+const sprintCap = (s: State, real: number) =>
   people.filter((p) => !s.hidden[p.id] && !p.unassigned).reduce((sum, p) => sum + capOf(p, real), 0);
 
 /**

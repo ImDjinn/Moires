@@ -90,7 +90,7 @@ export function SessionLobby() {
         </div>
 
         {error && (
-          <div style={{
+          <div role="alert" style={{
             padding: "10px 12px",
             background: "rgba(239, 68, 68, 0.1)",
             border: "1px solid var(--color-error)",

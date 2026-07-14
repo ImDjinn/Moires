@@ -11,8 +11,6 @@ vi.mock("./services/rest.client", () => ({
   api: {
     getOrganizations: vi.fn().mockResolvedValue({ organizations: [], selected: null }),
     getProjects: vi.fn().mockResolvedValue([]),
-    getIterations: vi.fn().mockResolvedValue([]),
-    getAreas: vi.fn().mockResolvedValue([]),
     createSession: vi.fn(),
     getAnnotations: vi.fn().mockResolvedValue({ milestones: [], rowPins: [] }),
     syncSession: vi.fn().mockResolvedValue({ tickets: [] }),

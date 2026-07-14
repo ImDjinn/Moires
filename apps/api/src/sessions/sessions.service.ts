@@ -31,7 +31,7 @@ export class SessionsService {
   ): Promise<SessionSnapshot> {
     // Le lobby ne choisit plus les itérations : on charge toutes les itérations
     // datées du projet, dans l'ordre chronologique.
-    const iterations = await this.resolveIterations(org, dto.adoProjectId, token);
+    const iterations = await this.syncService.resolveIterations(org, dto.adoProjectId, token);
     const iterationIds = iterations.map((i) => i.id);
 
     const session = await this.prisma.planningSession.create({
@@ -106,25 +106,6 @@ export class SessionsService {
       }),
     );
     await this.capacities.seed(projectId, perIter.flat());
-  }
-
-  /** Itérations datées du projet, triées par date de début croissante. */
-  private async resolveIterations(
-    org: string,
-    projectId: string,
-    token: string,
-  ): Promise<Iteration[]> {
-    const raw = await this.ado.getIterations(org, projectId, token);
-    return raw
-      .filter((i) => i.startDate && i.finishDate)
-      .map((i) => ({
-        id: i.id,
-        name: i.name,
-        path: i.path,
-        startDate: i.startDate,
-        finishDate: i.finishDate,
-      }))
-      .sort((a, b) => a.startDate.localeCompare(b.startDate));
   }
 
   async getSnapshot(sessionId: string): Promise<SessionSnapshot> {
@@ -239,12 +220,5 @@ export class SessionsService {
     await this.memberMeta.set(session.adoProjectId, meta);
     const teamMembers = await this.redis.getTeamMembers(sessionId);
     return this.memberMeta.list(session.adoProjectId, teamMembers);
-  }
-
-  async getAuditLog(sessionId: string) {
-    return this.prisma.operationsLog.findMany({
-      where: { sessionId },
-      orderBy: { performedAt: "desc" },
-    });
   }
 }

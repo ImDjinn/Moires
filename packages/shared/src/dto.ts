@@ -1,6 +1,5 @@
 import type { Ticket } from "./ticket";
 import type { PresenceState } from "./presence";
-import type { OperationField } from "./operation";
 
 export interface CreateSessionDto {
   adoProjectId: string;
@@ -84,15 +83,4 @@ export interface RowPin {
   iter: number;
   title: string;
   color: string;
-}
-
-export interface AuditEntry {
-  id: string;
-  ticketId: string;
-  field: OperationField;
-  oldValue: unknown;
-  newValue: unknown;
-  performedBy: string;
-  performedAt: string;
-  adoSyncStatus: "pending" | "synced" | "failed";
 }
