@@ -1,13 +1,12 @@
-// Logo Moirai : triquetra — trois fils entrelacés, les trois Moirai tissant le fil de la vie.
+// Logo Moires : le fuseau — trois fils convergeant au centre, les Moirai filant la vie.
 export function MoiraiMark({ size = 26 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden>
-      <g stroke="currentColor" strokeWidth={8} strokeLinejoin="round" strokeLinecap="round">
-        <path d="M50 16 A34 34 0 0 1 79.44 67 A34 34 0 0 1 50 16 Z" />
-        <path d="M79.44 67 A34 34 0 0 1 20.56 67 A34 34 0 0 1 79.44 67 Z" />
-        <path d="M20.56 67 A34 34 0 0 1 50 16 A34 34 0 0 1 20.56 67 Z" />
-        <circle cx="50" cy="50" r="4.5" fill="currentColor" stroke="none" />
+    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" aria-hidden>
+      <g stroke="currentColor" strokeWidth={3.5} strokeLinecap="round" opacity={0.35}>
+        <circle cx="32" cy="32" r="26" />
+        <path d="M 32 6 C 30 16, 34 24, 32 32 M 9.5 45 C 18 42, 25 38, 32 32 M 54.5 45 C 46 42, 39 38, 32 32" />
       </g>
+      <circle cx="32" cy="32" r="5" fill="currentColor" />
     </svg>
   );
 }
