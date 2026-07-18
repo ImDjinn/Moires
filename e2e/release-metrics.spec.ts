@@ -11,6 +11,28 @@ const ticket = (t: Record<string, unknown>) => ({
   ...t,
 });
 
+// Sprints ancrés sur « aujourd'hui » : today tombe toujours dans le Sprint 2
+// (lundi→2e vendredi = 10 jours ouvrés), donc CURRENT = 1 quelle que soit la
+// date d'exécution en CI. Des dates fixes rendaient le test caduc dès que today
+// dépassait le sprint codé en dur.
+function sprints() {
+  const now = new Date();
+  const monday = new Date(now);
+  monday.setUTCDate(now.getUTCDate() - ((now.getUTCDay() + 6) % 7)); // lundi de la semaine courante
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  const shift = (base: Date, days: number) => {
+    const d = new Date(base);
+    d.setUTCDate(base.getUTCDate() + days);
+    return d;
+  };
+  // S2 (k=1) commence ce lundi ; chaque sprint dure 2 semaines (10 jours ouvrés).
+  return [0, 1, 2, 3].map((k) => {
+    const start = shift(monday, (k - 1) * 14);
+    return { startDate: iso(start), finishDate: iso(shift(start, 11)) };
+  });
+}
+const sd = sprints();
+
 const snapshot = {
   sessionId: "s1",
   tickets: [
@@ -30,10 +52,10 @@ const snapshot = {
     { id: "m2", displayName: "Bob", capacityHoursPerDay: 8 },
   ],
   iterations: [
-    { id: "1", name: "Sprint 1", path: "P\\S1", startDate: "2026-06-22", finishDate: "2026-07-03" },
-    { id: "2", name: "Sprint 2", path: "P\\S2", startDate: "2026-07-06", finishDate: "2026-07-17" },
-    { id: "3", name: "Sprint 3", path: "P\\S3", startDate: "2026-07-20", finishDate: "2026-07-31" },
-    { id: "4", name: "Sprint 4", path: "P\\S4", startDate: "2026-08-03", finishDate: "2026-08-14" },
+    { id: "1", name: "Sprint 1", path: "P\\S1", ...sd[0] },
+    { id: "2", name: "Sprint 2", path: "P\\S2", ...sd[1] },
+    { id: "3", name: "Sprint 3", path: "P\\S3", ...sd[2] },
+    { id: "4", name: "Sprint 4", path: "P\\S4", ...sd[3] },
   ],
   capacities: [],
 };

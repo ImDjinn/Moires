@@ -44,6 +44,12 @@ export class SessionsController {
     return this.syncService.syncIncremental(id, await this.getToken(user.id));
   }
 
+  @Get(":id/audit-log")
+  @UseGuards(SessionMemberGuard)
+  getAuditLog(@Param("id") id: string) {
+    return this.sessions.getAuditLog(id);
+  }
+
   @Post(":id/tickets/:ticketId/duplicate")
   @UseGuards(SessionMemberGuard)
   async duplicateTicket(

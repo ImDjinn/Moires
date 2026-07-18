@@ -108,6 +108,14 @@ export class SessionsService {
     await this.capacities.seed(projectId, perIter.flat());
   }
 
+  /** Journal d'opérations de la session (le plus récent d'abord). */
+  getAuditLog(sessionId: string) {
+    return this.prisma.operationsLog.findMany({
+      where: { sessionId },
+      orderBy: { performedAt: "desc" },
+    });
+  }
+
   async getSnapshot(sessionId: string): Promise<SessionSnapshot> {
     const [tickets, presences, iterations, teamMembers, states, session] = await Promise.all([
       this.redis.getTickets(sessionId),
