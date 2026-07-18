@@ -1,12 +1,14 @@
-// Logo Moires : le fuseau — trois fils convergeant au centre, les Moirai filant la vie.
+// Logo Moires « Le Fuseau » (Claude Design) : trois anneaux de fil enroulé, le fil s'échappant en haut à droite.
 export function MoiraiMark({ size = 26 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" fill="none" aria-hidden>
-      <g stroke="currentColor" strokeWidth={3.5} strokeLinecap="round" opacity={0.35}>
-        <circle cx="32" cy="32" r="26" />
-        <path d="M 32 6 C 30 16, 34 24, 32 32 M 9.5 45 C 18 42, 25 38, 32 32 M 54.5 45 C 46 42, 39 38, 32 32" />
+      <g stroke="currentColor" strokeWidth={3.5} strokeLinecap="round" strokeDasharray="78 22" opacity={0.35}>
+        <circle cx="32" cy="32" r="25" pathLength={100} transform="rotate(-30 32 32)" />
+        <circle cx="32" cy="32" r="17" pathLength={100} transform="rotate(110 32 32)" />
+        <circle cx="32" cy="32" r="9" pathLength={100} transform="rotate(250 32 32)" />
       </g>
-      <circle cx="32" cy="32" r="5" fill="currentColor" />
+      <circle cx="32" cy="32" r="3.5" fill="currentColor" />
+      <path d="M 53.6 19.5 L 61 12" stroke="currentColor" strokeWidth={3.5} strokeLinecap="round" />
     </svg>
   );
 }
