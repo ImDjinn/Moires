@@ -141,6 +141,8 @@ export function GanttBoard() {
   const [annotAnchor, setAnnotAnchor] = useState<{ x: number; y: number } | null>(null);
   // Panneau personne (capacités par itération) — exclusif du panneau ticket.
   const [personSel, setPersonSel] = useState<string | null>(null);
+  // Matrice de capacité : tous les membres × itérations, en overlay (saisie rapide).
+  const [capMatrixOpen, setCapMatrixOpen] = useState(false);
   useEffect(() => {
     if (state.selectedId) setPersonSel(null);
   }, [state.selectedId]);
@@ -778,6 +780,7 @@ export function GanttBoard() {
       // Échap : ferme tout panneau/popover/sélection ouvert (même depuis un champ).
       if (e.key === "Escape") {
         setPersonSel(null);
+        setCapMatrixOpen(false);
         setUserMenuOpen(false);
         setAnnotAnchor(null);
         setCapEdit(null);
@@ -1290,6 +1293,49 @@ export function GanttBoard() {
         }
       : null;
 
+    // Matrice de capacité : membres × itérations (courante et suivantes, comme le
+    // panneau personne — les sprints passés ne s'éditent plus).
+    const capMatrix = capMatrixOpen
+      ? (() => {
+          const idx = M.iters.slice(M.CURRENT, M.NITER).map((_, k) => M.CURRENT + k);
+          const members = M.people.filter((p) => !p.unassigned);
+          return {
+            cols: idx.map((i) => ({ key: i, label: M.iters[i].label, dates: M.iters[i].dates, current: i === M.CURRENT })),
+            rows: members.map((p) => ({
+              key: p.id, name: p.name, poste: p.role, initials: p.initials,
+              avatarStyle: `width:26px;height:26px;border-radius:50%;background:${p.color};color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
+              cells: idx.map((i) => {
+                const used = capUsed[p.id]?.[i] || 0, cap = M.capOf(p, i), pct = cap ? used / cap : used;
+                return {
+                  key: i, cap,
+                  subText: `${M.fmt(used)}j · ${(pct > 1 ? "⚠ " : "") + Math.round(pct * 100)}%`,
+                  subStyle: `font-size:10px;font-family:${mono};color:${pct > 1 ? "var(--color-error,#ef4444)" : "var(--faint,#abacb6)"}`,
+                  title: `${p.name} — ${M.iters[i].label} : charge ${M.fmt(used)} (${loadLabel}) / capacité ${M.fmt(cap)} jours ouvrés${loadNote}`,
+                  // Même convention que le panneau personne : commit au blur.
+                  onCommit: (e: React.FocusEvent<HTMLInputElement>) => {
+                    const n = parseFloat(e.target.value.replace(",", "."));
+                    const val = Number.isFinite(n) ? Math.max(0, n) : cap;
+                    e.target.value = String(val);
+                    if (val !== cap) commitCapacity(p.id, i, val);
+                  },
+                };
+              }),
+            })),
+            totals: idx.map((i) => {
+              const cap = members.reduce((s, p) => s + M.capOf(p, i), 0);
+              const used = members.reduce((s, p) => s + (capUsed[p.id]?.[i] || 0), 0);
+              const pct = cap ? used / cap : used;
+              return {
+                key: i, text: `${M.fmt(used)} / ${M.fmt(cap)}j`,
+                pctText: (pct > 1 ? "⚠ " : "") + Math.round(pct * 100) + "%",
+                pctStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${pct > 1 ? "var(--color-error,#ef4444)" : M.capColor(pct)}`,
+              };
+            }),
+            onClose: () => setCapMatrixOpen(false),
+          };
+        })()
+      : null;
+
     // release-only
     type TreeRow = Record<string, unknown>;
     let treeRows: TreeRow[] = [], loadBand: Record<string, unknown>[] = [], milestones: Record<string, unknown>[] = [],
@@ -1645,7 +1691,8 @@ export function GanttBoard() {
       onScrollRef, onCanvasRef,
       onBgClick: () => { setPersonSel(null); setUserMenuOpen(false); setState({ selectedId: null, rangeOpen: false, peopleOpen: false, prefsOpen: false }); },
       stop: (e: React.MouseEvent) => e.stopPropagation(),
-      selected: !!item, insp, personPanel, toast: state.toast,
+      selected: !!item, insp, personPanel, capMatrix, toast: state.toast,
+      onCapMatrixToggle: (e: React.MouseEvent) => { e.stopPropagation(); setCapMatrixOpen((o) => !o); setState({ peopleOpen: false, rangeOpen: false, prefsOpen: false }); },
       labelCss: "font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6);margin-bottom:7px",
       selectCss: "width:100%;height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;outline:none",
       inputCss: `width:100%;height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:13px;font-family:${mono};outline:none;box-sizing:border-box`,
@@ -1795,6 +1842,7 @@ export function GanttBoard() {
         <button onClick={v.onPeopleToggle} style={C("height:30px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;flex:0 0 auto")}>
           <span style={C("opacity:.7;display:flex")}><IconUsers size={13} /></span> Personnes {v.peopleLabel} <span style={C("opacity:.5;font-size:9px")}>▾</span>
         </button>
+        <button onClick={v.onCapMatrixToggle} title="Matrice de capacité — tous les membres × itérations" style={C("height:30px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;flex:0 0 auto")}>⊞ Capacités</button>
         {v.isRelease && (
           <>
             <div style={C("width:1px;height:20px;background:var(--line,#e9e9ef)")} />
@@ -2390,6 +2438,69 @@ export function GanttBoard() {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Matrice de capacité — collaborateurs × itérations */}
+      {v.capMatrix && (
+        <>
+          <div onClick={v.capMatrix.onClose} style={C("position:absolute;inset:0;z-index:84;background:rgba(20,20,40,.25)")} />
+          <div onClick={v.stop} ref={focusPopover} tabIndex={-1} style={C("position:absolute;left:50%;top:76px;transform:translateX(-50%);max-width:calc(100% - 56px);max-height:calc(100% - 132px);background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:12px;box-shadow:0 18px 50px rgba(20,20,40,.22);z-index:85;display:flex;flex-direction:column;animation:ggpop .16s ease;outline:none")}>
+            <div style={C("padding:14px 18px 12px;border-bottom:1px solid var(--line2,#f0f0f4);display:flex;align-items:center;gap:12px;flex:0 0 auto")}>
+              <div style={C("font-size:14px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap")}>Matrice de capacité</div>
+              <div style={C("font-size:11px;color:var(--muted,#86868f);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>capacité en jours ouvrés par membre et par itération · Tab pour passer à la cellule suivante</div>
+              <div style={{ flex: 1 }} />
+              <button onClick={v.capMatrix.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:6px;border:none;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;font-size:15px;line-height:1;flex:0 0 auto")}>✕</button>
+            </div>
+            <div style={C("overflow:auto;flex:1 1 auto")}>
+              <table style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+                <thead>
+                  <tr>
+                    <th style={C("position:sticky;left:0;top:0;z-index:3;background:var(--panel,#fff);border-bottom:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line2,#f0f0f4);padding:10px 14px;text-align:left;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Membre</th>
+                    {v.capMatrix.cols.map((c) => (
+                      <th key={c.key} style={C(`position:sticky;top:0;z-index:2;background:var(--panel,#fff);border-bottom:1px solid var(--line,#e8e8ee);padding:10px 12px;text-align:center;min-width:96px${c.current ? ";box-shadow:inset 0 -2px 0 var(--accent,#5b5bd6)" : ""}`)}>
+                        <div style={C(`font-size:12px;font-weight:600;color:${c.current ? "var(--accent,#5b5bd6)" : "var(--ink,#1a1a20)"};white-space:nowrap`)}>{c.label}</div>
+                        <div style={C(`font-size:10px;font-weight:400;color:var(--faint,#abacb6);font-family:${mono};white-space:nowrap`)}>{c.dates}</div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {v.capMatrix.rows.map((r) => (
+                    <tr key={r.key}>
+                      <td style={C("position:sticky;left:0;z-index:1;background:var(--panel,#fff);border-bottom:1px solid var(--line2,#f0f0f4);border-right:1px solid var(--line2,#f0f0f4);padding:7px 14px")}>
+                        <div style={C("display:flex;align-items:center;gap:9px")}>
+                          <div style={C(r.avatarStyle)}>{r.initials}</div>
+                          <div style={C("min-width:0")}>
+                            <div style={C("font-size:13px;font-weight:500;color:var(--ink,#1a1a20);white-space:nowrap")}>{r.name}</div>
+                            {r.poste && <div style={C("font-size:10px;color:var(--muted,#86868f);white-space:nowrap")}>{r.poste}</div>}
+                          </div>
+                        </div>
+                      </td>
+                      {r.cells.map((cell) => (
+                        <td key={cell.key} title={cell.title} style={C("border-bottom:1px solid var(--line2,#f0f0f4);padding:7px 12px;text-align:center;vertical-align:middle")}>
+                          <input type="text" inputMode="decimal" key={"mcap" + r.key + ":" + cell.key + ":" + cell.cap} defaultValue={String(cell.cap)}
+                            aria-label={`Capacité de ${r.name} — ${v.capMatrix!.cols.find((c) => c.key === cell.key)?.label}`}
+                            onBlur={cell.onCommit} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} onFocus={(e) => e.target.select()}
+                            style={C(`width:52px;height:30px;text-align:center;border:1px solid var(--line,#e8e8ee);border-radius:7px;background:var(--panel2,#fafafc);font-size:13px;font-weight:600;font-family:${mono};color:var(--ink,#1a1a20);outline:none;box-sizing:border-box`)} />
+                          <div style={C(cell.subStyle)}>{cell.subText}</div>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                  <tr>
+                    <td style={C("position:sticky;left:0;bottom:0;z-index:1;background:var(--panel,#fff);border-top:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line2,#f0f0f4);padding:9px 14px;font-size:11px;font-weight:600;color:var(--muted,#86868f);white-space:nowrap")}>Σ équipe · charge / capa</td>
+                    {v.capMatrix.totals.map((t) => (
+                      <td key={t.key} style={C("position:sticky;bottom:0;background:var(--panel,#fff);border-top:1px solid var(--line,#e8e8ee);padding:9px 12px;text-align:center")}>
+                        <div style={C(`font-size:11px;font-family:${mono};color:var(--ink,#1a1a20);white-space:nowrap`)}>{t.text}</div>
+                        <div style={C(t.pctStyle)}>{t.pctText}</div>
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
       )}
 
       {/* Toast */}
