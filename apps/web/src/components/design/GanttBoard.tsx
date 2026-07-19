@@ -1563,6 +1563,7 @@ export function GanttBoard() {
       // Bandeau de synthèse (header) : Σ capa / Σ effort / delta sur l'intervalle.
       relMetrics = {
         from: String(met.from), to: String(met.to),
+        rangeText: metShorts,
         options: M.iters.slice(0, M.NITER).map((it, i) => ({ value: String(i), label: it.short })),
         onFrom: (e: React.ChangeEvent<HTMLSelectElement>) => { const val = Number(e.target.value); setState((s) => ({ metricsFrom: val, metricsTo: Math.max(val, s.metricsTo) })); },
         onTo: (e: React.ChangeEvent<HTMLSelectElement>) => { const val = Number(e.target.value); setState((s) => ({ metricsTo: val, metricsFrom: Math.min(val, s.metricsFrom) })); },
@@ -1805,41 +1806,20 @@ export function GanttBoard() {
           </>
         )}
         {v.isRelease && (
-          <>
-            <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6);white-space:nowrap")}>Charge par</span>
-            <select value={v.loadByValue} onChange={v.onLoadBy} style={C("height:30px;padding:0 8px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
-              {v.loadByOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </>
-        )}
-        {v.isRelease && (
-          <>
-            <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Filtre</span>
-            <select value={v.epicFilter} onChange={v.onEpicFilter} style={C("height:30px;padding:0 8px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
-              {v.epicFilterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </>
+          <button onClick={v.onRangeToggle} style={C(v.rangeBtnStyle)}>
+            <span style={C("opacity:.7;display:flex")}><IconGear size={13} /></span> Vue <span style={C("opacity:.5;font-size:9px")}>▾</span>
+          </button>
         )}
         {v.isRelease && v.relMetrics && (
-          <>
-            <div style={C("width:1px;height:20px;background:var(--line,#e9e9ef)")} />
-            <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Métriques</span>
-            <select value={v.relMetrics.from} onChange={v.relMetrics.onFrom} style={C("height:30px;padding:0 8px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
-              {v.relMetrics.options.map((o: { value: string; label: string }) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-            <span style={C("font-size:11px;color:var(--faint,#abacb6)")}>→</span>
-            <select value={v.relMetrics.to} onChange={v.relMetrics.onTo} style={C("height:30px;padding:0 8px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
-              {v.relMetrics.options.map((o: { value: string; label: string }) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-            <div title={v.relMetrics.title} style={C("height:30px;display:flex;align-items:center;gap:8px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc)")}>
-              <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Capa</span>
-              <span style={C(`font-size:12px;font-weight:600;font-family:${"'IBM Plex Mono',monospace"};color:var(--ink,#1a1a20)`)}>{v.relMetrics.capText}</span>
-              <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Effort</span>
-              <span style={C(`font-size:12px;font-weight:600;font-family:${"'IBM Plex Mono',monospace"};color:var(--ink,#1a1a20)`)}>{v.relMetrics.effortText}</span>
-              <span style={C(v.relMetrics.deltaStyle)}>{v.relMetrics.deltaText}</span>
-              <span style={C("font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f)")}>{v.relMetrics.pctText}</span>
-            </div>
-          </>
+          <div title={v.relMetrics.title} style={C("height:30px;display:flex;align-items:center;gap:8px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);flex:0 0 auto")}>
+            <span style={C("font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f);white-space:nowrap")}>{v.relMetrics.rangeText}</span>
+            <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Capa</span>
+            <span style={C(`font-size:12px;font-weight:600;font-family:${"'IBM Plex Mono',monospace"};color:var(--ink,#1a1a20)`)}>{v.relMetrics.capText}</span>
+            <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Effort</span>
+            <span style={C(`font-size:12px;font-weight:600;font-family:${"'IBM Plex Mono',monospace"};color:var(--ink,#1a1a20)`)}>{v.relMetrics.effortText}</span>
+            <span style={C(v.relMetrics.deltaStyle)}>{v.relMetrics.deltaText}</span>
+            <span style={C("font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f)")}>{v.relMetrics.pctText}</span>
+          </div>
         )}
         <div style={{ flex: 1 }} />
         <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Charge</span>
@@ -1897,6 +1877,35 @@ export function GanttBoard() {
           )}
           {v.range.isRelease && (
             <>
+              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6);margin-bottom:11px")}>Affichage</div>
+              <div style={C("display:flex;flex-direction:column;gap:10px;margin-bottom:13px")}>
+                <div>
+                  <div style={C("font-size:11px;color:var(--muted,#86868f);margin-bottom:5px")}>Charge par</div>
+                  <select value={v.loadByValue} onChange={v.onLoadBy} style={C(v.selectCss)}>
+                    {v.loadByOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={C("font-size:11px;color:var(--muted,#86868f);margin-bottom:5px")}>Filtre epics</div>
+                  <select value={v.epicFilter} onChange={v.onEpicFilter} style={C(v.selectCss)}>
+                    {v.epicFilterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                {v.relMetrics && (
+                  <div>
+                    <div style={C("font-size:11px;color:var(--muted,#86868f);margin-bottom:5px")}>Intervalle des métriques</div>
+                    <div style={C("display:flex;align-items:center;gap:8px")}>
+                      <select value={v.relMetrics.from} onChange={v.relMetrics.onFrom} style={C(v.selectCss)}>
+                        {v.relMetrics.options.map((o: { value: string; label: string }) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                      <span style={C("font-size:11px;color:var(--faint,#abacb6);flex:0 0 auto")}>→</span>
+                      <select value={v.relMetrics.to} onChange={v.relMetrics.onTo} style={C(v.selectCss)}>
+                        {v.relMetrics.options.map((o: { value: string; label: string }) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
               <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6);margin-bottom:9px")}>Vue long terme</div>
               <div style={C("font-size:12px;line-height:1.45;color:var(--muted,#86868f);margin-bottom:11px")}>Toutes les itérations sont affichées. Défilez horizontalement pour naviguer ; la vue démarre sur l'itération courante. Double-cliquez sur une ligne ou une barre pour poser un flag.</div>
               <button onClick={v.range.onGoCurrent} style={C("width:100%;height:32px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer")}>Aller à l'itération courante</button>

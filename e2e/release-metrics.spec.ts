@@ -85,7 +85,7 @@ test("release planning : métriques macro + ligne de flottaison", async ({ page 
   await page.getByRole("button", { name: "Release Planning" }).click();
 
   // Bandeau de synthèse : capa 2 pers × 10 × 3 sprints (S2→S4) = 60, effort 70, delta −10.
-  await expect(page.getByText("Métriques")).toBeVisible();
+  await expect(page.getByText("Capa", { exact: true })).toBeVisible();
   await expect(page.getByText("60j", { exact: true })).toBeVisible();
   await expect(page.getByText("−10j", { exact: true })).toBeVisible();
 
@@ -94,8 +94,10 @@ test("release planning : métriques macro + ligne de flottaison", async ({ page 
   await expect(page.getByText(/Capacité épuisée · 60j/)).toBeVisible();
 
   // Réduire l'intervalle à S2 seul : capa 20, effort 30 (S1+S4 = 15+15) → −10.
+  // Les réglages release vivent dans le popover « Vue ».
+  await page.getByRole("button", { name: /^Vue/ }).click();
   const selects = page.locator("select");
-  await selects.nth(3).selectOption("1"); // metricsTo → Sprint 2 (index 1)
+  await selects.nth(4).selectOption("1"); // metricsTo → Sprint 2 (index 1)
   await expect(page.getByText("20j", { exact: true })).toBeVisible();
   await expect(page.getByText(/Capacité épuisée · 20j/)).toBeVisible();
 });
