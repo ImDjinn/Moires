@@ -57,7 +57,10 @@ const snapshot = {
     { id: "3", name: "Sprint 3", path: "P\\S3", ...sd[2] },
     { id: "4", name: "Sprint 4", path: "P\\S4", ...sd[3] },
   ],
-  capacities: [],
+  // La capacité vaut 0 par défaut depuis 53137a3 : on la renseigne explicitement (10/sprint/membre).
+  capacities: ["m1", "m2"].flatMap((memberId) =>
+    ["P\\S1", "P\\S2", "P\\S3", "P\\S4"].map((iterationPath) => ({ memberId, iterationPath, storyPoints: 10 })),
+  ),
 };
 
 function json(body: unknown) {
