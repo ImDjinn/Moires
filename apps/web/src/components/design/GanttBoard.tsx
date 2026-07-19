@@ -979,13 +979,6 @@ export function GanttBoard() {
     // Story Points en granularité Tâche) : les jauges liraient 0 à tort — signalé.
     const lvlItems = release ? [] : state.items.filter((it) => it.level === lvl && !(state.hideClosed && M.isDone(it.state)));
     const loadFieldDead = lvlItems.length > 0 && lvlItems.every((it) => M.effortOf(it) === 0);
-    // Tickets du niveau affiché planifiés hors de l'intervalle d'itérations
-    // choisi : invisibles sur le board — comptés pour éviter les « tickets perdus ».
-    let outOfRange = 0;
-    if (!daily && !release) {
-      const colSet = new Set(cols);
-      outOfRange = state.items.filter((it) => it.level === lvl && !colSet.has(it.iter) && !(state.hideClosed && M.isDone(it.state)) && !state.hidden[it.person]).length;
-    }
     // Zone sous la dernière ligne (colonnes étirées jusqu'en bas du viewport) :
     // estompée pour ne pas ressembler à des lignes de personnes manquantes.
     const lastRow = layout.rows[layout.rows.length - 1];
@@ -1638,8 +1631,6 @@ export function GanttBoard() {
       totalWidth: TW, totalHeight: TH, columns, personRows, banners, bars, dropGhost, cursors, presence, onlineLabel, emptyAreaStyle,
       loadWarning: loadFieldDead ? "⚠ charge à 0" : null,
       loadWarningTitle: `Aucun ticket affiché n'a de valeur « ${loadLabel} » : les jauges de charge affichent 0. Choisissez un autre champ dans le menu Charge ou renseignez les valeurs dans Azure DevOps.`,
-      outOfRange,
-      outOfRangeTitle: `${outOfRange} ticket${outOfRange > 1 ? "s" : ""} planifié${outOfRange > 1 ? "s" : ""} hors de l'intervalle d'itérations affiché — cliquer pour élargir l'intervalle`,
       // Fond opaque pleine hauteur sous les cellules du panneau gauche : masque les
       // barres qui défilent dessous (les lignes masquées sont en opacity:.45).
       leftPanelStyle: `position:absolute;left:0;top:0;width:${M.LEFT}px;height:${TH}px;background:var(--panel,#fff);border-right:1px solid var(--line,#e8e8ee);box-sizing:border-box`,
@@ -1869,9 +1860,6 @@ export function GanttBoard() {
         {!v.isRelease && !v.isDaily && (
           <>
             <div style={C("width:1px;height:20px;background:var(--line,#e9e9ef)")} />
-            {v.outOfRange > 0 && (
-              <button onClick={v.onRangeToggle} title={v.outOfRangeTitle} style={C("height:30px;padding:0 10px;border-radius:7px;border:1px solid var(--color-pending,#f5a623);background:transparent;color:var(--color-pending-text,#8a5a00);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap")}>⚠ {v.outOfRange} hors intervalle</button>
-            )}
             <button onClick={v.onRangeToggle} style={C(v.rangeBtnStyle)}>
               <span style={C("opacity:.7;display:flex")}><IconCalendar size={13} /></span> {v.rangeLabel} <span style={C("opacity:.5;font-size:9px")}>▾</span>
             </button>
