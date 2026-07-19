@@ -83,12 +83,12 @@ describe("buildDataset", () => {
     expect(ds.titleOf["100"]).toBe("Feature A");
   });
 
-  it("mappe les capacités par membre × itération, défaut 10", () => {
+  it("mappe les capacités par membre × itération, défaut 0", () => {
     const withCaps = buildDataset(snapshot, [
       { memberId: "m1", iterationPath: "Proj\\S2", storyPoints: 6 },
     ]);
     const alice = withCaps.people.find((p) => p.id === "m1")!;
-    expect(alice.cap).toEqual([10, 6]); // S1 non renseignée → 10
+    expect(alice.cap).toEqual([0, 6]); // S1 non renseignée → 0
   });
 });
 

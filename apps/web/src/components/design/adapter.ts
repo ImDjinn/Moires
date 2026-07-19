@@ -68,9 +68,9 @@ export function buildDataset(
   const current = foundCurrent >= 0 ? foundCurrent : 0;
 
   const memberIds = new Set(snapshot.teamMembers.map((m) => m.id));
-  // Capacité par membre × itération (défaut 10 si non renseignée).
+  // Capacité par membre × itération (défaut 0 si non renseignée).
   const capFor = (memberId: string): number[] =>
-    src.map((it) => capacities.find((c) => c.memberId === memberId && c.iterationPath === it.path)?.storyPoints ?? 10);
+    src.map((it) => capacities.find((c) => c.memberId === memberId && c.iterationPath === it.path)?.storyPoints ?? 0);
   const metaById = new Map(memberMeta.map((m) => [m.memberId, m]));
   const people: Person[] = snapshot.teamMembers.map((m, i) => ({
     id: m.id,
@@ -135,7 +135,7 @@ export function buildDataset(
   });
 
   if (hasUnassigned) {
-    people.push({ id: UNASSIGNED_ID, name: "Non assigné", role: "", initials: "?", color: "#94a3b8", cap: new Array(niter).fill(10), unassigned: true });
+    people.push({ id: UNASSIGNED_ID, name: "Non assigné", role: "", initials: "?", color: "#94a3b8", cap: new Array(niter).fill(0), unassigned: true });
   }
 
   const storyToFeature: Record<string, string> = {};

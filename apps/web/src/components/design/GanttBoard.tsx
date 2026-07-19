@@ -1301,10 +1301,10 @@ export function GanttBoard() {
           const members = M.people.filter((p) => !p.unassigned);
           return {
             cols: idx.map((i) => ({ key: i, label: M.iters[i].label, dates: M.iters[i].dates, current: i === M.CURRENT })),
-            rows: members.map((p) => ({
+            rows: members.map((p, ri) => ({
               key: p.id, name: p.name, poste: p.role, initials: p.initials,
               avatarStyle: `width:26px;height:26px;border-radius:50%;background:${p.color};color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
-              cells: idx.map((i) => {
+              cells: idx.map((i, ci) => {
                 const used = capUsed[p.id]?.[i] || 0, cap = M.capOf(p, i), pct = cap ? used / cap : used;
                 return {
                   key: i, cap,
@@ -1317,6 +1317,23 @@ export function GanttBoard() {
                     const val = Number.isFinite(n) ? Math.max(0, n) : cap;
                     e.target.value = String(val);
                     if (val !== cap) commitCapacity(p.id, i, val);
+                  },
+                  // Collage d'une plage Excel/TSV (tab = colonnes, retour ligne =
+                  // lignes) : remplit la grille à partir de la cellule ciblée.
+                  onPaste: (e: React.ClipboardEvent<HTMLInputElement>) => {
+                    const text = e.clipboardData.getData("text/plain");
+                    if (!/[\t\r\n]/.test(text)) return; // valeur simple : collage natif
+                    e.preventDefault();
+                    text.replace(/\r/g, "").split("\n").forEach((line, dr) => {
+                      const target = members[ri + dr];
+                      if (!target || line === "") return;
+                      line.split("\t").forEach((txt, dc) => {
+                        const iter = idx[ci + dc];
+                        if (iter == null) return;
+                        const n = parseFloat(txt.replace(",", "."));
+                        if (Number.isFinite(n)) commitCapacity(target.id, iter, Math.max(0, n));
+                      });
+                    });
                   },
                 };
               }),
@@ -2447,7 +2464,7 @@ export function GanttBoard() {
           <div onClick={v.stop} ref={focusPopover} tabIndex={-1} style={C("position:absolute;left:50%;top:76px;transform:translateX(-50%);max-width:calc(100% - 56px);max-height:calc(100% - 132px);background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:12px;box-shadow:0 18px 50px rgba(20,20,40,.22);z-index:85;display:flex;flex-direction:column;animation:ggpop .16s ease;outline:none")}>
             <div style={C("padding:14px 18px 12px;border-bottom:1px solid var(--line2,#f0f0f4);display:flex;align-items:center;gap:12px;flex:0 0 auto")}>
               <div style={C("font-size:14px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap")}>Matrice de capacité</div>
-              <div style={C("font-size:11px;color:var(--muted,#86868f);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>capacité en jours ouvrés par membre et par itération · Tab pour passer à la cellule suivante</div>
+              <div style={C("font-size:11px;color:var(--muted,#86868f);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>capacité en jours ouvrés par membre et par itération · Tab pour passer à la cellule suivante · collage d'une plage Excel pris en charge</div>
               <div style={{ flex: 1 }} />
               <button onClick={v.capMatrix.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:6px;border:none;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;font-size:15px;line-height:1;flex:0 0 auto")}>✕</button>
             </div>
@@ -2480,7 +2497,7 @@ export function GanttBoard() {
                         <td key={cell.key} title={cell.title} style={C("border-bottom:1px solid var(--line2,#f0f0f4);padding:7px 12px;text-align:center;vertical-align:middle")}>
                           <input type="text" inputMode="decimal" key={"mcap" + r.key + ":" + cell.key + ":" + cell.cap} defaultValue={String(cell.cap)}
                             aria-label={`Capacité de ${r.name} — ${v.capMatrix!.cols.find((c) => c.key === cell.key)?.label}`}
-                            onBlur={cell.onCommit} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} onFocus={(e) => e.target.select()}
+                            onBlur={cell.onCommit} onPaste={cell.onPaste} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} onFocus={(e) => e.target.select()}
                             style={C(`width:52px;height:30px;text-align:center;border:1px solid var(--line,#e8e8ee);border-radius:7px;background:var(--panel2,#fafafc);font-size:13px;font-weight:600;font-family:${mono};color:var(--ink,#1a1a20);outline:none;box-sizing:border-box`)} />
                           <div style={C(cell.subStyle)}>{cell.subText}</div>
                         </td>

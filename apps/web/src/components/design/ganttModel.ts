@@ -16,20 +16,14 @@ export interface Person {
   teamRole?: string;
   initials: string;
   color: string;
-  /** Capacité par itération (jours). Absente = jours ouvrés du sprint. */
+  /** Capacité par itération (jours). Absente = 0 (à saisir explicitement). */
   cap: number[];
   /** Ligne "Non assigné" (pas un membre réel) : exclue des totaux de capacité. */
   unassigned?: boolean;
 }
 
-/** Repli ultime si la période du sprint est inconnue (backlog…). */
-const DEFAULT_CAP = 10;
-/** Capacité par défaut d'un sprint = ses jours ouvrés (lun–ven). */
-export const iterCap = (iter: number): number => {
-  const it = iters[iter];
-  return (it && workingDays(it.iso[0], it.iso[1])) || DEFAULT_CAP;
-};
-export const capOf = (p: Person, iter: number) => p.cap[iter] ?? iterCap(iter);
+/** Capacité par défaut quand elle n'est pas fixée : 0 (à saisir explicitement). */
+export const capOf = (p: Person, iter: number) => p.cap[iter] ?? 0;
 
 export interface Item {
   id: string;
