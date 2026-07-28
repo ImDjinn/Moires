@@ -28,13 +28,16 @@ const FIELD_MAP: Record<Exclude<OperationField, "boardColumn">, string> = {
 // customFields. Les System.* et WEF_* (colonnes Kanban) sont exclus par préfixe.
 export const KNOWN_FIELDS = new Set(Object.values(FIELD_MAP).map((p) => p.replace("/fields/", "")));
 
+// Mappés en lecture seule sur Ticket — exclus de customFields sans être écrivables.
+const READONLY_FIELDS = ["Microsoft.VSTS.Common.AcceptanceCriteria"];
+
 @Injectable()
 export class AdoMapper {
   /** Champs non mappés (custom / process hérités) → valeurs scalaires affichables. */
   private extractCustomFields(f: Record<string, any>): Record<string, string | number | boolean> | undefined {
     const custom: Record<string, string | number | boolean> = {};
     for (const [key, val] of Object.entries(f)) {
-      if (key.startsWith("System.") || key.startsWith("WEF_") || KNOWN_FIELDS.has(key)) continue;
+      if (key.startsWith("System.") || key.startsWith("WEF_") || KNOWN_FIELDS.has(key) || READONLY_FIELDS.includes(key)) continue;
       if (typeof val === "string" || typeof val === "number" || typeof val === "boolean") custom[key] = val;
       else if (val && typeof val === "object" && typeof val.displayName === "string") custom[key] = val.displayName; // champ identité
     }
@@ -64,6 +67,8 @@ export class AdoMapper {
       endDate: f["Microsoft.VSTS.Scheduling.FinishDate"] || new Date().toISOString(),
       targetDate: f["Microsoft.VSTS.Scheduling.TargetDate"] || null,
       priority: f["Microsoft.VSTS.Common.Priority"],
+      description: f["System.Description"] || undefined,
+      acceptanceCriteria: f["Microsoft.VSTS.Common.AcceptanceCriteria"] || undefined,
       estimateHours: f["Microsoft.VSTS.Scheduling.OriginalEstimate"] || 0,
       storyPoints: f["Microsoft.VSTS.Scheduling.StoryPoints"] || 0,
       adoRev: raw.rev,

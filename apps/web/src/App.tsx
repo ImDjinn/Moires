@@ -1,10 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useSessionStore, loadSessionId, applySnapshot } from "./stores/session.store";
 import { api } from "./services/rest.client";
 import { AuthGuard } from "./components/auth/AuthGuard";
 import { SessionLobby } from "./components/session/SessionLobby";
 import { GanttBoard } from "./components/design/GanttBoard";
 import { Brand } from "./components/Brand";
+import { MyTasks } from "./components/MyTasks";
+
+// Routage minimal par hash (#/me) — pas de router, une seule route hors board.
+function useHashRoute(): string {
+  return useSyncExternalStore(
+    (cb) => {
+      window.addEventListener("hashchange", cb);
+      return () => window.removeEventListener("hashchange", cb);
+    },
+    () => window.location.hash,
+    () => "",
+  );
+}
 
 // Session chargée mais projet ADO sans aucun work item : on l'affiche
 // explicitement au lieu de retomber sur les données de démonstration du board.
@@ -34,6 +47,7 @@ function EmptyProject() {
 // valide côté serveur ; sinon (session expirée / accès révoqué) retour au lobby.
 function SessionRoot() {
   const snapshot = useSessionStore((s) => s.snapshot);
+  const hash = useHashRoute();
   const [restoring, setRestoring] = useState(() => !snapshot && !!loadSessionId());
 
   useEffect(() => {
@@ -67,7 +81,12 @@ function SessionRoot() {
   }
   if (!snapshot) return <SessionLobby />;
   if (snapshot.tickets.length === 0) return <EmptyProject />;
-  return <GanttBoard key={snapshot.sessionId} />;
+  return (
+    <>
+      <GanttBoard key={snapshot.sessionId} />
+      {hash === "#/me" && <MyTasks onBack={() => { window.location.hash = ""; }} />}
+    </>
+  );
 }
 
 export function App() {

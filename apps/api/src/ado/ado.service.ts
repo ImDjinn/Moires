@@ -65,7 +65,7 @@ export class AdoService {
   // connectionData est servi par le service de localisation de l'org : il
   // fonctionne avec un PAT scopé à une seule org (pas besoin du scope Profile ni
   // d'un PAT « all accessible organizations » — bientôt supprimé côté ADO).
-  async getConnectionData(org: string, token: string): Promise<{ id: string; displayName: string }> {
+  async getConnectionData(org: string, token: string): Promise<{ id: string; displayName: string; uniqueName: string }> {
     const data = await this.adoFetch(
       // connectionData est un endpoint « preview » : api-version doit porter le
       // suffixe -preview, sinon ADO répond 400 (VssInvalidPreviewVersion).
@@ -80,6 +80,9 @@ export class AdoService {
     return {
       id: user.id,
       displayName: user.providerDisplayName || user.customDisplayName || "User",
+      // properties.Account = l'identifiant (email) porté par System.AssignedTo.uniqueName :
+      // seule clé fiable pour relier l'utilisateur connecté à ses work items.
+      uniqueName: user.properties?.Account?.$value || "",
     };
   }
 

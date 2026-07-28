@@ -29,9 +29,11 @@ describe("AdoService", () => {
   });
 
   it("getConnectionData valide le PAT contre l'org et renvoie l'identité", async () => {
-    fetchMock.mockResolvedValue(ok({ authenticatedUser: { id: "me1", providerDisplayName: "Bob" } }));
+    fetchMock.mockResolvedValue(
+      ok({ authenticatedUser: { id: "me1", providerDisplayName: "Bob", properties: { Account: { $value: "bob@corp.com" } } } }),
+    );
     const res = await service.getConnectionData("org", "tkn");
-    expect(res).toEqual({ id: "me1", displayName: "Bob" });
+    expect(res).toEqual({ id: "me1", displayName: "Bob", uniqueName: "bob@corp.com" });
     expect(fetchMock.mock.calls[0][0]).toContain("/org/_apis/connectionData");
     // connectionData est un endpoint preview : la version DOIT porter -preview.
     expect(fetchMock.mock.calls[0][0]).toContain("api-version=7.1-preview");

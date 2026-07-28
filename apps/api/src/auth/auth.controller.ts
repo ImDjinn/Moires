@@ -79,9 +79,9 @@ export class AuthController {
     if (!ADO_ORG_RE.test(org)) throw new BadRequestException("Invalid organization name");
     const ip = req.ip ?? "unknown";
     if (isRateLimited(ip)) throw new HttpException("Too many login attempts", 429);
-    let user, token: string, validatedOrg: string;
+    let user, token: string, validatedOrg: string, uniqueName: string;
     try {
-      ({ user, pat: token, org: validatedOrg } = await this.authService.loginWithPat(pat, org));
+      ({ user, pat: token, org: validatedOrg, uniqueName } = await this.authService.loginWithPat(pat, org));
     } catch {
       // PAT invalide, org inconnue, ou PAT sans accès à cette org.
       recordFailure(ip);
@@ -93,7 +93,7 @@ export class AuthController {
     await this.redis.setUserPat(user.id, token, Math.floor(ttl / 1000));
     res.cookie(
       "session_user",
-      JSON.stringify({ id: user.id, displayName: user.displayName, exp: Date.now() + ttl }),
+      JSON.stringify({ id: user.id, displayName: user.displayName, uniqueName, exp: Date.now() + ttl }),
       signedCookieOpts(ttl),
     );
     res.cookie("ado_org", validatedOrg, signedCookieOpts(ttl));

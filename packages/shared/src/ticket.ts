@@ -21,6 +21,10 @@ export interface Ticket {
   targetDate: string | null;
   /** Microsoft.VSTS.Common.Priority (1 = plus prioritaire). Optionnel. */
   priority?: number;
+  /** System.Description — HTML ADO. */
+  description?: string;
+  /** Microsoft.VSTS.Common.AcceptanceCriteria — HTML ADO. */
+  acceptanceCriteria?: string;
   estimateHours: number;
   storyPoints: number;
   adoRev: number;

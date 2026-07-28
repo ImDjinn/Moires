@@ -3,6 +3,8 @@ import { create } from "zustand";
 export interface AuthUser {
   id: string;
   displayName: string;
+  /** Identifiant ADO (email) = System.AssignedTo.uniqueName. Absent des cookies émis avant cette version. */
+  uniqueName?: string;
 }
 
 interface AuthState {

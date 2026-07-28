@@ -87,6 +87,20 @@ describe("AdoMapper", () => {
       });
     });
 
+    it("description et critères d'acceptation mappés, hors customFields", () => {
+      const t = mapper.toTicket({
+        ...raw,
+        fields: {
+          ...raw.fields,
+          "System.Description": "<p>But</p>",
+          "Microsoft.VSTS.Common.AcceptanceCriteria": "<ul><li>OK</li></ul>",
+        },
+      });
+      expect(t.description).toBe("<p>But</p>");
+      expect(t.acceptanceCriteria).toBe("<ul><li>OK</li></ul>");
+      expect(t.customFields).toBeUndefined();
+    });
+
     it("customFields absent quand aucun champ custom", () => {
       expect(mapper.toTicket(raw).customFields).toBeUndefined();
     });

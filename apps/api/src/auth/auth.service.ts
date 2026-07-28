@@ -18,6 +18,6 @@ export class AuthService {
       update: { displayName: identity.displayName, defaultAdoOrg: org },
       create: { azureAdId: identity.id, displayName: identity.displayName, email: "", defaultAdoOrg: org },
     });
-    return { user, pat, org };
+    return { user, pat, org, uniqueName: identity.uniqueName };
   }
 }

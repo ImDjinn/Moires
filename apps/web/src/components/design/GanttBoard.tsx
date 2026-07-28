@@ -1775,6 +1775,11 @@ export function GanttBoard() {
                 </div>
                 <div style={C("height:1px;background:var(--line,#e9e9ef);margin:2px 0")} />
                 {realSession && (
+                  <button onClick={() => { setUserMenuOpen(false); window.location.hash = "#/me"; }} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:7px;background:transparent;color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
+                    <span style={C("opacity:.7;display:flex")}><IconCalendar size={13} /></span> Mes tâches
+                  </button>
+                )}
+                {realSession && (
                   <button onClick={copyInvite} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:7px;background:transparent;color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
                     <span style={C("opacity:.7;display:flex")}><IconUsers size={13} /></span> Copier le lien d'invitation
                   </button>
