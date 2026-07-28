@@ -5,7 +5,7 @@ import { workingDays } from "../../utils/dates";
 
 export type Theme = "light" | "dark";
 export type Level = "epic" | "feature" | "story" | "task";
-type Board = "sprint" | "daily" | "release";
+type Board = "me" | "sprint" | "daily" | "release";
 
 export interface Person {
   id: string;
@@ -53,6 +53,10 @@ export interface Item {
   custom?: Record<string, string | number | boolean>;
   /** Type de work item ADO réel ("User Story", "Bug"…) — clé des prefs du panneau. */
   wit?: string;
+  /** HTML ADO (System.Description) — affiché dans la vue @me. */
+  description?: string;
+  /** HTML ADO (Microsoft.VSTS.Common.AcceptanceCriteria) — affiché dans la vue @me. */
+  acceptanceCriteria?: string;
   relS?: number;
   relE?: number;
 }

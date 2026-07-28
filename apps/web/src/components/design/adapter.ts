@@ -131,6 +131,8 @@ export function buildDataset(
       priority: t.priority,
       custom: t.customFields,
       wit: t.workItemType,
+      description: t.description,
+      acceptanceCriteria: t.acceptanceCriteria,
     };
   });
 

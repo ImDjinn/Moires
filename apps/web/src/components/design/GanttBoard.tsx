@@ -13,6 +13,7 @@ import { api } from "../../services/rest.client";
 import { buildDataset, UNASSIGNED_ID, initials } from "./adapter";
 import { Brand } from "../Brand";
 import { IconEye, IconEyeOff, IconGear, IconCopy, IconSwap, IconLogout, IconUsers, IconCalendar } from "./icons";
+import { MyBoard, resolveMyPersonId } from "./MyBoard";
 import * as M from "./ganttModel";
 import type { Drag, Item, Presence, State, Theme } from "./ganttModel";
 import type { OperationField } from "@moirai/shared";
@@ -128,6 +129,8 @@ export function GanttBoard() {
   const allPeers = usePresenceStore((s) => s.peers);
   const peers = realSession ? allPeers.filter((p) => p.userId !== user!.id) : [];
   const myColor = useMemo(() => M.hashColor(user?.id || "me", "light"), [user]);
+  // Personne du board correspondant au compte connecté (vue @me).
+  const myPersonId = user ? resolveMyPersonId(user, M.people) : null;
 
   const [state, setSt] = useState<State>(() => ({ ...M.createInitialState(dataset ? dataset.items : undefined), hidden: loadHidden() }));
   const stateRef = useRef(state);
@@ -952,7 +955,7 @@ export function GanttBoard() {
   // ===================== view-model =====================
   const v = computeView();
   function computeView() {
-    const lvl = state.level, daily = state.board === "daily", release = state.board === "release";
+    const lvl = state.level, daily = state.board === "daily", release = state.board === "release", isMe = state.board === "me";
     const dailyCols = M.dailyStates(lvl);
     const cols = daily ? dailyCols.map((_, i) => i) : release ? M.relCols() : M.visibleCols(state);
     const avail = state.containerW - M.LEFT - 2;
@@ -1670,11 +1673,11 @@ export function GanttBoard() {
       onShowAllPeople: () => setState({ hidden: {} }),
       onHideAllPeople: () => setState({ hidden: Object.fromEntries(M.people.map((p) => [p.id, true])) }),
       onPeopleClose: () => setState({ peopleOpen: false }),
-      boardTabs: [{ key: "daily", label: "Daily" }, { key: "sprint", label: "Sprint Planning" }, { key: "release", label: "Release Planning" }].map((t) => {
+      boardTabs: [{ key: "me", label: "@me" }, { key: "daily", label: "Daily" }, { key: "sprint", label: "Sprint Planning" }, { key: "release", label: "Release Planning" }].map((t) => {
         const active = state.board === t.key;
         return { label: t.label, onClick: () => setState({ board: t.key as State["board"], selectedId: null, rangeOpen: false, peopleOpen: false }), style: `padding:6px 14px;border-radius:6px;border:none;font-size:13px;font-weight:${active ? 600 : 500};cursor:pointer;white-space:nowrap;background:${active ? "var(--panel,#fff)" : "transparent"};color:${active ? "var(--ink,#1a1a20)" : "var(--muted,#86868f)"};box-shadow:${active ? "0 1px 2px rgba(20,20,40,.12)" : "none"}` };
       }),
-      isRelease: release, showSort: !release, showGranularity: !release,
+      isRelease: release, showSort: !release, showGranularity: !release, isMe,
       leftKicker: release ? "Projet" : "Équipe",
       leftTitle: release ? "Arborescence" : `${visiblePeople} personne${visiblePeople > 1 ? "s" : ""}`,
       loadByValue: state.loadBy,
@@ -1775,11 +1778,6 @@ export function GanttBoard() {
                 </div>
                 <div style={C("height:1px;background:var(--line,#e9e9ef);margin:2px 0")} />
                 {realSession && (
-                  <button onClick={() => { setUserMenuOpen(false); window.location.hash = "#/me"; }} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:7px;background:transparent;color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
-                    <span style={C("opacity:.7;display:flex")}><IconCalendar size={13} /></span> Mes tâches
-                  </button>
-                )}
-                {realSession && (
                   <button onClick={copyInvite} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:7px;background:transparent;color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
                     <span style={C("opacity:.7;display:flex")}><IconUsers size={13} /></span> Copier le lien d'invitation
                   </button>
@@ -1798,8 +1796,10 @@ export function GanttBoard() {
       </div>
 
       {/* Header row 2 — défile horizontalement aux petites largeurs (ses popovers
-          sont rendus au niveau racine, donc jamais rognés par l'overflow). */}
-      <div style={C("height:46px;flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:0 18px;border-bottom:1px solid var(--line,#e9e9ef);background:var(--panel,#fff);position:relative;z-index:60;overflow-x:auto;overflow-y:hidden")}>
+          sont rendus au niveau racine, donc jamais rognés par l'overflow).
+          Masquée sur @me : aucun de ces réglages (granularité, tri, intervalle)
+          ne s'applique à une liste de tickets personnelle. */}
+      <div style={C(`height:46px;flex:0 0 auto;display:${v.isMe ? "none" : "flex"};align-items:center;gap:14px;padding:0 18px;border-bottom:1px solid var(--line,#e9e9ef);background:var(--panel,#fff);position:relative;z-index:60;overflow-x:auto;overflow-y:hidden`)}>
         {v.showGranularity && (
           <>
             <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Granularité</span>
@@ -2003,7 +2003,17 @@ export function GanttBoard() {
         </>
       )}
 
+      {/* @me — mes tickets du sprint (pas de canvas : liste, pas de Gantt) */}
+      {v.isMe && (
+        <MyBoard
+          items={state.items} people={M.people} iters={M.iters} current={M.CURRENT} theme={theme}
+          userName={user?.displayName ?? ""} myId={myPersonId} selectedId={state.selectedId}
+          onSelect={(id) => setState({ selectedId: id })} adoUrl={snapshot?.adoUrl}
+        />
+      )}
+
       {/* Canvas */}
+      {!v.isMe && (
       <div ref={v.onScrollRef} onPointerDown={onPanDown} onPointerMove={onPanMove} onPointerUp={onPanEnd} onPointerCancel={onPanEnd} onClickCapture={onPanClickCapture} style={C("flex:1;position:relative;overflow:auto;background:var(--canvas,#f6f6f8);cursor:grab")}>
         <div ref={v.onCanvasRef} onClick={v.onBgClick} onPointerMove={emitCursor} style={C(`position:relative;width:${v.totalWidth}px;height:${v.totalHeight}px;min-height:100%`)}>
           {v.columns.map((col, i) => <div key={"bg" + i} style={C(col.bgStyle)} />)}
@@ -2254,10 +2264,11 @@ export function GanttBoard() {
           ))}
         </div>
       </div>
+      )}
 
       {/* Inspector */}
       {v.selected && v.insp && (
-        <div onClick={v.insp.onPanelClick} style={C("position:absolute;right:0;top:100px;bottom:0;width:330px;background:var(--panel,#fff);border-left:1px solid var(--line,#e9e9ef);z-index:65;box-shadow:-8px 0 26px rgba(20,20,40,.07);display:flex;flex-direction:column;animation:ggpop .16s ease")}>
+        <div onClick={v.insp.onPanelClick} style={C(`position:absolute;right:0;top:${v.isMe ? 54 : 100}px;bottom:0;width:330px;background:var(--panel,#fff);border-left:1px solid var(--line,#e9e9ef);z-index:65;box-shadow:-8px 0 26px rgba(20,20,40,.07);display:flex;flex-direction:column;animation:ggpop .16s ease`)}>
           <div style={C("padding:16px 18px 13px;border-bottom:1px solid var(--line2,#f0f0f4)")}>
             <div style={C("display:flex;align-items:center;gap:8px")}>
               <span style={C(`font-size:12px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:${v.insp.accent}`)}>{v.insp.ado}</span>
