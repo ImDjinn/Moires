@@ -2085,14 +2085,17 @@ export function GanttBoard() {
                 {row.isArea && (
                   <>
                     <div style={C(`width:9px;height:9px;border-radius:3px;background:${row.dotColor};flex:0 0 auto`)} />
-                    <div style={C("min-width:0")}>
+                    {/* Titre sur toute la largeur ; badges relégués sur la ligne meta. */}
+                    <div style={C("flex:1;min-width:0")}>
                       <div title={row.name} style={C("font-size:12px;font-weight:600;color:var(--ink,#1a1a20);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere")}>{row.name}</div>
-                      <div title={row.subTitle} style={C("font-size:10px;color:var(--muted,#86868f);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:'IBM Plex Mono',monospace")}>{row.sub}</div>
+                      <div style={C("display:flex;align-items:center;gap:5px;min-width:0")}>
+                        <span title={row.subTitle} style={C("font-size:10px;color:var(--muted,#86868f);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:'IBM Plex Mono',monospace;min-width:0")}>{row.sub}</span>
+                        {row.prio && <span style={C("font-size:10px;font-weight:600;padding:1px 5px;border-radius:5px;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);flex:0 0 auto;font-family:'IBM Plex Mono',monospace")}>{row.prio}</span>}
+                        <span style={C(row.statusStyle)}>{row.statusTag}</span>
+                        {row.stat && <span title={row.statTitle} style={C("font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f);flex:0 0 auto")}>{row.stat}</span>}
+                        {row.overTag && <span title={row.statTitle} style={C(row.overStyle)}>{row.overTag}</span>}
+                      </div>
                     </div>
-                    {row.prio && <span style={C("font-size:10px;font-weight:600;padding:1px 5px;border-radius:5px;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);flex:0 0 auto;font-family:'IBM Plex Mono',monospace")}>{row.prio}</span>}
-                    <span style={C(row.statusStyle)}>{row.statusTag}</span>
-                    {row.stat && <span title={row.statTitle} style={C("font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f);flex:0 0 auto")}>{row.stat}</span>}
-                    {row.overTag && <span title={row.statTitle} style={C(row.overStyle)}>{row.overTag}</span>}
                     <button onClick={row.onToggleHidden} title={row.hideTitle} aria-label={row.hideTitle} style={C("margin-left:auto;flex:0 0 auto;border:none;background:transparent;color:var(--muted,#86868f);cursor:pointer;line-height:1;padding:2px;opacity:.7")}>{row.hidden ? <IconEyeOff size={13} /> : <IconEye size={13} />}</button>
                   </>
                 )}
