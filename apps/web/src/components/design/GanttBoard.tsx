@@ -1407,9 +1407,9 @@ export function GanttBoard() {
         const isFeat = r.kind === "feature";
         const hidden = !!state.hiddenRows[r.key!];
         const rg = r.range || null;
-        const rangeSub = rg ? `${M.iters[rg[0]].short} → ${M.iters[rg[1]].short}` : "";
-        const sub = ch.total > 0 ? `${rangeSub ? rangeSub + " · " : ""}Σ ${M.fmt(ch.total)}` : rangeSub || "aucune US planifiée";
-        const subTitle = ch.total > 0 ? `${rangeSub ? rangeSub + " · " : ""}charge totale des US : ${M.fmt(ch.total)} (${loadLabel})` : undefined;
+        // L'intervalle est déjà lisible sur la barre du board → pas répété ici.
+        const sub = ch.total > 0 ? `Σ ${M.fmt(ch.total)}` : "aucune US planifiée";
+        const subTitle = ch.total > 0 ? `charge totale des US : ${M.fmt(ch.total)} (${loadLabel})` : undefined;
         // Double-clic sur une epic/feature → pose un flag au début de son sprint.
         const flagIter = rg ? rg[0] : M.CURRENT;
         let statusTag = "", statusStyle = "display:none";
