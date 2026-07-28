@@ -10,6 +10,19 @@ describe("capacité par défaut = 0", () => {
   });
 });
 
+describe("activePersonIds (section « Inactifs » du filtre Personnes)", () => {
+  it("exclut qui n'a rien depuis 3 sprints ni à venir, garde le reste", () => {
+    const base = { ...M.createInitialState().items[0] };
+    const ids = M.activePersonIds([
+      { ...base, person: "vieux", iter: M.CURRENT - 4 },
+      { ...base, person: "backlog", iter: M.NITER },
+      { ...base, person: "recent", iter: M.CURRENT - 3 },
+      { ...base, person: "futur", iter: M.CURRENT + 2 },
+    ]);
+    expect([...ids].sort()).toEqual(["futur", "recent"]);
+  });
+});
+
 describe("releaseMetrics (métriques macro Release)", () => {
   it("delta = Σ capacité − Σ effort sur l'intervalle choisi", () => {
     const s = { ...M.createInitialState(), metricsFrom: 0, metricsTo: 1 };

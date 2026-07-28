@@ -1,3 +1,13 @@
+/** Commentaire de la discussion ADO d'un work item (lecture seule). */
+export interface TicketComment {
+  id: number;
+  author: string;
+  /** ISO 8601 (createdDate ADO). */
+  date: string;
+  /** HTML ADO. */
+  text: string;
+}
+
 export interface Ticket {
   id: string;
   title: string;

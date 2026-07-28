@@ -856,6 +856,14 @@ export function hiddenStoryIds(s: State): Set<string> {
   return out;
 }
 
+/**
+ * Personnes ayant un ticket sur un sprint daté récent (≥ CURRENT−3) ou à venir.
+ * Les autres sont "inactives" (section repliée du filtre Personnes).
+ * ponytail: le backlog (iter ≥ NITER) ne compte pas comme activité — pas de sprint daté.
+ */
+export const activePersonIds = (items: Item[]) =>
+  new Set(items.filter((i) => i.iter >= CURRENT - 3 && i.iter < NITER).map((i) => i.person));
+
 /** Capacité totale d'un sprint (personnes visibles, hors "Non assigné"). */
 const sprintCap = (s: State, real: number) =>
   people.filter((p) => !s.hidden[p.id] && !p.unassigned).reduce((sum, p) => sum + capOf(p, real), 0);

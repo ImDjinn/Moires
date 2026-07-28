@@ -39,6 +39,23 @@ describe("AdoService", () => {
     expect(fetchMock.mock.calls[0][0]).toContain("api-version=7.1-preview");
   });
 
+  it("getComments mappe la discussion et l'ordonne du plus ancien au plus récent", async () => {
+    fetchMock.mockResolvedValue(
+      ok({
+        comments: [
+          { id: 2, text: "<p>Suite</p>", createdBy: { displayName: "Bob" }, createdDate: "2026-02-02T10:00:00Z" },
+          { id: 1, text: "<p>Début</p>", createdDate: "2026-01-01T10:00:00Z" },
+        ],
+      }),
+    );
+    const res = await service.getComments("org", "p1", "42", "tkn");
+    expect(res.map((c) => c.id)).toEqual([1, 2]);
+    expect(res[1]).toEqual({ id: 2, author: "Bob", date: "2026-02-02T10:00:00Z", text: "<p>Suite</p>" });
+    expect(res[0].author).toBe("?");
+    // L'endpoint comments n'existe qu'en preview.
+    expect(fetchMock.mock.calls[0][0]).toContain("/_apis/wit/workItems/42/comments?api-version=7.1-preview.4");
+  });
+
   it("getIterations extrait les dates d'attributs", async () => {
     fetchMock.mockResolvedValue(
       ok({ value: [{ id: "it1", name: "Sprint 1", path: "Proj\\Sprint 1", attributes: { startDate: "s", finishDate: "f" } }] }),

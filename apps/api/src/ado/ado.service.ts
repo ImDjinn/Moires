@@ -1,5 +1,5 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
-import type { OperationFieldKey, TeamMember } from "@moirai/shared";
+import type { OperationFieldKey, TeamMember, TicketComment } from "@moirai/shared";
 import { AdoMapper, KNOWN_FIELDS, RawAdoWorkItem } from "./ado.mapper";
 
 /** Jours ouvrés (lun–ven) entre deux dates ISO incluses, bornés à [lo, hi]. */
@@ -395,6 +395,30 @@ export class AdoService {
         allowedValues: Array.isArray(f.allowedValues) ? f.allowedValues.map(String) : [],
       }))
       .filter((f) => f.referenceName && !f.referenceName.startsWith("System.") && !f.referenceName.startsWith("WEF_") && !KNOWN_FIELDS.has(f.referenceName));
+  }
+
+  /**
+   * Discussion d'un work item (System.History), du plus ancien au plus récent.
+   * L'endpoint comments n'existe qu'en preview (7.1-preview.4).
+   */
+  async getComments(
+    org: string,
+    projectId: string,
+    workItemId: string,
+    token: string,
+  ): Promise<TicketComment[]> {
+    const data = await this.adoFetch(
+      `${this.projectUrl(org, projectId)}/_apis/wit/workItems/${encodeURIComponent(workItemId)}/comments?api-version=7.1-preview.4`,
+      token,
+    );
+    return ((data.comments as any[]) ?? [])
+      .map((c: any) => ({
+        id: c.id as number,
+        author: (c.createdBy?.displayName as string) || "?",
+        date: (c.createdDate as string) || "",
+        text: (c.text as string) || "",
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
   }
 
   async getCapacities(

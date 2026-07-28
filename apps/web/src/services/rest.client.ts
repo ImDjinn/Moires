@@ -1,4 +1,4 @@
-import type { SessionSnapshot, Capacity, MemberMeta, Ticket, Milestone, RowPin } from "@moirai/shared";
+import type { SessionSnapshot, Capacity, MemberMeta, Ticket, TicketComment, Milestone, RowPin } from "@moirai/shared";
 
 const BASE = "";
 
@@ -52,6 +52,8 @@ export const api = {
     request<{ referenceName: string; name: string; defaultValue: string | number | boolean | null; alwaysRequired?: boolean; allowedValues?: string[] }[]>(
       `/sessions/${sessionId}/field-defs/${encodeURIComponent(type)}`,
     ),
+  getComments: (sessionId: string, ticketId: string) =>
+    request<TicketComment[]>(`/sessions/${sessionId}/tickets/${ticketId}/comments`),
   duplicateTicket: (sessionId: string, ticketId: string) =>
     request<Ticket>(`/sessions/${sessionId}/tickets/${ticketId}/duplicate`, { method: "POST" }),
   logout: () => request<void>("/auth/logout", { method: "POST" }),

@@ -16,7 +16,7 @@ import { IconEye, IconEyeOff, IconGear, IconCopy, IconSwap, IconLogout, IconUser
 import { MyBoard, resolveMyPersonId } from "./MyBoard";
 import * as M from "./ganttModel";
 import type { Drag, Item, Presence, State, Theme } from "./ganttModel";
-import type { OperationField } from "@moirai/shared";
+import type { OperationField, TicketComment } from "@moirai/shared";
 
 const C = css;
 const mono = "'IBM Plex Mono',monospace";
@@ -137,6 +137,34 @@ export function GanttBoard() {
   stateRef.current = state;
   // Persiste la sélection des utilisateurs (personnes masquées) entre les sessions.
   useEffect(() => { saveHidden(state.hidden); }, [state.hidden]);
+  // Inactifs masqués par défaut, une seule fois : un id déjà présent dans `hidden`
+  // (true ou false) est un choix explicite de l'utilisateur, jamais réécrit.
+  useEffect(() => {
+    const active = M.activePersonIds(stateRef.current.items);
+    setState((s) => {
+      const h = { ...s.hidden };
+      let changed = false;
+      M.people.forEach((p) => {
+        if (!(p.id in h) && !active.has(p.id)) { h[p.id] = true; changed = true; }
+      });
+      return changed ? { hidden: h } : {};
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Discussion ADO du ticket sélectionné en vue @me : chargée à la demande
+  // (hors snapshot), mémorisée par ticket le temps de la session.
+  const [comments, setComments] = useState<Record<string, TicketComment[]>>({});
+  useEffect(() => {
+    const id = state.selectedId;
+    const sid = snapshot?.sessionId;
+    if (state.board !== "me" || !id || !sid || comments[id]) return;
+    let alive = true;
+    api.getComments(sid, id)
+      .then((list) => { if (alive) setComments((c) => ({ ...c, [id]: list })); })
+      .catch(() => { /* discussion indisponible : la carte reste affichée sans */ });
+    return () => { alive = false; };
+  }, [state.board, state.selectedId, snapshot?.sessionId, comments]);
 
   // Édition inline de la capacité (bandeau personne × sprint).
   const [capEdit, setCapEdit] = useState<{ personId: string; real: number } | null>(null);
@@ -1294,7 +1322,8 @@ export function GanttBoard() {
     const capMatrix = capMatrixOpen
       ? (() => {
           const idx = M.iters.slice(M.CURRENT, M.NITER).map((_, k) => M.CURRENT + k);
-          const members = M.people.filter((p) => !p.unassigned);
+          // Suit le filtre « Personnes » de la barre d'outils.
+          const members = M.people.filter((p) => !p.unassigned && !state.hidden[p.id]);
           return {
             cols: idx.map((i) => ({ key: i, label: M.iters[i].label, dates: M.iters[i].dates, current: i === M.CURRENT })),
             rows: members.map((p, ri) => ({
@@ -1630,6 +1659,16 @@ export function GanttBoard() {
     // « Non assigné » est une ligne du board, pas un membre : exclu des compteurs.
     const members = M.people.filter((p) => !p.unassigned);
     const visiblePeople = members.filter((p) => !state.hidden[p.id]).length;
+
+    // Inactifs : aucun ticket depuis 3 sprints, ni sur un sprint à venir.
+    const activeIds = M.activePersonIds(state.items);
+    const personRow = (p: M.Person) => ({
+      name: p.name, role: p.role, checked: !state.hidden[p.id],
+      dotStyle: `width:24px;height:24px;border-radius:50%;background:${p.color};color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
+      initials: p.initials,
+      // `false` explicite (et non suppression) : marque le choix de l'utilisateur.
+      onToggle: (e: React.ChangeEvent<HTMLInputElement>) => setState({ hidden: { ...state.hidden, [p.id]: !e.target.checked } }),
+    });
     return {
       rootStyle: { position: "relative" as const, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" as const, fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "var(--canvas)", color: "var(--ink)", overflow: "hidden" },
       totalWidth: TW, totalHeight: TH, columns, personRows, banners, bars, dropGhost, cursors, presence, onlineLabel, emptyAreaStyle,
@@ -1664,13 +1703,9 @@ export function GanttBoard() {
       })(),
       onLoadField: (e: React.ChangeEvent<HTMLSelectElement>) => updatePrefs({ loadField: e.target.value as M.LoadField }),
       peopleLabel: `${visiblePeople}/${members.length}`,
-      peopleList: M.people.map((p) => ({
-        name: p.name, role: p.role, checked: !state.hidden[p.id],
-        dotStyle: `width:24px;height:24px;border-radius:50%;background:${p.color};color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
-        initials: p.initials,
-        onToggle: (e: React.ChangeEvent<HTMLInputElement>) => { const h = { ...state.hidden }; if (e.target.checked) delete h[p.id]; else h[p.id] = true; setState({ hidden: h }); },
-      })),
-      onShowAllPeople: () => setState({ hidden: {} }),
+      peopleList: M.people.filter((p) => activeIds.has(p.id)).map(personRow),
+      peopleInactive: M.people.filter((p) => !activeIds.has(p.id)).map(personRow),
+      onShowAllPeople: () => setState({ hidden: Object.fromEntries(M.people.map((p) => [p.id, false])) }),
       onHideAllPeople: () => setState({ hidden: Object.fromEntries(M.people.map((p) => [p.id, true])) }),
       onPeopleClose: () => setState({ peopleOpen: false }),
       boardTabs: [{ key: "me", label: "@me" }, { key: "daily", label: "Daily" }, { key: "sprint", label: "Sprint Planning" }, { key: "release", label: "Release Planning" }].map((t) => {
@@ -1720,6 +1755,18 @@ export function GanttBoard() {
   const annotEditorStyle = annotAnchor
     ? `position:fixed;left:${Math.min(annotAnchor.x + 10, window.innerWidth - 306)}px;top:${Math.min(annotAnchor.y + 6, window.innerHeight - 300)}px;width:288px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:92;padding:15px 16px;animation:ggdrop .14s ease`
     : "position:absolute;top:104px;right:18px;width:288px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:92;padding:15px 16px;animation:ggdrop .14s ease";
+  // Ligne du popover Personnes (partagée actifs / inactifs).
+  const personLine = (p: (typeof v.peopleList)[number], key: number) => (
+    <label key={key} style={C("display:flex;align-items:center;gap:10px;padding:5px 0;cursor:pointer")}>
+      <input type="checkbox" checked={p.checked} onChange={p.onToggle} style={C("width:15px;height:15px;accent-color:var(--accent,#5b5bd6);cursor:pointer;flex:0 0 auto")} />
+      <div style={C(p.dotStyle)}>{p.initials}</div>
+      <div style={C("line-height:1.2;min-width:0")}>
+        <div style={C("font-size:13px;font-weight:500;color:var(--ink,#1a1a20)")}>{p.name}</div>
+        <div style={C("font-size:11px;color:var(--muted,#86868f)")}>{p.role}</div>
+      </div>
+    </label>
+  );
+
   return (
     <div style={v.rootStyle}>
       {/* Header row 1 */}
@@ -1940,16 +1987,15 @@ export function GanttBoard() {
             </div>
           </div>
           <div style={C("max-height:52vh;overflow-y:auto;margin:0 -15px;padding:0 15px")}>
-          {v.peopleList.map((p, i) => (
-            <label key={i} style={C("display:flex;align-items:center;gap:10px;padding:5px 0;cursor:pointer")}>
-              <input type="checkbox" checked={p.checked} onChange={p.onToggle} style={C("width:15px;height:15px;accent-color:var(--accent,#5b5bd6);cursor:pointer;flex:0 0 auto")} />
-              <div style={C(p.dotStyle)}>{p.initials}</div>
-              <div style={C("line-height:1.2;min-width:0")}>
-                <div style={C("font-size:13px;font-weight:500;color:var(--ink,#1a1a20)")}>{p.name}</div>
-                <div style={C("font-size:11px;color:var(--muted,#86868f)")}>{p.role}</div>
-              </div>
-            </label>
-          ))}
+          {v.peopleList.map(personLine)}
+          {v.peopleInactive.length > 0 && (
+            <details style={C("margin-top:6px;border-top:1px solid var(--line,#e9e9ef);padding-top:6px")}>
+              <summary style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6);cursor:pointer;padding:3px 0;list-style:none")}>
+                Inactifs ({v.peopleInactive.length}) <span style={C("opacity:.6;font-size:9px")}>▾</span>
+              </summary>
+              {v.peopleInactive.map(personLine)}
+            </details>
+          )}
           </div>
         </div>
         </>
@@ -2009,6 +2055,7 @@ export function GanttBoard() {
           items={state.items} people={M.people} iters={M.iters} current={M.CURRENT} theme={theme}
           userName={user?.displayName ?? ""} myId={myPersonId} selectedId={state.selectedId}
           onSelect={(id) => setState({ selectedId: id })} adoUrl={snapshot?.adoUrl}
+          comments={state.selectedId ? comments[state.selectedId] : undefined}
         />
       )}
 

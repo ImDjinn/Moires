@@ -1,4 +1,4 @@
-export type { Ticket } from "./ticket";
+export type { Ticket, TicketComment } from "./ticket";
 export type { Operation, OperationField, OperationFieldKey } from "./operation";
 export { setTicketField, getTicketField, OPERATION_FIELDS } from "./operation";
 export type { PresenceState } from "./presence";

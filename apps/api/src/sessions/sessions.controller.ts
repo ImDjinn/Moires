@@ -60,6 +60,16 @@ export class SessionsController {
     return this.sessions.duplicateTicket(id, ticketId, await this.getToken(user.id));
   }
 
+  @Get(":id/tickets/:ticketId/comments")
+  @UseGuards(SessionMemberGuard)
+  async getComments(
+    @Param("id") id: string,
+    @Param("ticketId") ticketId: string,
+    @User() user: AuthenticatedUser,
+  ) {
+    return this.sessions.getComments(id, ticketId, await this.getToken(user.id));
+  }
+
   @Get(":id/field-defs/:type")
   @UseGuards(SessionMemberGuard)
   async getTypeFields(@Param("id") id: string, @Param("type") type: string, @User() user: AuthenticatedUser) {

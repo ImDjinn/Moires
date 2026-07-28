@@ -181,6 +181,13 @@ export class SessionsService {
     return this.ado.getTypeFields(session.adoOrg, session.adoProjectId, type, token);
   }
 
+  /** Discussion ADO d'un ticket (lecture seule, à la demande). */
+  async getComments(sessionId: string, ticketId: string, token: string) {
+    const session = await this.prisma.planningSession.findUnique({ where: { id: sessionId } });
+    if (!session) throw new Error(`Session ${sessionId} not found`);
+    return this.ado.getComments(session.adoOrg, session.adoProjectId, ticketId, token);
+  }
+
   async applyOperation(sessionId: string, op: Operation): Promise<Ticket> {
     const ticket = await this.redis.getTicket(sessionId, op.ticketId);
     if (!ticket) throw new Error(`Ticket ${op.ticketId} not found`);

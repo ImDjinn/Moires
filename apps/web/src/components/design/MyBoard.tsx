@@ -1,6 +1,7 @@
 import { css } from "./css";
 import * as M from "./ganttModel";
 import type { Item, Iter, Person, Theme } from "./ganttModel";
+import type { TicketComment } from "@moirai/shared";
 
 const C = css;
 const mono = "'IBM Plex Mono',monospace";
@@ -67,8 +68,30 @@ function Field({ label, text }: { label: string; text: string }) {
   );
 }
 
-function Card({ item, theme, selected, onSelect, adoUrl }: {
+function Discussion({ comments }: { comments: TicketComment[] }) {
+  return (
+    <div>
+      <div style={C(`${KICKER};margin-bottom:7px`)}>Discussion ({comments.length})</div>
+      <div style={C("display:flex;flex-direction:column;gap:9px")}>
+        {comments.map((c) => (
+          <div key={c.id} style={C("border-left:2px solid var(--line,#e9e9ef);padding-left:9px")}>
+            <div style={C("display:flex;align-items:baseline;gap:7px")}>
+              <span style={C("font-size:11.5px;font-weight:600;color:var(--ink,#1a1a20)")}>{c.author}</span>
+              <span style={C(`font-family:${mono};font-size:10.5px;color:var(--faint,#abacb6)`)}>
+                {c.date ? new Date(c.date).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : ""}
+              </span>
+            </div>
+            <div style={C("font-size:12.5px;line-height:1.5;color:var(--muted,#86868f);white-space:pre-wrap")}>{htmlToText(c.text)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Card({ item, theme, selected, onSelect, adoUrl, comments }: {
   item: Item; theme: Theme; selected: boolean; onSelect: (id: string) => void; adoUrl?: string;
+  comments?: TicketComment[];
 }) {
   const cm = M.colorMap(item.type, theme);
   const desc = htmlToText(item.description);
@@ -92,17 +115,18 @@ function Card({ item, theme, selected, onSelect, adoUrl }: {
         )}
       </div>
       <div style={C("font-size:14px;font-weight:600;line-height:1.35;color:var(--ink,#1a1a20)")}>{item.title}</div>
-      {(desc || ac) && (
+      {(desc || ac || comments?.length) && (
         <div style={C("display:flex;flex-direction:column;gap:11px;padding-top:2px")}>
           <Field label="Description" text={desc} />
           <Field label="Critères d'acceptation" text={ac} />
+          {!!comments?.length && <Discussion comments={comments} />}
         </div>
       )}
     </div>
   );
 }
 
-export function MyBoard({ items, people, iters, current, theme, userName, myId, selectedId, onSelect, adoUrl }: {
+export function MyBoard({ items, people, iters, current, theme, userName, myId, selectedId, onSelect, adoUrl, comments }: {
   items: Item[];
   people: Person[];
   iters: Iter[];
@@ -113,6 +137,8 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
   selectedId: string | null;
   onSelect: (id: string) => void;
   adoUrl?: string;
+  /** Discussion ADO du ticket sélectionné (chargée à la demande par le parent). */
+  comments?: TicketComment[];
 }) {
   const me = people.find((p) => p.id === myId);
   const mine = items.filter((it) => it.person === myId);
@@ -165,7 +191,7 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
               </div>
             ) : (
               cur.map((it) => (
-                <Card key={it.id} item={it} theme={theme} selected={selectedId === it.id} onSelect={onSelect} adoUrl={adoUrl} />
+                <Card key={it.id} item={it} theme={theme} selected={selectedId === it.id} onSelect={onSelect} adoUrl={adoUrl} comments={selectedId === it.id ? comments : undefined} />
               ))
             )}
           </div>
