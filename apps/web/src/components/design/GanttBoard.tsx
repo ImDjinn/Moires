@@ -1844,10 +1844,6 @@ export function GanttBoard() {
                 <button onClick={logout} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:7px;background:transparent;color:var(--color-error,#ef4444);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
                   <span style={C("opacity:.7;display:flex")}><IconLogout size={13} /></span> Se déconnecter
                 </button>
-                {/* L'org est liée au PAT du cookie : en changer impose une reconnexion. */}
-                <div style={C("padding:0 10px 8px 32px;font-size:11px;line-height:1.35;color:var(--faint,#abacb6)")}>
-                  Nécessaire pour changer d'organisation.
-                </div>
               </div>
               </>
             )}

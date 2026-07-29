@@ -42,7 +42,7 @@ Token** saisi dans l'UI. Chaque utilisateur crée le sien :
 
    | Portée | Niveau | Sert à |
    |--------|--------|--------|
-   | **Work Items** | *Read, write, & manage* | itérations, boards, colonnes, capacités, lecture **et** écriture des work items |
+   | **Work Items** | *Read & write* | itérations, boards, colonnes, capacités, lecture **et** écriture des work items |
    | **Project and Team** | *Read* | liste des projets, équipes et membres |
 
 4. **Create**, copier le jeton (affiché **une seule fois**), le coller dans l'écran de connexion.
