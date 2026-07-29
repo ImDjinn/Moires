@@ -125,6 +125,9 @@ export function LoginButton() {
             autoComplete="off"
             style={inputStyle}
           />
+          <span style={{ color: "var(--faint)", fontSize: 12, lineHeight: 1.4 }}>
+            Une organisation par connexion : pour en changer, déconnectez-vous puis reconnectez-vous avec un jeton de l'autre organisation.
+          </span>
         </div>
         <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 7, textAlign: "left" }}>
           <span style={labelStyle}>Personal Access Token</span>
@@ -207,14 +210,34 @@ export function LoginButton() {
             Renseignez l'organisation et le jeton pour activer la connexion.
           </p>
         )}
-        <a
-          href={patHref}
-          target="_blank"
-          rel="noreferrer"
-          style={{ color: "var(--muted)", fontSize: 12, textDecoration: "underline" }}
-        >
-          Créer un PAT (portée : Work Items lecture/écriture, Project & Team lecture)
-        </a>
+        {/* ponytail: <details> natif — pas d'état, la notice reste repliée par défaut. */}
+        <details style={{ width: "100%", textAlign: "left", color: "var(--muted)", fontSize: 12 }}>
+          <summary style={{ cursor: "pointer", textDecoration: "underline" }}>
+            Comment créer un PAT ?
+          </summary>
+          <ol style={{ margin: "10px 0 0", paddingLeft: 18, lineHeight: 1.7 }}>
+            <li>
+              Ouvrir{" "}
+              <a href={patHref} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>
+                la page des jetons
+              </a>{" "}
+              (avatar en haut à droite → <em>User settings</em> → <em>Personal access tokens</em>).
+            </li>
+            <li><strong>+ New Token</strong> : un nom (ex. « Moires »), l'organisation ci-dessus, une expiration.</li>
+            <li>
+              <strong>Scopes</strong> → <em>Custom defined</em>, puis cocher exactement :
+              <ul style={{ margin: "4px 0 0", paddingLeft: 16 }}>
+                <li><strong>Work Items</strong> → <em>Read, write, &amp; manage</em> (lecture des sprints/boards, écriture des tickets)</li>
+                <li><strong>Project and Team</strong> → <em>Read</em> (liste des projets et des membres d'équipe)</li>
+              </ul>
+            </li>
+            <li><strong>Create</strong>, puis copier le jeton — il n'est affiché qu'une fois — et le coller ci-dessus.</li>
+          </ol>
+          <p style={{ margin: "10px 0 0", color: "var(--faint)", lineHeight: 1.5 }}>
+            Ces deux portées suffisent : inutile de donner <em>Full access</em>. Le jeton n'ouvre que ce
+            que votre compte peut déjà voir dans Azure DevOps.
+          </p>
+        </details>
       </form>
     </div>
   );

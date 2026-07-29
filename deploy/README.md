@@ -31,10 +31,25 @@ Enregistrement **A** : `themoirai.net` → `IP_DU_VPS`, **proxy « DNS only » (
 > Le proxy orange casse la génération du certificat Caddy et les WebSockets. À laisser gris.
 
 ### 3. Azure DevOps (auth par PAT)
-Aucune app Azure AD à configurer. La connexion se fait avec un **Personal Access
-Token** Azure DevOps saisi dans l'UI. Créer le PAT sur https://dev.azure.com →
-User settings → Personal access tokens, portées : *Work Items (lecture/écriture)*
-et *Project and Team (lecture)*.
+Aucune app Azure AD à configurer : la connexion se fait avec un **Personal Access
+Token** saisi dans l'UI. Chaque utilisateur crée le sien :
+
+1. `https://dev.azure.com/<ORG>/_usersSettings/tokens` (ou avatar en haut à droite →
+   *User settings* → *Personal access tokens*).
+2. **+ New Token** → nom (ex. « Moires »), organisation = celle saisie à la connexion,
+   expiration au choix.
+3. **Scopes** → *Custom defined*, cocher **exactement** :
+
+   | Portée | Niveau | Sert à |
+   |--------|--------|--------|
+   | **Work Items** | *Read, write, & manage* | itérations, boards, colonnes, capacités, lecture **et** écriture des work items |
+   | **Project and Team** | *Read* | liste des projets, équipes et membres |
+
+4. **Create**, copier le jeton (affiché **une seule fois**), le coller dans l'écran de connexion.
+
+> *Full access* fonctionne mais est inutilement large. Le PAT ne donne jamais plus de
+> droits que le compte qui l'a créé : un utilisateur ne verra dans Moires que les
+> projets/zones qu'il peut déjà lire dans ADO.
 
 ### 4. Serveur : Docker + pare-feu
 ```bash
@@ -66,7 +81,6 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 - `POSTGRES_PASSWORD` **et** le mot de passe dans `DATABASE_URL` : identiques, forts.
 - `REDIS_PASSWORD` **et** le mot de passe dans `REDIS_URL` : identiques, forts (`openssl rand -hex 32`).
 - `SESSION_SECRET` : générer avec `openssl rand -hex 32` (signe les cookies de session).
-- `ADO_WEBHOOK_SECRET` : requis si les webhooks ADO sont configurés — sans lui, l'endpoint est refusé.
 - Laisser les hôtes `postgres` / `redis` (noms de service Docker), **pas** `localhost`.
 
 ---

@@ -187,9 +187,9 @@ export function GanttBoard() {
     if (state.selectedId) setPersonSel(null);
   }, [state.selectedId]);
 
-  // Menu utilisateur (déconnexion / changement de projet-organisation).
+  // Menu utilisateur (déconnexion / changement de projet).
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  // Quitter la session : ferme le socket et revient au lobby (choix org/projet).
+  // Quitter la session : ferme le socket et revient au lobby (choix du projet).
   const exitSession = useCallback(() => {
     setUserMenuOpen(false);
     disconnectSocket();
@@ -1839,11 +1839,15 @@ export function GanttBoard() {
                   </button>
                 )}
                 <button onClick={exitSession} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:7px;background:transparent;color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
-                  <span style={C("opacity:.7;display:flex")}><IconSwap size={13} /></span> Changer de projet / d'organisation
+                  <span style={C("opacity:.7;display:flex")}><IconSwap size={13} /></span> Changer de projet
                 </button>
                 <button onClick={logout} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:7px;background:transparent;color:var(--color-error,#ef4444);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
                   <span style={C("opacity:.7;display:flex")}><IconLogout size={13} /></span> Se déconnecter
                 </button>
+                {/* L'org est liée au PAT du cookie : en changer impose une reconnexion. */}
+                <div style={C("padding:0 10px 8px 32px;font-size:11px;line-height:1.35;color:var(--faint,#abacb6)")}>
+                  Nécessaire pour changer d'organisation.
+                </div>
               </div>
               </>
             )}

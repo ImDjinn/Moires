@@ -85,7 +85,7 @@ export function SessionLobby() {
           <span style={labelStyle}>Planification collaborative</span>
           <h2 style={{ fontSize: 22, fontWeight: 600, color: "var(--ink)" }}>Nouvelle session</h2>
           <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
-            Sélectionnez l'organisation et le projet Azure DevOps à planifier.
+            Sélectionnez le projet Azure DevOps à planifier.
           </p>
         </div>
 
@@ -109,6 +109,9 @@ export function SessionLobby() {
           <div style={{ fontSize: 14, fontWeight: 500, padding: "2px 0", color: org ? "var(--ink)" : "var(--muted)" }}>
             {org || "Chargement…"}
           </div>
+          <span style={{ fontSize: 12, color: "var(--faint)", lineHeight: 1.4 }}>
+            Liée à votre connexion : déconnectez-vous pour changer d'organisation.
+          </span>
         </div>
 
         <label style={{ display: "flex", flexDirection: "column", gap: 7 }}>

@@ -144,9 +144,4 @@ describe("RedisService", () => {
     await service.deleteUserPat("u1");
     expect(service.client.del).toHaveBeenCalledWith("user:u1:pat");
   });
-
-  it("clearSyncSlot supprime le créneau de sync de la session", async () => {
-    await service.clearSyncSlot("s1");
-    expect(service.client.del).toHaveBeenCalledWith("session:s1:ado-sync-slot");
-  });
 });

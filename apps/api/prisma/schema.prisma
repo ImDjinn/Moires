@@ -33,7 +33,6 @@ model PlanningSession {
 
   creator       User            @relation(fields: [createdBy], references: [id])
   operationsLog OperationsLog[]
-  ticketsCache  TicketsCache[]
 
   @@map("planning_sessions")
 }
@@ -115,32 +114,4 @@ model MemberMeta {
 
   @@id([adoProjectId, memberHash])
   @@map("member_meta")
-}
-
-model TicketsCache {
-  id            String   @id
-  sessionId     String   @map("session_id")
-  title         String
-  workItemType  String   @default("") @map("work_item_type")
-  parentId      String?  @map("parent_id")
-  state         String   @default("")
-  tags          String[] @default([])
-  assigneeId    String?  @map("assignee_id")
-  areaPath      String   @map("area_path")
-  iterationId   String   @map("iteration_id")
-  epicId        String?  @map("epic_id")
-  epicTitle     String?  @map("epic_title")
-  startDate     DateTime @map("start_date")
-  endDate       DateTime @map("end_date")
-  targetDate    DateTime? @map("target_date")
-  estimateHours Float    @default(0) @map("estimate_hours")
-  storyPoints   Float    @default(0) @map("story_points")
-  adoRev        Int      @map("ado_rev")
-  syncStatus    String   @default("synced") @map("sync_status")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-
-  session PlanningSession @relation(fields: [sessionId], references: [id])
-
-  @@index([iterationId])
-  @@map("tickets_cache")
 }

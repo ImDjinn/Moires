@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import type { Ticket, TeamMember, SessionSnapshot, Iteration } from "@moires/shared";
 import { PrismaService } from "../database/prisma.service";
 import { RedisService } from "../database/redis.service";
@@ -8,8 +8,6 @@ import { AdoMapper, RawAdoWorkItem } from "../ado/ado.mapper";
 
 @Injectable()
 export class SyncService {
-  private readonly logger = new Logger(SyncService.name);
-
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
@@ -69,44 +67,8 @@ export class SyncService {
       tickets.push(...rawEpics.map((r) => this.mapper.toTicket(r)));
     }
 
+    // Redis est la seule source de vérité de la session : pas de copie Postgres.
     await this.redis.setTickets(sessionId, tickets);
-
-    // Un seul aller-retour transactionnel au lieu de N upserts séquentiels
-    // (à chaque sync, y compris le sync incrémental toutes les 30s).
-    // Écrit hors chemin critique (pas de await) : Redis est la source de
-    // vérité de la session, ce cache ne sert qu'au mapping work item → session
-    // du webhook ADO — une écriture en retard ou perdue est sans effet visible.
-    const fields = (t: Ticket) => ({
-      sessionId,
-      title: t.title,
-      workItemType: t.workItemType,
-      parentId: t.parentId,
-      state: t.state,
-      tags: t.tags,
-      assigneeId: t.assigneeId,
-      areaPath: t.areaPath,
-      iterationId: t.iterationId,
-      epicId: t.epicId,
-      epicTitle: t.epicTitle,
-      startDate: new Date(t.startDate),
-      endDate: new Date(t.endDate),
-      targetDate: t.targetDate ? new Date(t.targetDate) : null,
-      estimateHours: t.estimateHours,
-      storyPoints: t.storyPoints,
-      adoRev: t.adoRev,
-      syncStatus: t.syncStatus,
-    });
-    void this.prisma
-      .$transaction(
-        tickets.map((t) =>
-          this.prisma.ticketsCache.upsert({
-            where: { id: t.id },
-            update: fields(t),
-            create: { id: t.id, ...fields(t) },
-          }),
-        ),
-      )
-      .catch((e) => this.logger.warn(`ticketsCache write failed for session ${sessionId}: ${e}`));
 
     return { tickets, rawItems };
   }
@@ -176,8 +138,8 @@ export class SyncService {
 
     // Anti-throttling ADO : 1 sync ADO max par fenêtre de 30s par session,
     // tous clients confondus. Les polls intermédiaires reçoivent le cache
-    // Redis, tenu à jour par les ops WebSocket ; un webhook ADO supprime ce
-    // créneau (clearSyncSlot) pour forcer un vrai sync au prochain poll.
+    // Redis, tenu à jour par les ops WebSocket. Une modif faite hors de l'app
+    // (directement dans ADO) remonte donc en ~30s au pire.
     if (await this.redis.acquireSyncSlot(sessionId, 30)) {
       if (!iterations.length) {
         // Cache Redis expiré (TTL 24h) : ré-hydratation complète comme à la

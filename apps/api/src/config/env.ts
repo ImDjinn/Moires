@@ -8,7 +8,6 @@ export const envSchema = z.object({
   SESSION_SECRET: z.string().min(32),
   PORT: z.coerce.number().default(3000),
   FRONTEND_URL: z.string().default("http://localhost:5173"),
-  ADO_WEBHOOK_SECRET: z.string().optional(),
   // Kill-switch du write-back ADO (env de test) : les ops sont appliquées dans
   // Redis + journalisées, mais jamais écrites vers ADO. Lu via process.env dans
   // SessionsService (relu à chaque op, pas figé au bootstrap).
