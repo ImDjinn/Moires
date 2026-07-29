@@ -566,21 +566,30 @@ export function featRange(s: State, f: Item): [number, number] {
   return d || [f.iter, f.iter];
 }
 
+interface StoryNode {
+  item: Item;
+  tasks: { item: Item }[];
+}
 interface FeatureNode {
   item: Item;
-  stories: { item: Item; tasks: { item: Item }[] }[];
+  stories: StoryNode[];
 }
 interface TreeNode {
   epicId: string | null;
   epic: Item | null;
   features: FeatureNode[];
+  /** US rattachées directement à l'Epic (pas de Feature parente dans le lot). */
+  stories: StoryNode[];
   range: [number, number] | null;
   /** 0 = en cours, 1 = à venir, 2 = terminé, 3 = sans date. */
   bucket: number;
 }
 
+/** Toutes les US d'un nœud : celles des features + celles rattachées à l'epic. */
+const nodeStories = (n: TreeNode): Item[] => [...n.stories.map((st) => st.item), ...n.features.flatMap((f) => f.stories.map((st) => st.item))];
+
 const nodeName = (n: TreeNode) => (n.epic ? n.epic.title : "(Sans epic)");
-const nodeEffort = (n: TreeNode) => n.features.reduce((s, f) => s + f.stories.reduce((ss, st) => ss + effortOf(st.item), 0), 0);
+const nodeEffort = (n: TreeNode) => nodeStories(n).reduce((s, it) => s + effortOf(it), 0);
 
 function statusBucket(range: [number, number] | null): number {
   if (!range) return 3;
@@ -591,33 +600,45 @@ function statusBucket(range: [number, number] | null): number {
 }
 
 /** Intervalle d'un Epic : ses dates Start/Target sinon dérivé des US descendantes. */
-function epicRange(epic: Item | null, features: FeatureNode[]): [number, number] | null {
+function epicRange(epic: Item | null, us: Item[]): [number, number] | null {
   if (epic && epic.hasDateRange && epic.startISO && epic.endISO) {
     const a = sprintIndexForDate(epic.startISO, "start");
     const b = sprintIndexForDate(epic.endISO, "end");
     if (a != null && b != null) return [Math.min(a, b), Math.max(a, b)];
   }
-  const us: Item[] = [];
-  features.forEach((f) => f.stories.forEach((st) => us.push(st.item)));
   return derivedRange(us);
 }
 
 export function buildTree(s: State): TreeNode[] {
   const epicItems = s.items.filter((i) => i.level === "epic");
   const feats = s.items.filter((i) => i.level === "feature");
+  const featIds = new Set(feats.map((f) => f.id));
+  const epicIds = new Set(epicItems.map((e) => e.id));
+  const storyNode = (st: Item): StoryNode => ({ item: st, tasks: s.items.filter((t) => t.level === "task" && t.parent === st.id).map((t) => ({ item: t })) });
   const featNode = (f: Item): FeatureNode => ({
     item: f,
-    stories: s.items
-      .filter((st) => st.level === "story" && st.parent === f.id)
-      .map((st) => ({ item: st, tasks: s.items.filter((t) => t.level === "task" && t.parent === st.id).map((t) => ({ item: t })) })),
+    stories: s.items.filter((st) => st.level === "story" && st.parent === f.id).map(storyNode),
   });
-  const mk = (epic: Item | null, features: FeatureNode[]): TreeNode => {
-    const range = epicRange(epic, features);
-    return { epicId: epic ? epic.id : null, epic, features, range, bucket: statusBucket(range) };
+  // US sans Feature parente dans le lot (rattachée directement à l'Epic, ou
+  // Feature hors périmètre du sync) : rattachée au nœud de son Epic. Sinon elle
+  // serait invisible dans l'arbre tout en comptant dans la charge des colonnes.
+  const loose = new Map<string, StoryNode[]>();
+  s.items.forEach((it) => {
+    if (it.level !== "story" || (it.parent && featIds.has(it.parent))) return;
+    const key = epicIds.has(epicOf(it)) ? epicOf(it) : "__none__";
+    if (!loose.has(key)) loose.set(key, []);
+    loose.get(key)!.push(storyNode(it));
+  });
+  const mk = (epic: Item | null, features: FeatureNode[], stories: StoryNode[]): TreeNode => {
+    const node: TreeNode = { epicId: epic ? epic.id : null, epic, features, stories, range: null, bucket: 3 };
+    node.range = epicRange(epic, nodeStories(node));
+    node.bucket = statusBucket(node.range);
+    return node;
   };
-  const nodes: TreeNode[] = epicItems.map((epic) => mk(epic, feats.filter((f) => f.epicId === epic.id).map(featNode)));
+  const nodes: TreeNode[] = epicItems.map((epic) => mk(epic, feats.filter((f) => f.epicId === epic.id).map(featNode), loose.get(epic.id) ?? []));
   const orphan = feats.filter((f) => !f.epicId || !epicItems.some((e) => e.id === f.epicId));
-  if (orphan.length) nodes.push(mk(null, orphan.map(featNode)));
+  const looseNone = loose.get("__none__") ?? [];
+  if (orphan.length || looseNone.length) nodes.push(mk(null, orphan.map(featNode), looseNone));
 
   const filtered = nodes.filter((n) => {
     if (s.epicFilter === "hideDone") return n.bucket !== 2;
@@ -761,14 +782,40 @@ function releaseLayout(s: State, COLW: number): Layout {
   const tree = buildTree(s);
   // Colonne d'un item, clampée dans [lo, hi] (containment US ⊆ Feature ⊆ Epic).
   const clampCol = (iter: number, lo: number, hi: number) => cols.indexOf(Math.max(lo, Math.min(hi, iter)));
+  // Bande de cartes d'un parent déplié : une colonne par sprint, US puis tâches.
+  const pushBand = (key: string, stories: StoryNode[], lo: number, hi: number, indentUS: number) => {
+    const bandTop = y, colY = cols.map(() => bandTop + BPAD);
+    stories.forEach((st) => {
+      const ci = clampCol(st.item.iter, lo, hi);
+      if (ci < 0) return;
+      const sopen = isOpen(s, st.item.id);
+      cards.push({ item: st.item, level: "story", ci, left: LEFT + ci * COLW + indentUS, top: colY[ci], width: COLW - 2 * indentUS, height: CUS, hasChildren: st.tasks.length > 0, open: sopen });
+      colY[ci] += CUS + CGAP;
+      if (sopen)
+        st.tasks.forEach((t) => {
+          const tci = clampCol(t.item.iter, lo, hi);
+          if (tci < 0) return;
+          cards.push({ item: t.item, level: "task", ci: tci, left: LEFT + tci * COLW + indentUS + 14, top: colY[tci], width: COLW - 2 * indentUS - 14, height: CTASK });
+          colY[tci] += CTASK + CGAP;
+        });
+    });
+    const bandH = Math.max(...colY) - bandTop + BPAD;
+    rows.push({ kind: "band", depth: 0, key, top: bandTop, height: bandH });
+    y += bandH;
+  };
   tree.forEach((node) => {
     const ekey = "epic:" + (node.epicId ?? "__none__"), eopen = isOpen(s, ekey);
-    const epicUS: Item[] = [];
-    node.features.forEach((f) => f.stories.forEach((st) => epicUS.push(st.item)));
+    const epicUS = nodeStories(node);
     const eColor = (node.epic ? epics[node.epic.id]?.color : null) || "#64748b";
-    rows.push({ kind: "epic", depth: 0, key: ekey, item: node.epic ?? undefined, epicName: nodeName(node), hasChildren: node.features.length > 0, open: eopen, count: node.features.length, us: epicUS, accent: eColor, range: node.range, top: y, height: RELPARENT });
+    const hasChildren = node.features.length > 0 || node.stories.length > 0;
+    rows.push({ kind: "epic", depth: 0, key: ekey, item: node.epic ?? undefined, epicName: nodeName(node), hasChildren, open: eopen, count: node.features.length, us: epicUS, accent: eColor, range: node.range, top: y, height: RELPARENT });
     y += RELPARENT;
     if (!eopen) return;
+    // US rattachées directement à l'Epic : bande de cartes sous la ligne epic.
+    if (node.stories.length) {
+      const er = node.range ?? [0, cols.length - 1];
+      pushBand(ekey + ":band", node.stories, Math.min(er[0], er[1]), Math.max(er[0], er[1]), 8);
+    }
     node.features.forEach((f) => {
       const fopen = isOpen(s, f.item.id);
       const fUS = f.stories.map((st) => st.item);
@@ -780,24 +827,7 @@ function releaseLayout(s: State, COLW: number): Layout {
       rows.push({ kind: "feature", depth: 1, key: f.item.id, item: f.item, hasChildren: f.stories.length > 0, open: fopen, us: fUS, accent: ep.color || "#0072B2", epicShort: ep.short || "", range: efr, top: y, height: RELPARENT });
       y += RELPARENT;
       if (!fopen) return;
-      const bandTop = y, colY = cols.map(() => bandTop + BPAD);
-      f.stories.forEach((st) => {
-        const ci = clampCol(st.item.iter, lo, hi); // US ⊆ Feature
-        if (ci < 0) return;
-        const sopen = isOpen(s, st.item.id);
-        cards.push({ item: st.item, level: "story", ci, left: LEFT + ci * COLW + 8, top: colY[ci], width: COLW - 16, height: CUS, hasChildren: st.tasks.length > 0, open: sopen });
-        colY[ci] += CUS + CGAP;
-        if (sopen)
-          st.tasks.forEach((t) => {
-            const tci = clampCol(t.item.iter, lo, hi);
-            if (tci < 0) return;
-            cards.push({ item: t.item, level: "task", ci: tci, left: LEFT + tci * COLW + 22, top: colY[tci], width: COLW - 30, height: CTASK });
-            colY[tci] += CTASK + CGAP;
-          });
-      });
-      const bandH = Math.max(...colY) - bandTop + BPAD;
-      rows.push({ kind: "band", depth: 0, key: f.item.id + ":band", top: bandTop, height: bandH });
-      y += bandH;
+      pushBand(f.item.id + ":band", f.stories, lo, hi, 8); // US ⊆ Feature
     });
   });
   return { rows, bars: [], cards, totalHeight: Math.max(y + 20, 520) };
@@ -845,17 +875,29 @@ export function hiddenStoryIds(s: State): Set<string> {
   const out = new Set<string>();
   if (!Object.keys(s.hiddenRows).some((k) => s.hiddenRows[k])) return out;
   const epicIds = new Set(s.items.filter((i) => i.level === "epic").map((e) => e.id));
-  const featHidden = new Set<string>();
+  const featHidden = new Set<string>(), featIds = new Set<string>();
   s.items.forEach((f) => {
     if (f.level !== "feature") return;
+    featIds.add(f.id);
     const epicKey = "epic:" + (f.epicId && epicIds.has(f.epicId) ? f.epicId : "__none__");
     if (s.hiddenRows[f.id] || s.hiddenRows[epicKey]) featHidden.add(f.id);
   });
   s.items.forEach((it) => {
-    if (it.level === "story" && it.parent && featHidden.has(it.parent)) out.add(it.id);
+    if (it.level !== "story") return;
+    // Même rattachement que buildTree : sous sa Feature, sinon sous son Epic.
+    if (it.parent && featIds.has(it.parent)) {
+      if (featHidden.has(it.parent)) out.add(it.id);
+    } else if (s.hiddenRows["epic:" + (epicIds.has(epicOf(it)) ? epicOf(it) : "__none__")]) out.add(it.id);
   });
   return out;
 }
+
+/**
+ * US couvertes par les lignes affichées du Release planning (arbre filtré par
+ * « Filtre epics »). Base commune de la bande de charge et des métriques : la
+ * somme d'une colonne égale ainsi la somme des barres d'epic de cette colonne.
+ */
+export const releaseStories = (s: State): Item[] => buildTree(s).flatMap(nodeStories);
 
 /**
  * Personnes ayant un ticket sur un sprint daté récent (≥ CURRENT−3) ou à venir.
@@ -891,19 +933,19 @@ export function releaseMetrics(s: State) {
   const from = Math.min(s.metricsFrom, s.metricsTo), to = Math.max(s.metricsFrom, s.metricsTo);
   let cap = 0;
   for (let i = from; i <= to; i++) cap += sprintCap(s, i);
-  const effort = countedEffort(s, s.items, from, to, hiddenStoryIds(s));
+  const effort = countedEffort(s, releaseStories(s), from, to, hiddenStoryIds(s));
   return { from, to, cap, effort, delta: cap - effort };
 }
 
 export function relLoadBand(s: State, cols: number[], theme: Theme) {
   const by = s.loadBy;
   const hiddenSt = hiddenStoryIds(s);
+  const stories = releaseStories(s);
   return cols.map((real) => {
     const cap = sprintCap(s, real);
     const groups: Record<string, number> = {};
     let total = 0;
-    s.items.forEach((it) => {
-      if (it.level !== "story") return;
+    stories.forEach((it) => {
       if (s.hideClosed && isDone(it.state)) return;
       if (it.iter !== real || s.hidden[it.person] || hiddenSt.has(it.id)) return;
       const eff = effortOf(it);

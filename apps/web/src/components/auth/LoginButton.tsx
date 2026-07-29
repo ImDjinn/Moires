@@ -56,9 +56,6 @@ export function LoginButton() {
     textTransform: "uppercase",
   };
   const missing = !org.trim() || !pat.trim();
-  // Lien direct vers la page des jetons de l'organisation saisie (racine sinon).
-  const orgSlug = org.trim().replace(/^https?:\/\//, "").replace(/^dev\.azure\.com\//i, "").replace(/\/+$/, "");
-  const patHref = orgSlug ? `https://dev.azure.com/${encodeURIComponent(orgSlug)}/_usersSettings/tokens` : "https://dev.azure.com";
 
   return (
     <div style={{
@@ -214,11 +211,8 @@ export function LoginButton() {
           </summary>
           <ol style={{ margin: "10px 0 0", paddingLeft: 18, lineHeight: 1.7 }}>
             <li>
-              Ouvrir{" "}
-              <a href={patHref} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>
-                la page des jetons
-              </a>{" "}
-              (avatar en haut à droite → <em>User settings</em> → <em>Personal access tokens</em>).
+              Dans Azure DevOps : avatar en haut à droite → <em>User settings</em> →{" "}
+              <em>Personal access tokens</em>.
             </li>
             <li><strong>+ New Token</strong> : un nom (ex. « Moires »), l'organisation ci-dessus, une expiration.</li>
             <li>

@@ -1172,10 +1172,12 @@ export function GanttBoard() {
     const onlineLabel = realSession ? `${peers.length + 1} en ligne` : "3 en ligne";
 
     const syncing = state.sync === "syncing";
+    // Le libellé se rétrécit sur les petites largeurs (le titre au survol donne
+    // le texte complet) ; la pastille d'état, elle, reste toujours visible.
     const syncStyle = `display:flex;align-items:center;gap:7px;font-size:12px;font-weight:500;min-width:0;white-space:nowrap;color:${syncing ? "var(--accent,#5b5bd6)" : "var(--color-synced-text,#1f8a54)"}`;
-    const syncDotStyle = syncing
+    const syncDotStyle = (syncing
       ? "width:11px;height:11px;border-radius:50%;border:2px solid var(--accent,#5b5bd6);border-top-color:transparent;animation:ggspin .7s linear infinite"
-      : "width:8px;height:8px;border-radius:50%;background:var(--color-synced,#2bbf73)";
+      : "width:8px;height:8px;border-radius:50%;background:var(--color-synced,#2bbf73)") + ";flex:0 0 auto";
 
     const levels = M.levelDefs.map((l) => {
       const active = state.level === l.key;
@@ -1741,7 +1743,8 @@ export function GanttBoard() {
       rangeLabel, range, rangeOpen: state.rangeOpen,
       rangeBtnStyle: `height:30px;padding:0 12px;border-radius:7px;border:1px solid ${state.rangeOpen ? "var(--accent,#5b5bd6)" : "var(--line,#e9e9ef)"};background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:7px;white-space:nowrap;flex:0 0 auto`,
       onRangeToggle: (e: React.MouseEvent) => { e.stopPropagation(); setState((s) => ({ rangeOpen: !s.rangeOpen, peopleOpen: false, prefsOpen: false })); },
-      syncLabel: syncing ? "Synchronisation…" : "Azure DevOps synchronisé", syncStyle, syncDotStyle,
+      syncLabel: syncing ? "Sync…" : "ADO sync.", syncStyle, syncDotStyle,
+      syncTitle: syncing ? "Synchronisation Azure DevOps en cours…" : "Azure DevOps synchronisé",
       themeTitle: theme === "dark" ? "Passer en thème clair" : "Passer en thème sombre", themeIcon: theme === "dark" ? "☀" : "☾",
       onToggleTheme: () => toggleTheme(),
       onScrollRef, onCanvasRef,
@@ -1775,6 +1778,32 @@ export function GanttBoard() {
       </div>
     </label>
   );
+  // Popover « Personnes », rendu sous son bouton (ligne 1 du header).
+  const peoplePopover = (
+    <>
+      <div onClick={v.onPeopleClose} style={C("position:fixed;inset:0;z-index:89")} />
+      <div onClick={v.stop} ref={focusPopover} tabIndex={-1} style={C("position:absolute;top:38px;right:0;width:266px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:14px 15px;animation:ggdrop .14s ease;outline:none")}>
+        <div style={C("display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px")}>
+          <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Personnes affichées</span>
+          <div style={C("display:flex;gap:10px;flex:0 0 auto")}>
+            <button onClick={v.onShowAllPeople} style={C("border:none;background:none;color:var(--accent,#5b5bd6);font-size:11px;font-weight:500;cursor:pointer;padding:0")}>Tout afficher</button>
+            <button onClick={v.onHideAllPeople} style={C("border:none;background:none;color:var(--muted,#86868f);font-size:11px;font-weight:500;cursor:pointer;padding:0")}>Tout désélectionner</button>
+          </div>
+        </div>
+        <div style={C("max-height:52vh;overflow-y:auto;margin:0 -15px;padding:0 15px")}>
+        {v.peopleList.map(personLine)}
+        {v.peopleInactive.length > 0 && (
+          <details style={C("margin-top:6px;border-top:1px solid var(--line,#e9e9ef);padding-top:6px")}>
+            <summary style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6);cursor:pointer;padding:3px 0;list-style:none")}>
+              Inactifs ({v.peopleInactive.length}) <span style={C("opacity:.6;font-size:9px")}>▾</span>
+            </summary>
+            {v.peopleInactive.map(personLine)}
+          </details>
+        )}
+        </div>
+      </div>
+    </>
+  );
 
   return (
     <div style={v.rootStyle}>
@@ -1796,7 +1825,22 @@ export function GanttBoard() {
           </div>
         </div>
         <div style={{ flex: 1 }} />
-        <div style={C(v.syncStyle)}>
+        {/* Filtres communs à tous les boards (sauf @me, liste personnelle) :
+            en ligne 1 pour désencombrer la barre d'outils. */}
+        {!v.isMe && (
+          <>
+            {/* Popover rendu dans le wrapper du bouton : il s'ouvre sous lui. */}
+            <div style={C("position:relative;flex:0 0 auto")}>
+              <button onClick={v.onPeopleToggle} style={C("height:30px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap")}>
+                <span style={C("opacity:.7;display:flex")}><IconUsers size={13} /></span> Personnes {v.peopleLabel} <span style={C("opacity:.5;font-size:9px")}>▾</span>
+              </button>
+              {v.peopleOpen && peoplePopover}
+            </div>
+            <button onClick={v.onCapMatrixToggle} title="Matrice de capacité — tous les membres × itérations" style={C("height:30px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;flex:0 0 auto")}>⊞ Capacités</button>
+            <div style={C("width:1px;height:22px;flex:0 0 auto;background:var(--line,#e9e9ef)")} />
+          </>
+        )}
+        <div title={v.syncTitle} style={C(v.syncStyle)}>
           <div style={C(v.syncDotStyle)} />
           <span style={C("overflow:hidden;text-overflow:ellipsis")}>{v.syncLabel}</span>
         </div>
@@ -1866,11 +1910,6 @@ export function GanttBoard() {
             </div>
           </>
         )}
-        {v.isRelease && (
-          <button onClick={v.onRangeToggle} style={C(v.rangeBtnStyle)}>
-            <span style={C("opacity:.7;display:flex")}><IconGear size={13} /></span> Vue <span style={C("opacity:.5;font-size:9px")}>▾</span>
-          </button>
-        )}
         {v.isRelease && v.relMetrics && (
           <div title={v.relMetrics.title} style={C("height:30px;display:flex;align-items:center;gap:8px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);flex:0 0 auto")}>
             <span style={C("font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f);white-space:nowrap")}>{v.relMetrics.rangeText}</span>
@@ -1888,21 +1927,18 @@ export function GanttBoard() {
           {v.loadFieldOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         {v.loadWarning && <span title={v.loadWarningTitle} style={C("font-size:11px;font-weight:600;color:var(--color-pending-text,#8a5a00);white-space:nowrap;cursor:help")}>{v.loadWarning}</span>}
-        <button onClick={v.onPeopleToggle} style={C("height:30px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;flex:0 0 auto")}>
-          <span style={C("opacity:.7;display:flex")}><IconUsers size={13} /></span> Personnes {v.peopleLabel} <span style={C("opacity:.5;font-size:9px")}>▾</span>
-        </button>
-        <button onClick={v.onCapMatrixToggle} title="Matrice de capacité — tous les membres × itérations" style={C("height:30px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;flex:0 0 auto")}>⊞ Capacités</button>
         {v.isRelease && (
           <>
             <div style={C("width:1px;height:20px;background:var(--line,#e9e9ef)")} />
             <button onClick={v.onAddMilestone} style={C("height:30px;padding:0 12px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px")}>◆ Jalon</button>
           </>
         )}
-        {!v.isRelease && !v.isDaily && (
+        {/* Bouton du popover d'affichage, à droite comme le popover qu'il ouvre. */}
+        {(v.isRelease || !v.isDaily) && (
           <>
             <div style={C("width:1px;height:20px;background:var(--line,#e9e9ef)")} />
             <button onClick={v.onRangeToggle} style={C(v.rangeBtnStyle)}>
-              <span style={C("opacity:.7;display:flex")}><IconCalendar size={13} /></span> {v.rangeLabel} <span style={C("opacity:.5;font-size:9px")}>▾</span>
+              <span style={C("opacity:.7;display:flex")}>{v.isRelease ? <IconGear size={13} /> : <IconCalendar size={13} />}</span> {v.isRelease ? "Vue" : v.rangeLabel} <span style={C("opacity:.5;font-size:9px")}>▾</span>
             </button>
           </>
         )}
@@ -1983,32 +2019,6 @@ export function GanttBoard() {
         </>
       )}
 
-      {/* People popover */}
-      {v.peopleOpen && (
-        <>
-        <div onClick={v.onPeopleClose} style={C("position:fixed;inset:0;z-index:89")} />
-        <div onClick={v.stop} ref={focusPopover} tabIndex={-1} style={C("position:absolute;top:104px;right:18px;width:266px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:14px 15px;animation:ggdrop .14s ease;outline:none")}>
-          <div style={C("display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px")}>
-            <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Personnes affichées</span>
-            <div style={C("display:flex;gap:10px;flex:0 0 auto")}>
-              <button onClick={v.onShowAllPeople} style={C("border:none;background:none;color:var(--accent,#5b5bd6);font-size:11px;font-weight:500;cursor:pointer;padding:0")}>Tout afficher</button>
-              <button onClick={v.onHideAllPeople} style={C("border:none;background:none;color:var(--muted,#86868f);font-size:11px;font-weight:500;cursor:pointer;padding:0")}>Tout désélectionner</button>
-            </div>
-          </div>
-          <div style={C("max-height:52vh;overflow-y:auto;margin:0 -15px;padding:0 15px")}>
-          {v.peopleList.map(personLine)}
-          {v.peopleInactive.length > 0 && (
-            <details style={C("margin-top:6px;border-top:1px solid var(--line,#e9e9ef);padding-top:6px")}>
-              <summary style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6);cursor:pointer;padding:3px 0;list-style:none")}>
-                Inactifs ({v.peopleInactive.length}) <span style={C("opacity:.6;font-size:9px")}>▾</span>
-              </summary>
-              {v.peopleInactive.map(personLine)}
-            </details>
-          )}
-          </div>
-        </div>
-        </>
-      )}
 
       {/* Flag editor */}
       {v.rowPinEditor && (
