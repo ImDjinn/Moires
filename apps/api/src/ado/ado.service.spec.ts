@@ -138,6 +138,15 @@ describe("AdoService", () => {
     expect(map.get("1")).toEqual({ id: "100", title: "Grand Epic" });
   });
 
+  // Régression : un parent hors des zones lisibles par l'utilisateur faisait
+  // échouer tout le lot (404 TF401232) et donc l'ouverture de session entière.
+  it("getWorkItemsBatch demande errorPolicy=omit et écarte les items inaccessibles", async () => {
+    fetchMock.mockResolvedValue(ok({ value: [{ id: 10, rev: 1, fields: {} }, null] }));
+    const res = await service.getWorkItemsBatch("org", ["10", "96512"], "tkn");
+    expect(res.map((w) => w.id)).toEqual([10]);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).errorPolicy).toBe("omit");
+  });
+
   it("resolveEpics ignore les items sans ancêtre Epic", async () => {
     const orphan = { id: 2, rev: 1, fields: { "System.WorkItemType": "Task", "System.Title": "T" } };
     const map = await service.resolveEpics("org", [orphan], "tkn");

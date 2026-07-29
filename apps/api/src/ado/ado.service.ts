@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { HttpException, Injectable, UnauthorizedException } from "@nestjs/common";
 import type { OperationFieldKey, TeamMember, TicketComment } from "@moirai/shared";
 import { AdoMapper, KNOWN_FIELDS, RawAdoWorkItem } from "./ado.mapper";
 
@@ -50,7 +50,13 @@ export class AdoService {
       if (res.status === 401 || res.status === 203) {
         throw new UnauthorizedException("Session Azure DevOps expirée ou invalide — reconnectez-vous.");
       }
-      throw new Error(`ADO API error: ${res.status} ${await res.text()}`);
+      // Une erreur ADO (droits insuffisants, projet/équipe introuvable, règle de
+      // process…) n'est pas un bug serveur : on propage le statut ADO au lieu du
+      // 500 opaque qui masquait la cause côté client.
+      throw new HttpException(
+        `ADO API error: ${res.status} ${await res.text()}`,
+        res.status < 500 ? res.status : 502,
+      );
     }
     // Token expiré : ADO redirige (302 suivi) vers une page HTML de connexion,
     // renvoyée en 200. On l'attrape ici au lieu de crasher sur un JSON.parse('<...').
@@ -183,6 +189,13 @@ export class AdoService {
   // custom des process hérités) — requis pour Ticket.customFields.
   // MAIS System.Parent n'est jamais renvoyé sans demande explicite (vérifié
   // contre l'API) : $expand=relations le fait réapparaître dans fields.
+  //
+  // errorPolicy "omit" : par défaut ("fail"), un SEUL id illisible fait échouer
+  // tout le lot en 404 TF401232. Les parents remontés par resolveEpics viennent
+  // de System.Parent, pas de la requête WIQL : ils peuvent être hors des zones
+  // lisibles par l'utilisateur — ce qui plantait l'ouverture de session pour
+  // toute personne moins habilitée que le créateur du projet. On ignore les
+  // items inaccessibles au lieu de perdre le lot entier.
   async getWorkItemsBatch(
     org: string,
     ids: string[],
@@ -191,16 +204,17 @@ export class AdoService {
   ): Promise<RawAdoWorkItem[]> {
     const results: RawAdoWorkItem[] = [];
     for (let i = 0; i < ids.length; i += 200) {
-      const batch = ids.slice(i, i + 200);
+      const batch = { ids: ids.slice(i, i + 200).map(Number), errorPolicy: "omit" };
       const data = await this.adoFetch(
         `${this.orgUrl(org)}/_apis/wit/workitemsbatch?api-version=7.1`,
         token,
         {
           method: "POST",
-          body: JSON.stringify(fields ? { ids: batch.map(Number), fields } : { ids: batch.map(Number), $expand: "relations" }),
+          body: JSON.stringify(fields ? { ...batch, fields } : { ...batch, $expand: "relations" }),
         },
       );
-      results.push(...(data.value as RawAdoWorkItem[]));
+      // Selon les versions, un item omis est absent du tableau ou présent à null.
+      results.push(...((data.value as (RawAdoWorkItem | null)[]) ?? []).filter((w): w is RawAdoWorkItem => !!w));
     }
     return results;
   }

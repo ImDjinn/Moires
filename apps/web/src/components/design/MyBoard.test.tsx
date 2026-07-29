@@ -36,6 +36,10 @@ describe("resolveMyPersonId", () => {
     expect(resolveMyPersonId({ id: "db-uuid", displayName: "Bob Martin" }, people)).toBe("bob@corp.com");
   });
 
+  it("ignore la casse (ADO renvoie l'email différemment selon l'API)", () => {
+    expect(resolveMyPersonId({ id: "db-uuid", displayName: "X", uniqueName: "Alice@Corp.com" }, people)).toBe("alice@corp.com");
+  });
+
   it("renvoie null hors du référentiel d'équipe", () => {
     expect(resolveMyPersonId({ id: "db-uuid", displayName: "Inconnu" }, people)).toBeNull();
   });

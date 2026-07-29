@@ -17,7 +17,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     }
     throw new Error("Session Azure DevOps expirée — reconnectez-vous");
   }
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  // Message du serveur en priorité : « 500 Internal Server Error » seul ne dit
+  // rien à l'utilisateur ni à celui qui lit le rapport de bug.
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.message || `${res.status} ${res.statusText}`);
+  }
   if (res.status === 204) return undefined as T;
   return res.json();
 }

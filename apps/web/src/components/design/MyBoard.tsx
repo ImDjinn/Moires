@@ -15,10 +15,16 @@ export function resolveMyPersonId(
   user: { id: string; displayName: string; uniqueName?: string },
   people: { id: string; name: string }[],
 ): string | null {
-  const p = people.find(
-    (x) => (user.uniqueName && x.id === user.uniqueName) || x.id === user.id || x.name === user.displayName,
-  );
-  return p?.id ?? user.uniqueName ?? null;
+  // ADO ne garantit pas la casse : l'email renvoyé par connectionData
+  // (« Prenom.Nom@corp.com ») et celui porté par System.AssignedTo peuvent
+  // différer sur ce seul point.
+  const norm = (s?: string) => (s ?? "").trim().toLowerCase();
+  const keys = [norm(user.uniqueName), norm(user.id)].filter(Boolean);
+  const p = people.find((x) => keys.includes(norm(x.id)) || norm(x.name) === norm(user.displayName));
+  // Sans correspondance : null, pas l'uniqueName. Un id absent du référentiel ne
+  // matche aucun ticket et affichait « aucun ticket assigné » au lieu de
+  // « compte non rattaché ».
+  return p?.id ?? null;
 }
 
 // HTML ADO → texte. On n'injecte jamais le HTML (une description peut contenir
