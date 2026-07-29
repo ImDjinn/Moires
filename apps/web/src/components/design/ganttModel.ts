@@ -705,7 +705,8 @@ function sortedPeople(s: State, list: Person[]): Person[] {
     if (!_randOrder) _randOrder = people.map((p) => p.id).sort(() => Math.random() - 0.5);
     a.sort((x, y) => _randOrder!.indexOf(x.id) - _randOrder!.indexOf(y.id));
   }
-  return a;
+  // « Non assigné » toujours en dernier, quel que soit le tri.
+  return [...a.filter((p) => !p.unassigned), ...a.filter((p) => p.unassigned)];
 }
 
 // ---- layout ----
