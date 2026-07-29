@@ -1,4 +1,4 @@
-import type { SessionSnapshot, Capacity, MemberMeta, Ticket, TicketComment, Milestone, RowPin } from "@moirai/shared";
+import type { SessionSnapshot, Capacity, MemberMeta, Ticket, TicketComment, Milestone, RowPin } from "@moires/shared";
 
 const BASE = "";
 

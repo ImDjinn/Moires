@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MoiraiMark } from "../Brand";
+import { MoiresMark } from "../Brand";
 
 export function LoginButton() {
   const [org, setOrg] = useState("");
@@ -88,10 +88,10 @@ export function LoginButton() {
       >
         {/* Même couleur de marque que partout ailleurs (Brand force l'accent). */}
         <div style={{ color: "var(--accent)", display: "flex" }}>
-          <MoiraiMark size={48} />
+          <MoiresMark size={48} />
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.01em", color: "var(--ink)" }}>Moirai</h1>
+          <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.01em", color: "var(--ink)" }}>Moires</h1>
           <p style={{ color: "var(--muted)", fontSize: 14, lineHeight: 1.5 }}>
             Planification collaborative de sprint sur Azure DevOps
           </p>

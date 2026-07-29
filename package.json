@@ -1,5 +1,5 @@
 {
-  "name": "moirai",
+  "name": "moires",
   "private": true,
   "scripts": {
     "dev:api": "pnpm --filter api dev",

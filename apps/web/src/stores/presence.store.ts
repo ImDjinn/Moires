@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { PresenceState } from "@moirai/shared";
+import type { PresenceState } from "@moires/shared";
 
 interface PresenceStore {
   peers: PresenceState[];

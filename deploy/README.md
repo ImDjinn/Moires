@@ -1,4 +1,4 @@
-# Déploiement — Moirai (VPS + Docker + Caddy)
+# Déploiement — Moires (VPS + Docker + Caddy)
 
 Stack de prod : 4 conteneurs sur une seule machine.
 
@@ -49,7 +49,7 @@ ufw allow OpenSSH && ufw allow 80 && ufw allow 443 && ufw --force enable
 
 ```bash
 # 1. Récupérer le code
-git clone <URL_DU_REPO> moirai && cd moirai
+git clone <URL_DU_REPO> moires && cd moires
 
 # 2. Créer le fichier d'environnement de prod
 cp .env.production.example .env.production
@@ -96,7 +96,7 @@ qui casse les tests ne déploie donc pas. Déclenchable aussi à la main (onglet
 | `DEPLOY_HOST` | IP publique du VPS ou `themoirai.net` — hostname nu, **sans** schéma ni port |
 | `DEPLOY_USER` | utilisateur SSH (ex. `deploy` ou `ubuntu`) |
 | `DEPLOY_SSH_KEY` | clé **privée** SSH dédiée au déploiement (générer avec `ssh-keygen -t ed25519 -f deploy_key -N ""`) |
-| `DEPLOY_PATH` | chemin du repo cloné (ex. `~/Moires` ou `/root/moirai`) |
+| `DEPLOY_PATH` | chemin du repo cloné (ex. `~/Moires` ou `/root/moires`) |
 
 > Le port SSH est fixé à `22` dans le workflow ; pour un port custom, éditer
 > `port:` dans `.github/workflows/deploy.yml`.
@@ -126,7 +126,7 @@ Les migrations Prisma s'appliquent automatiquement au redémarrage de l'`api`.
 
 ```bash
 docker compose -f docker-compose.prod.yml exec postgres \
-  pg_dump -U moirai moirai > backup_$(date +%F).sql
+  pg_dump -U moires moires > backup_$(date +%F).sql
 ```
 
 ---

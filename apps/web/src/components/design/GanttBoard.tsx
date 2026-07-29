@@ -16,7 +16,7 @@ import { IconEye, IconEyeOff, IconGear, IconCopy, IconSwap, IconLogout, IconUser
 import { MyBoard, resolveMyPersonId } from "./MyBoard";
 import * as M from "./ganttModel";
 import type { Drag, Item, Presence, State, Theme } from "./ganttModel";
-import type { OperationField, TicketComment } from "@moirai/shared";
+import type { OperationField, TicketComment } from "@moires/shared";
 
 const C = css;
 const mono = "'IBM Plex Mono',monospace";
@@ -29,7 +29,7 @@ const modLabel = isMac ? "⌘" : "Ctrl";
 const reduceMotion = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // Préférences d'affichage (champs du panneau ticket par type, champ de charge) — localStorage.
-const PREFS_KEY = "moirai.uiPrefs";
+const PREFS_KEY = "moires.uiPrefs";
 /** Prefs d'un type de work item : visibilité des champs standard + champs ADO ajoutés.
  * `def` : valeur par défaut du process, affichée tant que le ticket n'a pas de valeur stockée.
  * `required`/`allowed` : contraintes du process ADO (champ requis, picklist). */
@@ -72,7 +72,7 @@ function loadPrefs(): UiPrefs {
 }
 // Personnes masquées du board (sélection des utilisateurs) — persistée entre sessions.
 // ponytail: clé globale unique ; les ids personne étant uniques par membre, pas de collision inter-projets.
-const HIDDEN_KEY = "moirai.hiddenPeople";
+const HIDDEN_KEY = "moires.hiddenPeople";
 function loadHidden(): Record<string, boolean> {
   try {
     const v = JSON.parse(localStorage.getItem(HIDDEN_KEY) || "{}");
@@ -152,19 +152,28 @@ export function GanttBoard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Discussion ADO du ticket sélectionné en vue @me : chargée à la demande
-  // (hors snapshot), mémorisée par ticket le temps de la session.
+  // Discussions ADO des cartes de la vue @me (mes tickets du sprint courant) :
+  // hors snapshot, une requête par ticket, mémorisées le temps de la session.
   const [comments, setComments] = useState<Record<string, TicketComment[]>>({});
+  // Ids déjà demandés : borne à une requête par ticket, même si le board
+  // re-rend pendant le chargement.
+  const askedComments = useRef(new Set<string>());
   useEffect(() => {
-    const id = state.selectedId;
     const sid = snapshot?.sessionId;
-    if (state.board !== "me" || !id || !sid || comments[id]) return;
-    let alive = true;
-    api.getComments(sid, id)
-      .then((list) => { if (alive) setComments((c) => ({ ...c, [id]: list })); })
-      .catch(() => { /* discussion indisponible : la carte reste affichée sans */ });
-    return () => { alive = false; };
-  }, [state.board, state.selectedId, snapshot?.sessionId, comments]);
+    if (state.board !== "me" || !sid || !myPersonId) return;
+    const todo = state.items
+      .filter((it) => it.person === myPersonId && it.iter === M.CURRENT && !askedComments.current.has(it.id))
+      .map((it) => it.id);
+    if (!todo.length) return;
+    todo.forEach((id) => askedComments.current.add(id));
+    (async () => {
+      // Séquentiel : pas de rafale d'appels ADO à l'ouverture du board.
+      for (const id of todo) {
+        const list = await api.getComments(sid, id).catch(() => [] as TicketComment[]);
+        if (list.length) setComments((c) => ({ ...c, [id]: list }));
+      }
+    })();
+  }, [state.board, state.items, snapshot?.sessionId, myPersonId]);
 
   // Édition inline de la capacité (bandeau personne × sprint).
   const [capEdit, setCapEdit] = useState<{ personId: string; real: number } | null>(null);
@@ -966,7 +975,7 @@ export function GanttBoard() {
     const id = setInterval(() => {
       api
         .syncSession(snapshot.sessionId)
-        .then((fresh: { tickets: import("@moirai/shared").Ticket[]; capacities?: import("@moirai/shared").Capacity[] }) => {
+        .then((fresh: { tickets: import("@moires/shared").Ticket[]; capacities?: import("@moires/shared").Capacity[] }) => {
           const store = useTicketsStore.getState();
           const pending = new Set(store.tickets.filter((t) => t.syncStatus !== "synced").map((t) => t.id));
           store.updateTickets(fresh.tickets.filter((t) => !pending.has(t.id)));
@@ -2055,7 +2064,7 @@ export function GanttBoard() {
           items={state.items} people={M.people} iters={M.iters} current={M.CURRENT} theme={theme}
           userName={user?.displayName ?? ""} myId={myPersonId} selectedId={state.selectedId}
           onSelect={(id) => setState({ selectedId: id })} adoUrl={snapshot?.adoUrl}
-          comments={state.selectedId ? comments[state.selectedId] : undefined}
+          comments={comments}
         />
       )}
 

@@ -11,7 +11,7 @@ export default defineConfig({
   resolve: {
     // Même alias que vite.config.ts : Vitest n'hérite pas de sa config, et le
     // dist du paquet workspace n'est pas résolvable tel quel.
-    alias: { "@moirai/shared": fileURLToPath(new URL("../../packages/shared/src/index.ts", import.meta.url)) },
+    alias: { "@moires/shared": fileURLToPath(new URL("../../packages/shared/src/index.ts", import.meta.url)) },
   },
   test: {
     globals: true,

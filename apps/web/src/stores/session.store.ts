@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { SessionSnapshot } from "@moirai/shared";
+import type { SessionSnapshot } from "@moires/shared";
 import { useTicketsStore } from "./tickets.store";
 import { usePresenceStore } from "./presence.store";
 import { useCapacitiesStore } from "./capacities.store";
@@ -8,7 +8,7 @@ import { useMemberMetaStore } from "./memberMeta.store";
 // Id de la session courante conservé pour restaurer le board au rafraîchissement.
 // Un lien d'invitation (?session=<id>, copié depuis le board) est prioritaire :
 // capturé puis retiré de l'URL pour ne pas traîner dans l'historique/les partages.
-const SID_KEY = "moirai.sessionId";
+const SID_KEY = "moires.sessionId";
 export function loadSessionId(): string | null {
   try {
     const fromUrl = new URLSearchParams(window.location.search).get("session");

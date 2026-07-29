@@ -74,6 +74,16 @@ describe("MyBoard", () => {
     expect(screen.getByText("• Vert")).toBeInTheDocument();
   });
 
+  it("affiche la discussion sans sélection préalable", () => {
+    render(
+      <MyBoard items={items} people={people} iters={iters} current={0} theme="light"
+        userName="Alice Beaumont" myId="alice@corp.com" selectedId={null} onSelect={() => {}}
+        comments={{ "1": [{ id: 1, author: "Bob", text: "<p>Vu</p>", date: "2026-06-20T10:00:00Z" }] }} />,
+    );
+    expect(screen.getByText("Discussion (1)")).toBeInTheDocument();
+    expect(screen.getByText("Vu")).toBeInTheDocument();
+  });
+
   it("annonce l'absence de rattachement quand l'utilisateur n'est pas dans l'équipe", () => {
     render(
       <MyBoard items={items} people={people} iters={iters} current={0} theme="light"

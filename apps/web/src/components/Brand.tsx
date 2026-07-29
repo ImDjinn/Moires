@@ -1,5 +1,5 @@
 // Logo Moires « Le Fuseau » (Claude Design) : trois anneaux de fil enroulé, le fil s'échappant en haut à droite.
-export function MoiraiMark({ size = 26 }: { size?: number }) {
+export function MoiresMark({ size = 26 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" fill="none" aria-hidden>
       <g stroke="currentColor" strokeWidth={3.5} strokeLinecap="round" strokeDasharray="78 22" opacity={0.35}>
@@ -16,10 +16,10 @@ export function MoiraiMark({ size = 26 }: { size?: number }) {
 export function Brand({ size = 26, wordmark = true }: { size?: number; wordmark?: boolean }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 9, color: "var(--accent,#5b5bd6)", flex: "0 0 auto" }}>
-      <MoiraiMark size={size} />
+      <MoiresMark size={size} />
       {wordmark && (
         <span style={{ fontSize: size * 0.72, fontWeight: 700, letterSpacing: "-0.01em", color: "var(--ink,#1a1a20)" }}>
-          Moirai
+          Moires
         </span>
       )}
     </div>

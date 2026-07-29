@@ -1,6 +1,6 @@
 import { createHmac } from "crypto";
 import { RealtimeGateway } from "./realtime.gateway";
-import type { Operation, PresenceState } from "@moirai/shared";
+import type { Operation, PresenceState } from "@moires/shared";
 
 const SECRET = "test-secret";
 

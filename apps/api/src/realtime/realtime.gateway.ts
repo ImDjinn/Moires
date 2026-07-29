@@ -10,8 +10,8 @@ import {
 } from "@nestjs/websockets";
 import { Server, Socket } from "socket.io";
 import { ConfigService } from "@nestjs/config";
-import type { Operation, PresenceState } from "@moirai/shared";
-import { ROOM } from "@moirai/shared";
+import type { Operation, PresenceState } from "@moires/shared";
+import { ROOM } from "@moires/shared";
 import { PrismaService } from "../database/prisma.service";
 import { readSignedCookie } from "../auth/cookies";
 import { isSessionMember } from "../sessions/session-access";

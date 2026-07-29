@@ -1,4 +1,4 @@
-# Stratégie de test — Moirai
+# Stratégie de test — Moires
 
 Objectif : garantir en continu que **toutes les pages, toutes les routes et toutes
 les fonctionnalités** marchent, et détecter toute régression. Pyramide à 4 couches,

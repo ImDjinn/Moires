@@ -12,7 +12,7 @@ WORKDIR /repo
 COPY . .
 
 RUN pnpm install --frozen-lockfile \
- && pnpm --filter @moirai/shared build \
+ && pnpm --filter @moires/shared build \
  && pnpm --filter api exec prisma generate \
  && pnpm --filter api build
 

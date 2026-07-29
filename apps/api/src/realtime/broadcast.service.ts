@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { Server } from "socket.io";
-import { ROOM } from "@moirai/shared";
+import { ROOM } from "@moires/shared";
 
 @Injectable()
 export class BroadcastService {

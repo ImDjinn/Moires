@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { Server, Socket } from "socket.io";
-import type { Operation } from "@moirai/shared";
-import { ROOM, OPERATION_FIELDS } from "@moirai/shared";
+import type { Operation } from "@moires/shared";
+import { ROOM, OPERATION_FIELDS } from "@moires/shared";
 import { SessionsService } from "../sessions/sessions.service";
 
 const FIELDS = new Set<string>(OPERATION_FIELDS);

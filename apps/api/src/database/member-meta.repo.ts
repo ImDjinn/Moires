@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { MemberMeta, TeamMember } from "@moirai/shared";
+import type { MemberMeta, TeamMember } from "@moires/shared";
 import { PrismaService } from "./prisma.service";
 import { memberHash } from "./member-hash";
 

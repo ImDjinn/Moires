@@ -5,6 +5,6 @@
   "testRegex": ".e2e-spec.ts$",
   "transform": { "^.+\\.ts$": "ts-jest" },
   "moduleNameMapper": {
-    "^@moirai/shared$": "<rootDir>/../../packages/shared/src/index.ts"
+    "^@moires/shared$": "<rootDir>/../../packages/shared/src/index.ts"
   }
 }

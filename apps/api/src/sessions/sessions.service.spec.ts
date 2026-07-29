@@ -1,5 +1,5 @@
 import { SessionsService } from "./sessions.service";
-import type { Operation, Ticket } from "@moirai/shared";
+import type { Operation, Ticket } from "@moires/shared";
 
 function makeService() {
   const prisma = {

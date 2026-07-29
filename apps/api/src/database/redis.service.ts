@@ -2,7 +2,7 @@ import { Injectable, OnModuleDestroy } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
 import Redis from "ioredis";
-import type { Ticket, PresenceState, Iteration, TeamMember, AdoState } from "@moirai/shared";
+import type { Ticket, PresenceState, Iteration, TeamMember, AdoState } from "@moires/shared";
 
 const TTL = 86400; // 24h
 

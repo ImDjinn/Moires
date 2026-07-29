@@ -8,7 +8,7 @@ RUN corepack enable
 WORKDIR /repo
 COPY . .
 RUN pnpm install --frozen-lockfile \
- && pnpm --filter @moirai/shared build \
+ && pnpm --filter @moires/shared build \
  && pnpm --filter web build
 
 # ---- serveur statique + proxy + TLS ----

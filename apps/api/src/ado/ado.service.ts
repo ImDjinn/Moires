@@ -1,5 +1,5 @@
 import { HttpException, Injectable, UnauthorizedException } from "@nestjs/common";
-import type { OperationFieldKey, TeamMember, TicketComment } from "@moirai/shared";
+import type { OperationFieldKey, TeamMember, TicketComment } from "@moires/shared";
 import { AdoMapper, KNOWN_FIELDS, RawAdoWorkItem } from "./ado.mapper";
 
 /** Jours ouvrés (lun–ven) entre deux dates ISO incluses, bornés à [lo, hi]. */

@@ -13,7 +13,7 @@
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource/ibm-plex-sans": "^5.2.8",
-    "@moirai/shared": "workspace:*",
+    "@moires/shared": "workspace:*",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "socket.io-client": "^4.8.0",

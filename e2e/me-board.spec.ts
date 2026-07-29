@@ -58,6 +58,9 @@ async function stubBackend(page: Page) {
   await page.route("**/ado/projects", (r) => r.fulfill(json([{ id: "p1", name: "Projet Alpha" }])));
   await page.route("**/sessions", (r) => (r.request().method() === "POST" ? r.fulfill(json(snapshot)) : r.continue()));
   await page.route("**/sessions/*/annotations", (r) => r.fulfill(json({ milestones: [], rowPins: [] })));
+  await page.route("**/tickets/*/comments", (r) =>
+    r.fulfill(json(r.request().url().includes("/1042/") ? [{ id: 7, author: "Bob", text: "<p>Relu, ça me va</p>", date: d(-1) }] : [])),
+  );
   await page.route("**/sessions/*/sync", (r) => r.fulfill(json(snapshot)));
   await page.route("**/sessions/*", (r) => r.fulfill(json(snapshot)));
 }
@@ -75,6 +78,9 @@ test("onglet @me : mes tickets du sprint et aperçu du suivant", async ({ page }
   await expect(page.getByText("Export CSV des rapports de charge")).toBeVisible();
   await expect(page.getByText("Critères d'acceptation").first()).toBeVisible();
   await expect(page.getByText(/décimales suivent la locale FR/)).toBeVisible();
+  // Discussion visible d'emblée, sans clic sur la carte
+  await expect(page.getByText("Discussion (1)")).toBeVisible();
+  await expect(page.getByText("Relu, ça me va")).toBeVisible();
   // Sprint suivant : aperçu compact
   await expect(page.getByText("Notifications e-mail de fin de sprint")).toBeVisible();
   // Les tickets des autres membres n'apparaissent pas

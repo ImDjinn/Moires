@@ -1,7 +1,7 @@
 import { css } from "./css";
 import * as M from "./ganttModel";
 import type { Item, Iter, Person, Theme } from "./ganttModel";
-import type { TicketComment } from "@moirai/shared";
+import type { TicketComment } from "@moires/shared";
 
 const C = css;
 const mono = "'IBM Plex Mono',monospace";
@@ -143,8 +143,8 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
   selectedId: string | null;
   onSelect: (id: string) => void;
   adoUrl?: string;
-  /** Discussion ADO du ticket sélectionné (chargée à la demande par le parent). */
-  comments?: TicketComment[];
+  /** Discussions ADO par id de ticket (chargées à la demande par le parent). */
+  comments?: Record<string, TicketComment[]>;
 }) {
   const me = people.find((p) => p.id === myId);
   const mine = items.filter((it) => it.person === myId);
@@ -197,7 +197,7 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
               </div>
             ) : (
               cur.map((it) => (
-                <Card key={it.id} item={it} theme={theme} selected={selectedId === it.id} onSelect={onSelect} adoUrl={adoUrl} comments={selectedId === it.id ? comments : undefined} />
+                <Card key={it.id} item={it} theme={theme} selected={selectedId === it.id} onSelect={onSelect} adoUrl={adoUrl} comments={comments?.[it.id]} />
               ))
             )}
           </div>

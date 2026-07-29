@@ -18,11 +18,11 @@
     "transform": { "^.+\\.ts$": "ts-jest" },
     "testEnvironment": "node",
     "moduleNameMapper": {
-      "^@moirai/shared$": "<rootDir>/../../../packages/shared/src/index.ts"
+      "^@moires/shared$": "<rootDir>/../../../packages/shared/src/index.ts"
     }
   },
   "dependencies": {
-    "@moirai/shared": "workspace:*",
+    "@moires/shared": "workspace:*",
     "@nestjs/common": "^11.1.18",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.1.18",

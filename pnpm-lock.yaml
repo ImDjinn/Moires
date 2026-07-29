@@ -19,7 +19,7 @@ importers:
 
   apps/api:
     dependencies:
-      '@moirai/shared':
+      '@moires/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@nestjs/common':
@@ -116,7 +116,7 @@ importers:
       '@fontsource/ibm-plex-sans':
         specifier: ^5.2.8
         version: 5.2.8
-      '@moirai/shared':
+      '@moires/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       react:
