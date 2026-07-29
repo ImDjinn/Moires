@@ -15,9 +15,7 @@ const raw: RawAdoWorkItem = {
 
 function makeService() {
   const prisma = {
-    ticketsCache: { upsert: jest.fn().mockResolvedValue(undefined) },
     planningSession: { findUniqueOrThrow: jest.fn() },
-    $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   };
   const redis = {
     setTickets: jest.fn().mockResolvedValue(undefined),
@@ -48,8 +46,8 @@ function makeService() {
 }
 
 describe("SyncService.syncInitial", () => {
-  it("interroge ADO, mappe, met en cache Redis + Postgres", async () => {
-    const { service, prisma, redis, ado } = makeService();
+  it("interroge ADO, mappe, met en cache Redis", async () => {
+    const { service, redis, ado } = makeService();
     ado.queryWorkItemIds.mockResolvedValue(["1"]);
     ado.getWorkItemsBatch.mockResolvedValue([raw]);
     ado.getCapacities.mockResolvedValue([{ id: "m1", displayName: "Alice", capacityHoursPerDay: 8 }]);
@@ -60,7 +58,6 @@ describe("SyncService.syncInitial", () => {
     expect(res.tickets[0].id).toBe("1");
     expect(res.teamMembers).toHaveLength(1);
     expect(redis.setTickets).toHaveBeenCalledWith("s1", res.tickets);
-    expect(prisma.ticketsCache.upsert).toHaveBeenCalledTimes(1);
   });
 
   it("enrichit les tickets avec l'Epic résolu", async () => {

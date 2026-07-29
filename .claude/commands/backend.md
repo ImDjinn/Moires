@@ -45,7 +45,7 @@ src/
 - `presence:update` / `presence:broadcast` / `presence:user-joined` / `presence:user-left`
 
 ## Schéma PostgreSQL
-Tables : `users`, `planning_sessions`, `operations_log`, `tickets_cache`
+Tables : `users`, `planning_sessions`, `operations_log`
 
 ## Règles
 - Valider côté serveur que l'utilisateur a les droits ADO avant d'accepter une opération

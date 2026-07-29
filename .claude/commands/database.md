@@ -37,26 +37,15 @@ CREATE TABLE operations_log (
   performed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   ado_sync_status TEXT NOT NULL DEFAULT 'pending'
 );
-
--- Cache local des tickets ADO
-CREATE TABLE tickets_cache (
-  ado_work_item_id TEXT PRIMARY KEY,
-  title TEXT NOT NULL,
-  assignee_id TEXT,
-  area_path TEXT,
-  iteration_id TEXT,
-  start_date DATE,
-  end_date DATE,
-  estimate_hours NUMERIC,
-  last_synced_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  ado_rev INTEGER NOT NULL
-);
 ```
+
+> Les tickets ne sont **pas** cachés en Postgres : Redis est la seule source de
+> vérité de la session (table `tickets_cache` supprimée avec le webhook ADO).
 
 ### Migrations
 - Utiliser Prisma ou TypeORM migrations
 - Toujours créer des index sur les colonnes de recherche fréquente
-- Index recommandés : `operations_log(session_id)`, `operations_log(ticket_id)`, `tickets_cache(iteration_id)`
+- Index recommandés : `operations_log(session_id)`, `operations_log(ticket_id)`
 
 ## Redis — État live
 

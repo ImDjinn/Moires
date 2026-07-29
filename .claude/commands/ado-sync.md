@@ -31,7 +31,7 @@ Tu es spécialisé sur l'intégration Azure DevOps (lecture et écriture).
 ## Sync initiale
 1. WIQL pour filtrer par itération + area
 2. Batch get des work items (max 200 par appel)
-3. Mapping + écriture `tickets_cache` (Postgres) + Redis
+3. Mapping + écriture Redis (pas de cache Postgres)
 
 ## Write-back (BullMQ)
 - Un job par opération validée
