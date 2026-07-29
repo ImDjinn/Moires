@@ -23,6 +23,34 @@ describe("activePersonIds (section « Inactifs » du filtre Personnes)", () => {
   });
 });
 
+describe("computeLayout : hauteur de carte suivant le titre", () => {
+  const withTitle = (title: string) => {
+    const s = M.createInitialState();
+    const it = s.items.find((i) => i.level === "story" && i.iter === M.CURRENT)!;
+    return M.computeLayout({ ...s, board: "daily", items: s.items.map((i) => (i.id === it.id ? { ...i, title } : i)) }, M.MINCOL);
+  };
+  const barOf = (l: ReturnType<typeof withTitle>, title: string) => l.bars.find((b) => b.item.title === title)!;
+
+  it("un titre long agrandit la carte et sa ligne", () => {
+    const short = "Court", long = "Titre ".repeat(30).trim();
+    const a = withTitle(short), b = withTitle(long);
+    expect(barOf(b, long).height).toBeGreaterThan(barOf(a, short).height);
+    expect(b.totalHeight).toBeGreaterThan(a.totalHeight);
+  });
+
+  it("les cartes d'une même ligne gardent la même hauteur et ne se chevauchent pas", () => {
+    const long = "Titre ".repeat(30).trim();
+    const l = withTitle(long);
+    const h = barOf(l, long).height;
+    const same = l.bars.filter((b) => b.top === barOf(l, long).top);
+    same.forEach((b) => expect(b.height).toBe(h));
+    const row = l.rows.find((r) => r.top <= barOf(l, long).top && barOf(l, long).top < r.top + r.height)!;
+    l.bars
+      .filter((b) => b.top >= row.top && b.top < row.top + row.height)
+      .forEach((b) => expect(b.top + b.height).toBeLessThanOrEqual(row.top + row.height));
+  });
+});
+
 describe("releaseMetrics (métriques macro Release)", () => {
   it("delta = Σ capacité − Σ effort sur l'intervalle choisi", () => {
     const s = { ...M.createInitialState(), metricsFrom: 0, metricsTo: 1 };

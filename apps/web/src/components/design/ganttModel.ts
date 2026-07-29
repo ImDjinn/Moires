@@ -139,7 +139,10 @@ export interface State {
 // ---- Constantes de layout ----
 export const LEFT = 320;
 export const HEADER = 92;
-const BARH = 76;
+const BARH = 76; // carte à 2 lignes de titre
+const TITLELINES = 2; // lignes de titre incluses dans BARH
+const TITLELH = 17; // hauteur d'une ligne de titre (13px × 1.25)
+const CARDTEXTPAD = 46; // marges de colonne (20) + padding horizontal de la carte (26)
 const LANEGAP = 10;
 export const TOPPAD = 14;
 export const BANNER = 24;
@@ -857,12 +860,23 @@ export function computeLayout(s: State, COLW: number): Layout {
       if (ci >= 0 && ci < cols.length) perCol[ci].push(it);
     });
     const lanes = Math.max(1, ...perCol.map((a) => a.length));
-    const rowH = TOPPAD + TOPB + GAPB + lanes * BARH + (lanes - 1) * LANEGAP + BOTPAD;
+    const spanOf = (it: Item, ci: number) => (daily ? 1 : Math.max(1, Math.min(it.span || 1, cols.length - ci)));
+    // Titre affiché en entier : la hauteur des cartes de la ligne suit le titre
+    // le plus long. ponytail: largeur de caractère estimée (~6.6px à 13px),
+    // pas de mesure DOM — à remplacer si des titres débordent visiblement.
+    let titleLines = TITLELINES;
+    perCol.forEach((arr, ci) =>
+      arr.forEach((it) => {
+        const perLine = Math.max(8, Math.floor((spanOf(it, ci) * COLW - CARDTEXTPAD) / 6.6));
+        titleLines = Math.max(titleLines, Math.ceil(it.title.length / perLine));
+      }),
+    );
+    const barH = BARH + (titleLines - TITLELINES) * TITLELH;
+    const rowH = TOPPAD + TOPB + GAPB + lanes * barH + (lanes - 1) * LANEGAP + BOTPAD;
     rows.push({ personId: p.id, top: y, height: rowH, lanes });
     perCol.forEach((arr, ci) =>
       arr.forEach((it, idx) => {
-        const span = daily ? 1 : Math.max(1, Math.min(it.span || 1, cols.length - ci));
-        bars.push({ item: it, left: LEFT + ci * COLW + 10, top: y + TOPPAD + TOPB + GAPB + idx * (BARH + LANEGAP), width: span * COLW - 20, height: BARH });
+        bars.push({ item: it, left: LEFT + ci * COLW + 10, top: y + TOPPAD + TOPB + GAPB + idx * (barH + LANEGAP), width: spanOf(it, ci) * COLW - 20, height: barH });
       }),
     );
     y += rowH;

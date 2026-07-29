@@ -2247,7 +2247,7 @@ export function GanttBoard() {
                 <div style={{ flex: 1 }} />
                 {bar.showPoints && <span style={C("font-size:11px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f);background:var(--line2,#f0f0f4);padding:1px 6px;border-radius:5px")}>{bar.points}</span>}
               </div>
-              <div style={C("font-size:13px;font-weight:500;line-height:1.25;color:var(--ink,#1a1a20);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere")}>{bar.title}</div>
+              <div style={C("font-size:13px;font-weight:500;line-height:1.25;color:var(--ink,#1a1a20);overflow-wrap:anywhere")}>{bar.title}</div>
               {bar.showFooter && (
                 <div style={C("display:flex;align-items:center;gap:6px;margin-top:auto;padding-top:6px")}>
                   <div style={C(bar.epicDotStyle)} />
