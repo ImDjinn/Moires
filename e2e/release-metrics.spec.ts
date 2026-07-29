@@ -90,7 +90,6 @@ test("release planning : métriques macro + ligne de flottaison", async ({ page 
   await expect(page.getByText("−10j", { exact: true })).toBeVisible();
 
   // Ligne de flottaison : le cumul (Alpha 40 + Beta 30) dépasse 60 sur Beta.
-  await expect(page.getByText("⚠ capa", { exact: true })).toBeVisible();
   await expect(page.getByText(/Capacité épuisée · 60j/)).toBeVisible();
 
   // Réduire l'intervalle à S2 seul : capa 20, effort 30 (S1+S4 = 15+15) → −10.

@@ -1432,7 +1432,7 @@ export function GanttBoard() {
         }
         const prio = !isFeat && r.item?.priority != null ? `P${r.item.priority}` : "";
         // Epic : effort compté sur l'intervalle de métriques + cumul (ligne de flottaison).
-        let stat = "", statTitle = "", overTag = "", overStyle = "display:none";
+        let stat = "", statTitle = "";
         if (!isFeat) {
           const intEff = M.countedEffort(state, r.us || [], met.from, met.to, hiddenSt);
           const before = cumEff;
@@ -1441,12 +1441,7 @@ export function GanttBoard() {
             const pct = met.cap ? Math.round((intEff / met.cap) * 100) : 0;
             stat = `${pct}%`;
             statTitle = `Effort sur ${metShorts} : ${M.fmt(intEff)} (${pct} % de la capacité ${M.fmt(met.cap)}j) · cumul dans l'ordre d'affichage : ${M.fmt(cumEff)}`;
-            if (before >= met.cap) {
-              overTag = "hors capa";
-              overStyle = "font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;background:#ef444422;color:var(--color-error,#ef4444);flex:0 0 auto";
-            } else if (cumEff > met.cap) {
-              overTag = "⚠ capa";
-              overStyle = "font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;background:#f5a62322;color:var(--color-pending,#f5a623);flex:0 0 auto";
+            if (before < met.cap && cumEff > met.cap) {
               relWaterline = {
                 lineStyle: `position:absolute;left:0;top:${r.top}px;width:${TW}px;height:0;border-top:2px dashed var(--color-error,#ef4444);z-index:44;pointer-events:none`,
                 flagStyle: `position:absolute;left:10px;top:${r.top - 9}px;z-index:44;background:var(--color-error,#ef4444);color:#fff;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:600;white-space:nowrap;pointer-events:auto`,
@@ -1457,7 +1452,7 @@ export function GanttBoard() {
           }
         }
         return {
-          isArea: true, isFeat, key: r.key, hasChildren: r.hasChildren, open: r.open, statusTag, statusStyle, prio, stat, statTitle, overTag, overStyle,
+          isArea: true, isFeat, key: r.key, hasChildren: r.hasChildren, open: r.open, statusTag, statusStyle, prio, stat, statTitle,
           hidden, hideTitle: hidden ? "Réafficher (compter dans la charge)" : "Masquer (exclure de la charge)",
           onToggleHidden: (e: React.MouseEvent) => { e.stopPropagation(); toggleRowHidden(r.key!); },
           chevron: r.open ? "▾" : r.hasChildren ? "▸" : "", onToggle: () => { if (r.hasChildren) toggleNode(r.key!); },
@@ -2112,7 +2107,6 @@ export function GanttBoard() {
                         {row.prio && <span style={C("font-size:10px;font-weight:600;padding:1px 5px;border-radius:5px;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);flex:0 0 auto;font-family:'IBM Plex Mono',monospace")}>{row.prio}</span>}
                         <span style={C(row.statusStyle)}>{row.statusTag}</span>
                         {row.stat && <span title={row.statTitle} style={C("font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f);flex:0 0 auto")}>{row.stat}</span>}
-                        {row.overTag && <span title={row.statTitle} style={C(row.overStyle)}>{row.overTag}</span>}
                       </div>
                     </div>
                     <button onClick={row.onToggleHidden} title={row.hideTitle} aria-label={row.hideTitle} style={C("margin-left:auto;flex:0 0 auto;border:none;background:transparent;color:var(--muted,#86868f);cursor:pointer;line-height:1;padding:2px;opacity:.7")}>{row.hidden ? <IconEyeOff size={13} /> : <IconEye size={13} />}</button>
