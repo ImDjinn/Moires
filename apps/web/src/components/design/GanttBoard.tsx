@@ -1505,7 +1505,7 @@ export function GanttBoard() {
           onKey: (e: React.KeyboardEvent) => {
             if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setState({ selectedId: it.id }); }
           },
-          dotStyle: `width:6px;height:6px;border-radius:50%;background:${sc};flex:0 0 auto`,
+          dotStyle: `width:6px;height:6px;border-radius:50%;background:${sc};flex:0 0 auto;margin-top:4px`,
           style: `position:absolute;left:${c.left}px;top:${c.top}px;width:${c.width}px;height:${c.height}px;background:${cm.bg};border:${isSel ? "1.5px solid " + cm.accent : "1px solid " + cm.border};border-left:3px solid ${ep.color || cm.accent};border-radius:7px;padding:${isTask ? "5px 9px" : "6px 10px"};cursor:${dragging ? "grabbing" : "grab"};box-shadow:${isSel || dragging ? "0 8px 24px rgba(20,20,40,.16)" : "var(--shadow)"};user-select:none;display:flex;flex-direction:column;gap:2px;transform:${transform};transition:${dragging ? "none" : "box-shadow .12s"};z-index:${dragging ? 40 : isSel ? 30 : 13};box-sizing:border-box;overflow:hidden`,
         };
       });
@@ -1552,6 +1552,19 @@ export function GanttBoard() {
           onDown: editable ? (e: React.PointerEvent) => startEpicResize(r.item!.id, "M", e) : undefined,
           // Double-clic → pose un flag sur le sprint survolé (colonne sous le curseur).
           onDoubleClick: (e: React.MouseEvent) => { const vi = hitColIdx(e.clientX); addFlag(r.key!, vi != null ? colsRef.current[vi] : rg[0]); },
+        });
+        // US planifiées hors de l'intervalle du parent : absentes de sa barre.
+        // Marqueur pointillé sur leur sprint pour voir la charge qui déborde.
+        M.outsideCharge(ch.per, cols, [sReal, eReal]).forEach((o) => {
+          relEpics.push({
+            containerStyle: `position:absolute;left:${M.LEFT + o.vi * COLW + 6}px;top:${barTop}px;width:${COLW - 12}px;height:${barH}px;border:1.5px dashed ${r.accent};border-radius:7px;display:flex;z-index:6${state.hiddenRows[r.key!] ? ";opacity:.4;filter:grayscale(1)" : ""}`,
+            segs: [{
+              segStyle: "flex:1;display:flex;align-items:center;justify-content:center",
+              fillStyle: "display:none", label: M.fmt(o.val),
+              labelStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${r.accent};opacity:.85`,
+            }],
+            title: `${M.fmt(o.val)} (${loadLabel}) sur ${M.iters[o.real].short}, hors de l'intervalle ${M.iters[sReal].short} → ${M.iters[eReal].short}`,
+          });
         });
         if (editable) {
           const HW = 15, VW = state.containerW || 1100;
@@ -2120,7 +2133,7 @@ export function GanttBoard() {
                     <div style={C(`width:9px;height:9px;border-radius:3px;background:${row.dotColor};flex:0 0 auto`)} />
                     {/* Titre sur toute la largeur ; badges relégués sur la ligne meta. */}
                     <div style={C("flex:1;min-width:0")}>
-                      <div title={row.name} style={C("font-size:12px;font-weight:600;color:var(--ink,#1a1a20);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere")}>{row.name}</div>
+                      <div title={row.name} style={C("font-size:12px;font-weight:600;line-height:1.25;color:var(--ink,#1a1a20);overflow-wrap:anywhere")}>{row.name}</div>
                       <div style={C("display:flex;align-items:center;gap:5px;min-width:0")}>
                         <span title={row.subTitle} style={C("font-size:10px;color:var(--muted,#86868f);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:'IBM Plex Mono',monospace;min-width:0")}>{row.sub}</span>
                         {row.prio && <span style={C("font-size:10px;font-weight:600;padding:1px 5px;border-radius:5px;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);flex:0 0 auto;font-family:'IBM Plex Mono',monospace")}>{row.prio}</span>}
@@ -2285,7 +2298,7 @@ export function GanttBoard() {
 
           {(v.relEpics as Record<string, any>[]).map((e, i) => (
             <div key={"re" + i}>
-              <div onPointerDown={e.onDown} onDoubleClick={e.onDoubleClick} title={e.onDown ? "Glisser pour déplacer · double-clic pour un flag" : undefined} style={C(e.containerStyle)}>
+              <div onPointerDown={e.onDown} onDoubleClick={e.onDoubleClick} title={e.title || (e.onDown ? "Glisser pour déplacer · double-clic pour un flag" : undefined)} style={C(e.containerStyle)}>
                 {(e.segs || []).map((s: any, j: number) => (
                   <div key={j} style={C(s.segStyle)}><div style={C(s.fillStyle)} /><span style={C(s.labelStyle)}>{s.label}</span></div>
                 ))}
@@ -2319,9 +2332,9 @@ export function GanttBoard() {
                 <div style={C("flex:1;min-width:4px")} />
                 {c.showPoints && <span style={C("font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f)")}>{c.points}</span>}
               </div>
-              <div style={C("display:flex;align-items:center;gap:5px;min-width:0")}>
+              <div style={C("display:flex;align-items:flex-start;gap:5px;min-width:0")}>
                 <div style={C(c.dotStyle)} />
-                <span style={C("font-size:12px;font-weight:500;color:var(--ink,#1a1a20);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere")}>{c.title}</span>
+                <span style={C("font-size:12px;font-weight:500;line-height:1.25;color:var(--ink,#1a1a20);overflow-wrap:anywhere")}>{c.title}</span>
               </div>
             </div>
           ))}

@@ -105,6 +105,62 @@ describe("Release : rien n'est masqué par l'intervalle de l'Epic", () => {
   });
 });
 
+describe("Release : cartes et charge hors intervalle", () => {
+  const withStoryTitle = (title: string) => {
+    const s = M.createInitialState();
+    const us = s.items.find((i) => i.level === "story" && i.iter < M.NITER)!;
+    const st: M.State = {
+      ...s, board: "release",
+      expanded: { ["epic:" + M.epicOf(us)]: true, ...(us.parent ? { [us.parent]: true } : {}) },
+      items: s.items.map((i) => (i.id === us.id ? { ...i, title } : i)),
+    };
+    return { id: us.id, layout: M.computeLayout(st, M.RELCOL) };
+  };
+
+  it("une carte US s'agrandit au lieu de couper le titre", () => {
+    const long = "Titre ".repeat(30).trim();
+    const a = withStoryTitle("Court"), b = withStoryTitle(long);
+    const ha = a.layout.cards!.find((c) => c.item.id === a.id)!.height;
+    const hb = b.layout.cards!.find((c) => c.item.id === b.id)!.height;
+    expect(hb).toBeGreaterThan(ha);
+    expect(b.layout.totalHeight).toBeGreaterThan(a.layout.totalHeight);
+  });
+
+  it("les cartes d'une même colonne ne se chevauchent pas après agrandissement", () => {
+    const l = withStoryTitle("Titre ".repeat(30).trim()).layout;
+    const byCol = new Map<number, typeof l.cards>();
+    l.cards!.forEach((c) => byCol.set(c.ci, [...(byCol.get(c.ci) || []), c]));
+    byCol.forEach((cards) => {
+      [...cards!].sort((x, y) => x.top - y.top).reduce((prevEnd, c) => {
+        expect(c.top).toBeGreaterThanOrEqual(prevEnd);
+        return c.top + c.height;
+      }, 0);
+    });
+  });
+
+  it("une ligne epic s'agrandit quand son nom dépasse la colonne de gauche", () => {
+    const s = M.createInitialState();
+    const long = "Epic ".repeat(30).trim();
+    const base = M.computeLayout({ ...s, board: "release" }, M.RELCOL);
+    const grown = M.computeLayout(
+      { ...s, board: "release", items: s.items.map((i) => (i.id === "EP-200" ? { ...i, title: long } : i)) },
+      M.RELCOL,
+    );
+    const h = (l: ReturnType<typeof M.computeLayout>) => l.rows.find((r) => r.key === "epic:EP-200")!.height;
+    expect(h(grown)).toBeGreaterThan(h(base));
+  });
+
+  it("outsideCharge ne retient que les colonnes chargées hors intervalle", () => {
+    const per = { 0: 3, 2: 5, 4: 0, 7: 2 };
+    expect(M.outsideCharge(per, [0, 1, 2, 3, 4, 7], [2, 4])).toEqual([
+      { real: 0, vi: 0, val: 3 },
+      { real: 7, vi: 5, val: 2 },
+    ]);
+    // Tout dans l'intervalle → rien à signaler.
+    expect(M.outsideCharge(per, [2, 3, 4], [0, 11])).toEqual([]);
+  });
+});
+
 describe("releaseMetrics (métriques macro Release)", () => {
   it("delta = Σ capacité − Σ effort sur l'intervalle choisi", () => {
     const s = { ...M.createInitialState(), metricsFrom: 0, metricsTo: 1 };

@@ -6,6 +6,8 @@ import { CapacitiesRepo } from "../database/capacities.repo";
 import { AdoService } from "../ado/ado.service";
 import { AdoMapper, RawAdoWorkItem } from "../ado/ado.mapper";
 
+const ADO_SYNC_WINDOW_S = 10;
+
 @Injectable()
 export class SyncService {
   constructor(
@@ -136,11 +138,13 @@ export class SyncService {
     let teamMembers = await this.redis.getTeamMembers(sessionId);
     let tickets: Ticket[];
 
-    // Anti-throttling ADO : 1 sync ADO max par fenêtre de 30s par session,
+    // Anti-throttling ADO : 1 sync ADO max par fenêtre de 10s par session,
     // tous clients confondus. Les polls intermédiaires reçoivent le cache
     // Redis, tenu à jour par les ops WebSocket. Une modif faite hors de l'app
-    // (directement dans ADO) remonte donc en ~30s au pire.
-    if (await this.redis.acquireSyncSlot(sessionId, 30)) {
+    // (directement dans ADO) remonte donc en ~10s au pire.
+    // ponytail: fenêtre en dur (~3 requêtes ADO / 10s / session). Passer en
+    // env si ADO se met à throttler (429) avec beaucoup de sessions ouvertes.
+    if (await this.redis.acquireSyncSlot(sessionId, ADO_SYNC_WINDOW_S)) {
       if (!iterations.length) {
         // Cache Redis expiré (TTL 24h) : ré-hydratation complète comme à la
         // création — sinon la session restaurée paraît vide (tickets [], équipe

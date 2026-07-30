@@ -153,8 +153,9 @@ export let CURRENT = 1;
 export const RELCOL = 184;
 export const RELBAND = 40;
 const RELPARENT = 58;
-const CUS = 58;
-const CTASK = 44;
+const CUS = 58; // carte US Release : 2 lignes de titre
+const CTASK = 44; // carte tâche Release : 1 ligne de titre
+const CARDLH = 15; // hauteur d'une ligne de titre de carte Release (12px × 1.25)
 const CGAP = 7;
 const BPAD = 9;
 const RELSPAN = 9;
@@ -795,14 +796,16 @@ function releaseLayout(s: State, COLW: number): Layout {
       const ci = colOf(st.item.iter);
       if (ci < 0) return;
       const sopen = isOpen(s, st.item.id);
-      cards.push({ item: st.item, level: "story", ci, left: LEFT + ci * COLW + indentUS, top: colY[ci], width: COLW - 2 * indentUS, height: CUS, hasChildren: st.tasks.length > 0, open: sopen });
-      colY[ci] += CUS + CGAP;
+      const sw = COLW - 2 * indentUS, sh = cardHeight(st.item.title, sw - 31, CUS, 2);
+      cards.push({ item: st.item, level: "story", ci, left: LEFT + ci * COLW + indentUS, top: colY[ci], width: sw, height: sh, hasChildren: st.tasks.length > 0, open: sopen });
+      colY[ci] += sh + CGAP;
       if (sopen)
         st.tasks.forEach((t) => {
           const tci = colOf(t.item.iter);
           if (tci < 0) return;
-          cards.push({ item: t.item, level: "task", ci: tci, left: LEFT + tci * COLW + indentUS + 14, top: colY[tci], width: COLW - 2 * indentUS - 14, height: CTASK });
-          colY[tci] += CTASK + CGAP;
+          const tw = sw - 14, th = cardHeight(t.item.title, tw - 29, CTASK, 1);
+          cards.push({ item: t.item, level: "task", ci: tci, left: LEFT + tci * COLW + indentUS + 14, top: colY[tci], width: tw, height: th });
+          colY[tci] += th + CGAP;
         });
     });
     const bandH = Math.max(...colY) - bandTop + BPAD;
@@ -814,8 +817,11 @@ function releaseLayout(s: State, COLW: number): Layout {
     const epicUS = nodeStories(node);
     const eColor = (node.epic ? epics[node.epic.id]?.color : null) || "#64748b";
     const hasChildren = node.features.length > 0 || node.stories.length > 0;
-    rows.push({ kind: "epic", depth: 0, key: ekey, item: node.epic ?? undefined, epicName: nodeName(node), hasChildren, open: eopen, count: node.features.length, us: epicUS, accent: eColor, range: node.range, top: y, height: RELPARENT });
-    y += RELPARENT;
+    // Le nom occupe la colonne de gauche : la ligne s'agrandit s'il dépasse
+    // 2 lignes (63/79 = indentation + chevron + pastille + paddings).
+    const eh = cardHeight(nodeName(node), LEFT - 63, RELPARENT, 2);
+    rows.push({ kind: "epic", depth: 0, key: ekey, item: node.epic ?? undefined, epicName: nodeName(node), hasChildren, open: eopen, count: node.features.length, us: epicUS, accent: eColor, range: node.range, top: y, height: eh });
+    y += eh;
     if (!eopen) return;
     // US rattachées directement à l'Epic : bande de cartes sous la ligne epic.
     if (node.stories.length) pushBand(ekey + ":band", node.stories, 8);
@@ -827,8 +833,9 @@ function releaseLayout(s: State, COLW: number): Layout {
       // intervalle vide (donc aucune barre) dès que la feature sortait des dates
       // de l'epic : l'écart est justement l'information à voir.
       const fr = featRange(s, f.item);
-      rows.push({ kind: "feature", depth: 1, key: f.item.id, item: f.item, hasChildren: f.stories.length > 0, open: fopen, us: fUS, accent: ep.color || "#0072B2", epicShort: ep.short || "", range: fr, top: y, height: RELPARENT });
-      y += RELPARENT;
+      const fh = cardHeight(f.item.ado + "  " + f.item.title, LEFT - 79, RELPARENT, 2);
+      rows.push({ kind: "feature", depth: 1, key: f.item.id, item: f.item, hasChildren: f.stories.length > 0, open: fopen, us: fUS, accent: ep.color || "#0072B2", epicShort: ep.short || "", range: fr, top: y, height: fh });
+      y += fh;
       if (!fopen) return;
       pushBand(f.item.id + ":band", f.stories, 8);
     });
@@ -850,6 +857,26 @@ export function wrappedLines(title: string, perLine: number): number {
     used = w.length - extra * perLine;
   }
   return lines;
+}
+
+/** Hauteur d'une carte Release : le titre s'affiche en entier, `baseLines`
+ * lignes tiennent déjà dans `base`, chaque ligne en plus rallonge la carte.
+ * `textW` = largeur utile du titre (carte moins paddings et pastille d'état).
+ * ponytail: largeur de caractère estimée (~6.1px à 12px), pas de mesure DOM. */
+function cardHeight(title: string, textW: number, base: number, baseLines: number): number {
+  const lines = wrappedLines(title, Math.max(8, Math.floor(textW / 6.1)));
+  return base + Math.max(0, lines - baseLines) * CARDLH;
+}
+
+/**
+ * Colonnes visibles portant de la charge hors de l'intervalle d'un parent
+ * (epic/feature) : ces US sont planifiées ailleurs que sur sa barre, donc
+ * invisibles sur sa ligne. Le board les marque en pointillé.
+ */
+export function outsideCharge(per: Record<number, number>, cols: number[], range: [number, number]) {
+  return cols
+    .map((real, vi) => ({ real, vi, val: per[real] || 0 }))
+    .filter((c) => c.val > 0 && (c.real < range[0] || c.real > range[1]));
 }
 
 export function computeLayout(s: State, COLW: number): Layout {
