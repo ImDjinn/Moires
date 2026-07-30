@@ -39,6 +39,7 @@ const base: Ticket = {
 };
 
 beforeEach(() => {
+  disconnectSocket(); // la socket est un singleton de module : la reset entre les tests
   vi.clearAllMocks();
   for (const k of Object.keys(handlers)) delete handlers[k];
   useTicketsStore.setState({ tickets: [base] });
