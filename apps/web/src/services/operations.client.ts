@@ -11,7 +11,10 @@ export function setRejectionHandler(cb: ((message: string) => void) | null) {
 }
 
 export function connectSocket(sessionId: string, userId: string, displayName: string) {
-  if (socket?.connected) return socket;
+  // `connected` est faux tant que le handshake n'a pas abouti : s'y fier ouvrait
+  // une 2e socket à chaque re-run de l'effet (StrictMode), et la fermeture de
+  // l'orpheline émettait un `user-left` pour un utilisateur toujours présent.
+  if (socket) return socket;
 
   socket = io("/", {
     query: { sessionId, userId, displayName },

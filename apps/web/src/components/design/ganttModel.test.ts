@@ -49,6 +49,60 @@ describe("computeLayout : hauteur de carte suivant le titre", () => {
       .filter((b) => b.top >= row.top && b.top < row.top + row.height)
       .forEach((b) => expect(b.top + b.height).toBeLessThanOrEqual(row.top + row.height));
   });
+
+  it("compte les lignes au mot près (pas title.length / perLine)", () => {
+    expect(M.wrappedLines("abc def", 10)).toBe(1);
+    // 3 mots de 7 : un seul par ligne, alors que 21/10 en donnerait 3 arrondi à 3
+    expect(M.wrappedLines("aaaaaaa bbbbbbb ccccccc", 10)).toBe(3);
+    // mot plus long que la ligne : coupé par overflow-wrap
+    expect(M.wrappedLines("a".repeat(25), 10)).toBe(3);
+  });
+
+  it("un titre à mots longs agrandit plus qu'un titre dense de même longueur", () => {
+    const dense = "ab ".repeat(20).trim(); // 59 car.
+    const words = "abcdefghijkl ".repeat(5).trim(); // 64 car., mots longs
+    expect(barOf(withTitle(words), words).height).toBeGreaterThanOrEqual(barOf(withTitle(dense), dense).height);
+  });
+});
+
+describe("Release : rien n'est masqué par l'intervalle de l'Epic", () => {
+  // Epic EP-200 daté sur la seule itération 0, sa feature ADO-1200 et ses US
+  // s'étalant bien au-delà (jusqu'à it.8).
+  const withNarrowEpic = (featOverride?: Partial<M.Item>) => {
+    const s = M.createInitialState();
+    return {
+      ...s,
+      board: "release" as const,
+      expanded: { "epic:EP-200": true, "ADO-1200": true },
+      items: s.items.map((i) =>
+        i.id === "EP-200" ? { ...i, hasDateRange: true, startISO: M.iters[0].iso[0], endISO: M.iters[0].iso[1] }
+        : i.id === "ADO-1200" && featOverride ? { ...i, ...featOverride }
+        : i,
+      ),
+    };
+  };
+  const rowOf = (l: ReturnType<typeof M.computeLayout>, key: string) => l.rows.find((r) => r.key === key)!;
+
+  it("la feature garde son propre intervalle (barre non vide) hors dates de l'Epic", () => {
+    // Feature datée it.5 → it.6, entièrement après l'Epic : le clamp donnait
+    // l'intervalle inversé [5,0], donc aucune barre affichée.
+    const l = M.computeLayout(withNarrowEpic({ hasDateRange: true, startISO: M.iters[5].iso[0], endISO: M.iters[6].iso[1] }), M.RELCOL);
+    expect(rowOf(l, "ADO-1200").range).toEqual([5, 6]);
+  });
+
+  it("les US hors intervalle de l'Epic restent sur leur vraie itération", () => {
+    const l = M.computeLayout(withNarrowEpic(), M.RELCOL);
+    const late = l.cards!.find((c) => c.item.id === "ADO-1253")!; // US it.8
+    expect(late.ci).toBe(8);
+    expect(rowOf(l, "ADO-1200").range).toEqual([0, 8]); // dérivé des US, non borné
+  });
+
+  it("les US sans itération sont comptées à part au lieu d'être posées sur une colonne", () => {
+    const s = withNarrowEpic();
+    const l = M.computeLayout(s, M.RELCOL);
+    expect(l.cards!.some((c) => c.item.id === "ADO-1240")).toBe(false); // US en backlog
+    expect(M.parentCharge(s, rowOf(l, "ADO-1200").us!).unplanned).toBe(1);
+  });
 });
 
 describe("releaseMetrics (métriques macro Release)", () => {

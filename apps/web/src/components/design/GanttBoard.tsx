@@ -85,6 +85,18 @@ function saveHidden(hidden: Record<string, boolean>) {
   try { localStorage.setItem(HIDDEN_KEY, JSON.stringify(hidden)); } catch { /* stockage indisponible */ }
 }
 
+// Board affiché — restauré au rafraîchissement de la page.
+const BOARD_KEY = "moires.board";
+const BOARDS: State["board"][] = ["me", "daily", "sprint", "release"];
+function loadBoard(): Pick<State, "board"> | undefined {
+  try {
+    const b = localStorage.getItem(BOARD_KEY) as State["board"] | null;
+    return b && BOARDS.includes(b) ? { board: b } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Clé des prefs du panneau : type ADO réel, sinon libellé du type mock. */
 const witOf = (it: Item) => it.wit || M.typeLabels[it.type] || it.type;
 const inspFieldDefs: { key: string; label: string; kinds?: string[] }[] = [
@@ -132,11 +144,15 @@ export function GanttBoard() {
   // Personne du board correspondant au compte connecté (vue @me).
   const myPersonId = user ? resolveMyPersonId(user, M.people) : null;
 
-  const [state, setSt] = useState<State>(() => ({ ...M.createInitialState(dataset ? dataset.items : undefined), hidden: loadHidden() }));
+  const [state, setSt] = useState<State>(() => ({ ...M.createInitialState(dataset ? dataset.items : undefined), hidden: loadHidden(), ...loadBoard() }));
   const stateRef = useRef(state);
   stateRef.current = state;
   // Persiste la sélection des utilisateurs (personnes masquées) entre les sessions.
   useEffect(() => { saveHidden(state.hidden); }, [state.hidden]);
+  // Persiste le board affiché : le rafraîchissement revient sur le même onglet.
+  useEffect(() => {
+    try { localStorage.setItem(BOARD_KEY, state.board); } catch { /* stockage indisponible */ }
+  }, [state.board]);
   // Inactifs masqués par défaut, une seule fois : un id déjà présent dans `hidden`
   // (true ou false) est un choix explicite de l'utilisateur, jamais réécrit.
   useEffect(() => {
@@ -1419,7 +1435,10 @@ export function GanttBoard() {
         const hidden = !!state.hiddenRows[r.key!];
         const rg = r.range || null;
         // L'intervalle est déjà lisible sur la barre du board → pas répété ici.
-        const sub = ch.total > 0 ? `Σ ${M.fmt(ch.total)}` : "aucune US planifiée";
+        // Les US sans itération n'ont pas de colonne : signalées ici pour ne pas
+        // les perdre (elles comptent bien dans Σ).
+        const unp = ch.unplanned ? ` · ${ch.unplanned} sans itération` : "";
+        const sub = (ch.total > 0 ? `Σ ${M.fmt(ch.total)}` : "aucune US planifiée") + unp;
         const subTitle = ch.total > 0 ? `charge totale des US : ${M.fmt(ch.total)} (${loadLabel})` : undefined;
         // Double-clic sur une epic/feature → pose un flag au début de son sprint.
         const flagIter = rg ? rg[0] : M.CURRENT;

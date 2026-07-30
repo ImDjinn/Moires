@@ -662,7 +662,7 @@ export function buildTree(s: State): TreeNode[] {
 
 export function parentCharge(s: State, usList: Item[]) {
   const per: Record<number, number> = {};
-  let max = 0, minIter = 99, maxIter = -1, total = 0;
+  let max = 0, minIter = 99, maxIter = -1, total = 0, unplanned = 0;
   usList.forEach((sx) => {
     if (s.hideClosed && isDone(sx.state)) return;
     if (s.hidden[sx.person]) return;
@@ -671,14 +671,14 @@ export function parentCharge(s: State, usList: Item[]) {
     if (sx.iter < NITER) {
       if (sx.iter < minIter) minIter = sx.iter;
       if (sx.iter > maxIter) maxIter = sx.iter;
-    }
+    } else unplanned++; // sans itération : hors grille Release, à signaler
   });
   Object.values(per).forEach((v) => {
     if (v > max) max = v;
   });
   const startISO = minIter <= maxIter ? iters[minIter].iso[0] : "";
   const endISO = minIter <= maxIter ? iters[maxIter].iso[1] : "";
-  return { per, max, total, minIter, maxIter, startISO, endISO };
+  return { per, max, total, minIter, maxIter, startISO, endISO, unplanned };
 }
 
 function personLoad(s: State): Record<string, number> {
@@ -783,20 +783,23 @@ function releaseLayout(s: State, COLW: number): Layout {
   const cols = relCols(), rows: LayoutRow[] = [], cards: LayoutCard[] = [];
   let y = HEADER;
   const tree = buildTree(s);
-  // Colonne d'un item, clampée dans [lo, hi] (containment US ⊆ Feature ⊆ Epic).
-  const clampCol = (iter: number, lo: number, hi: number) => cols.indexOf(Math.max(lo, Math.min(hi, iter)));
+  // Colonne réelle de l'itération d'un item. Pas de clamp à l'intervalle du
+  // parent : une US hors dates de son Epic doit rester visible à sa vraie
+  // itération, pas être repoussée sur la borne de l'Epic. -1 = hors grille
+  // (US sans itération → comptée dans « sans itération » sur la ligne parente).
+  const colOf = (iter: number) => cols.indexOf(iter);
   // Bande de cartes d'un parent déplié : une colonne par sprint, US puis tâches.
-  const pushBand = (key: string, stories: StoryNode[], lo: number, hi: number, indentUS: number) => {
+  const pushBand = (key: string, stories: StoryNode[], indentUS: number) => {
     const bandTop = y, colY = cols.map(() => bandTop + BPAD);
     stories.forEach((st) => {
-      const ci = clampCol(st.item.iter, lo, hi);
+      const ci = colOf(st.item.iter);
       if (ci < 0) return;
       const sopen = isOpen(s, st.item.id);
       cards.push({ item: st.item, level: "story", ci, left: LEFT + ci * COLW + indentUS, top: colY[ci], width: COLW - 2 * indentUS, height: CUS, hasChildren: st.tasks.length > 0, open: sopen });
       colY[ci] += CUS + CGAP;
       if (sopen)
         st.tasks.forEach((t) => {
-          const tci = clampCol(t.item.iter, lo, hi);
+          const tci = colOf(t.item.iter);
           if (tci < 0) return;
           cards.push({ item: t.item, level: "task", ci: tci, left: LEFT + tci * COLW + indentUS + 14, top: colY[tci], width: COLW - 2 * indentUS - 14, height: CTASK });
           colY[tci] += CTASK + CGAP;
@@ -815,25 +818,38 @@ function releaseLayout(s: State, COLW: number): Layout {
     y += RELPARENT;
     if (!eopen) return;
     // US rattachées directement à l'Epic : bande de cartes sous la ligne epic.
-    if (node.stories.length) {
-      const er = node.range ?? [0, cols.length - 1];
-      pushBand(ekey + ":band", node.stories, Math.min(er[0], er[1]), Math.max(er[0], er[1]), 8);
-    }
+    if (node.stories.length) pushBand(ekey + ":band", node.stories, 8);
     node.features.forEach((f) => {
       const fopen = isOpen(s, f.item.id);
       const fUS = f.stories.map((st) => st.item);
       const ep = epics[epicOf(f.item)] || ({} as { color?: string; short?: string });
-      // Feature ⊆ Epic : intervalle de la feature borné par celui de l'epic.
+      // Intervalle propre de la feature. Le borner à celui de l'epic donnait un
+      // intervalle vide (donc aucune barre) dès que la feature sortait des dates
+      // de l'epic : l'écart est justement l'information à voir.
       const fr = featRange(s, f.item);
-      const efr: [number, number] = node.range ? [Math.max(fr[0], node.range[0]), Math.min(fr[1], node.range[1])] : fr;
-      const lo = Math.min(efr[0], efr[1]), hi = Math.max(efr[0], efr[1]);
-      rows.push({ kind: "feature", depth: 1, key: f.item.id, item: f.item, hasChildren: f.stories.length > 0, open: fopen, us: fUS, accent: ep.color || "#0072B2", epicShort: ep.short || "", range: efr, top: y, height: RELPARENT });
+      rows.push({ kind: "feature", depth: 1, key: f.item.id, item: f.item, hasChildren: f.stories.length > 0, open: fopen, us: fUS, accent: ep.color || "#0072B2", epicShort: ep.short || "", range: fr, top: y, height: RELPARENT });
       y += RELPARENT;
       if (!fopen) return;
-      pushBand(f.item.id + ":band", f.stories, lo, hi, 8); // US ⊆ Feature
+      pushBand(f.item.id + ":band", f.stories, 8);
     });
   });
   return { rows, bars: [], cards, totalHeight: Math.max(y + 20, 520) };
+}
+
+// Retour à la ligne glouton (mot par mot) : compter title.length / perLine
+// sous-estime, le navigateur casse aux espaces et laisse des fins de ligne
+// vides — d'où des cartes trop courtes dont le pied (epic/area) débordait.
+// Un mot plus long que la ligne est coupé par overflow-wrap:anywhere.
+export function wrappedLines(title: string, perLine: number): number {
+  let lines = 1, used = 0;
+  for (const w of title.split(/\s+/).filter(Boolean)) {
+    if (used && used + 1 + w.length <= perLine) { used += 1 + w.length; continue; }
+    if (used) lines++;
+    const extra = Math.ceil(w.length / perLine) - 1;
+    lines += extra;
+    used = w.length - extra * perLine;
+  }
+  return lines;
 }
 
 export function computeLayout(s: State, COLW: number): Layout {
@@ -868,7 +884,7 @@ export function computeLayout(s: State, COLW: number): Layout {
     perCol.forEach((arr, ci) =>
       arr.forEach((it) => {
         const perLine = Math.max(8, Math.floor((spanOf(it, ci) * COLW - CARDTEXTPAD) / 6.6));
-        titleLines = Math.max(titleLines, Math.ceil(it.title.length / perLine));
+        titleLines = Math.max(titleLines, wrappedLines(it.title, perLine));
       }),
     );
     const barH = BARH + (titleLines - TITLELINES) * TITLELH;

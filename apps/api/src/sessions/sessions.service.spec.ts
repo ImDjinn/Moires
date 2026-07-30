@@ -3,7 +3,7 @@ import type { Operation, Ticket } from "@moires/shared";
 
 function makeService() {
   const prisma = {
-    planningSession: { create: jest.fn(), findUnique: jest.fn(), findUniqueOrThrow: jest.fn() },
+    planningSession: { create: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn(), findUniqueOrThrow: jest.fn() },
     operationsLog: { create: jest.fn(), findMany: jest.fn() },
   };
   const redis = {
@@ -30,7 +30,7 @@ function makeService() {
   };
   const ado = { getCapacityDays: jest.fn().mockResolvedValue([]), createWorkItem: jest.fn() };
   const mapper = { toTicket: jest.fn() };
-  const sync = { syncInitial: jest.fn(), resolveIterations: jest.fn().mockResolvedValue([]) };
+  const sync = { syncInitial: jest.fn(), syncIncremental: jest.fn(), resolveIterations: jest.fn().mockResolvedValue([]) };
   const writeback = { enqueue: jest.fn() };
   const service = new SessionsService(
     prisma as any,
@@ -101,6 +101,36 @@ describe("SessionsService.createSession", () => {
     });
     // Les chemins d'itération déjà résolus sont transmis (pas de getIterations redondant).
     expect(sync.syncInitial).toHaveBeenCalledWith("s1", "orgX", "p1", ["it1"], "token", undefined, ["P\\S1"]);
+  });
+
+  it("rejoint la session existante du projet au lieu d'en créer une seconde", async () => {
+    const { service, prisma, redis, sync } = makeService();
+    prisma.planningSession.findFirst.mockResolvedValue({ id: "s1" });
+    prisma.planningSession.findUnique.mockResolvedValue({ id: "s1", adoOrg: "orgX", adoProjectId: "p1" });
+    redis.getTickets.mockResolvedValue([ticket]);
+    redis.getPresences.mockResolvedValue([{ userId: "u1" }]);
+
+    const snapshot = await service.createSession({ adoProjectId: "p1" }, "u2", "orgX", "token");
+
+    expect(snapshot.sessionId).toBe("s1");
+    expect(snapshot.participants).toEqual([{ userId: "u1" }]);
+    expect(redis.addParticipant).toHaveBeenCalledWith("s1", "u2");
+    expect(prisma.planningSession.create).not.toHaveBeenCalled();
+    expect(sync.syncIncremental).not.toHaveBeenCalled();
+  });
+
+  it("ré-hydrate la session rejointe quand le cache Redis a expiré", async () => {
+    const { service, prisma, redis, sync } = makeService();
+    prisma.planningSession.findFirst.mockResolvedValue({ id: "s1" });
+    prisma.planningSession.findUnique.mockResolvedValue({ id: "s1", adoOrg: "orgX", adoProjectId: "p1" });
+    redis.getTickets.mockResolvedValueOnce([]).mockResolvedValueOnce([ticket]);
+    redis.getPresences.mockResolvedValue([]);
+    sync.syncIncremental.mockResolvedValue(undefined);
+
+    const snapshot = await service.createSession({ adoProjectId: "p1" }, "u2", "orgX", "token");
+
+    expect(sync.syncIncremental).toHaveBeenCalledWith("s1", "token");
+    expect(snapshot.tickets).toEqual([ticket]);
   });
 
   it("amorce en base les capacités ADO des itérations à venir, sans écraser l'existant", async () => {

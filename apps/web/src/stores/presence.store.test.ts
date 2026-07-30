@@ -35,6 +35,11 @@ describe("presence.store", () => {
     expect(usePresenceStore.getState().peers[0]).toMatchObject({ action: "dragging", targetTicketId: "t1" });
   });
 
+  it("updatePeer réinsère un pair absent de la liste", () => {
+    usePresenceStore.getState().updatePeer(peer({ userId: "u2", displayName: "Bob" }));
+    expect(usePresenceStore.getState().peers.map((p) => p.userId)).toEqual(["u2"]);
+  });
+
   it("removePeer retire le pair", () => {
     usePresenceStore.getState().setPeers([peer({ userId: "u1" }), peer({ userId: "u2" })]);
     usePresenceStore.getState().removePeer("u1");

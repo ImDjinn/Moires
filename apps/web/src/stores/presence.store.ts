@@ -12,10 +12,15 @@ interface PresenceStore {
 export const usePresenceStore = create<PresenceStore>((set) => ({
   peers: [],
   setPeers: (peers) => set({ peers }),
+  // Upsert : un `user-joined` manqué (ou un `user-left` parasite émis par une
+  // socket morte du même utilisateur) ferait disparaître le pair définitivement.
+  // Son prochain `presence:broadcast` le réinsère.
   updatePeer: (p) =>
-    set((state) => ({
-      peers: state.peers.map((peer) => (peer.userId === p.userId ? p : peer)),
-    })),
+    set((state) =>
+      state.peers.some((peer) => peer.userId === p.userId)
+        ? { peers: state.peers.map((peer) => (peer.userId === p.userId ? p : peer)) }
+        : { peers: [...state.peers, p] },
+    ),
   addPeer: (p) =>
     set((state) => ({
       peers: [

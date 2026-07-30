@@ -29,6 +29,24 @@ export class SessionsService {
     org: string,
     token: string,
   ): Promise<SessionSnapshot> {
+    // Une seule session par projet ADO : le second arrivant rejoint celle du
+    // premier. Sinon chacun planifie dans sa bulle (room socket distincte : ni
+    // présence ni opérations partagées).
+    const existing = await this.prisma.planningSession.findFirst({
+      where: { adoOrg: org, adoProjectId: dto.adoProjectId },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    });
+    if (existing) {
+      await this.redis.addParticipant(existing.id, userId);
+      const snapshot = await this.getSnapshot(existing.id);
+      if (snapshot.tickets.length) return snapshot;
+      // Cache Redis expiré (TTL 24h) : ré-hydrater avant de renvoyer un
+      // snapshot vide, que le front interpréterait comme « aucun work item ».
+      await this.syncService.syncIncremental(existing.id, token);
+      return this.getSnapshot(existing.id);
+    }
+
     // Le lobby ne choisit plus les itérations : on charge toutes les itérations
     // datées du projet, dans l'ordre chronologique.
     const iterations = await this.syncService.resolveIterations(org, dto.adoProjectId, token);
