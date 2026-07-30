@@ -43,7 +43,7 @@ describe("buildTree — groupement par Epic + statut/priorité + filtre", () => 
     const tree = M.buildTree(stateWith({ epicSort: "priority" }));
     // ED (en cours, prio 1) < EA (en cours, prio 2) < EB (à venir)
     expect(tree.map((n) => n.epic!.id)).toEqual(["ED", "EA", "EB"]);
-    expect(tree.map((n) => n.bucket)).toEqual([0, 0, 1]);
+    expect(tree.map((n) => n.bucket)).toEqual([0, 0, 2]); // cf. M.statusBucket
   });
 
   it("filtre 'activeOnly' ne garde que les epics en cours", () => {

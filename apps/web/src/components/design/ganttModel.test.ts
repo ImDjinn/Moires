@@ -58,6 +58,17 @@ describe("computeLayout : hauteur de carte suivant le titre", () => {
     expect(M.wrappedLines("a".repeat(25), 10)).toBe(3);
   });
 
+  it("la carte réserve la place du pied epic/area sous le titre", () => {
+    // Chrome mesuré sur le rendu (GanttBoard `bars`) : bordures 4 + paddings
+    // 7/9 (16) + entête ado/type/points (20) + pied epic/area (19). C'est ce
+    // pied qui débordait de la carte dès que le titre passait à 2 lignes.
+    const CHROME = 59, LH = 17, PAD = 46; // PAD = CARDTEXTPAD
+    const perLine = Math.floor((M.MINCOL - PAD) / 6.6);
+    ["Court", "Titre ".repeat(30).trim(), "Réécriture du module de facturation multi-devises"].forEach((t) => {
+      expect(barOf(withTitle(t), t).height).toBeGreaterThanOrEqual(CHROME + M.wrappedLines(t, perLine) * LH);
+    });
+  });
+
   it("un titre à mots longs agrandit plus qu'un titre dense de même longueur", () => {
     const dense = "ab ".repeat(20).trim(); // 59 car.
     const words = "abcdefghijkl ".repeat(5).trim(); // 64 car., mots longs
@@ -158,6 +169,47 @@ describe("Release : cartes et charge hors intervalle", () => {
     ]);
     // Tout dans l'intervalle → rien à signaler.
     expect(M.outsideCharge(per, [2, 3, 4], [0, 11])).toEqual([]);
+  });
+});
+
+describe("statusBucket : epic « semi-actif »", () => {
+  const us = (iter: number): M.Item => ({ ...M.createInitialState().items[0], iter });
+
+  it("un epic terminé gardant des US sur le sprint courant/à venir est semi-actif", () => {
+    const past: [number, number] = [M.CURRENT - 3, M.CURRENT - 2];
+    expect(M.statusBucket(past, [us(M.CURRENT - 2)])).toBe(3); // terminé
+    expect(M.statusBucket(past, [us(M.CURRENT)])).toBe(1); // semi-actif
+    expect(M.statusBucket(past, [us(M.CURRENT + 2)])).toBe(1);
+    // Le backlog n'est pas un sprint : pas de quoi réactiver l'epic.
+    expect(M.statusBucket(past, [us(M.NITER)])).toBe(3);
+  });
+
+  it("un epic à venir dont des US tombent dans le sprint courant est semi-actif", () => {
+    const later: [number, number] = [M.CURRENT + 2, M.CURRENT + 3];
+    expect(M.statusBucket(later, [us(M.CURRENT + 2)])).toBe(2); // à venir
+    expect(M.statusBucket(later, [us(M.CURRENT)])).toBe(1);
+  });
+
+  it("l'ordre est en cours < semi-actif < à venir < terminé < sans date", () => {
+    expect(M.statusBucket([M.CURRENT, M.CURRENT])).toBe(0);
+    expect(M.statusBucket([M.CURRENT - 3, M.CURRENT - 2], [us(M.CURRENT)])).toBe(1);
+    expect(M.statusBucket([M.CURRENT + 1, M.CURRENT + 2])).toBe(2);
+    expect(M.statusBucket([M.CURRENT - 2, M.CURRENT - 1])).toBe(3);
+    expect(M.statusBucket(null)).toBe(4);
+  });
+
+  it("buildTree trie le semi-actif juste après les epics en cours", () => {
+    const s = M.createInitialState();
+    // EP-200 daté sur des sprints passés, mais ses US restent au sprint courant.
+    const items = s.items.map((i) =>
+      i.id === "EP-200" ? { ...i, hasDateRange: true, startISO: M.iters[0].iso[0], endISO: M.iters[0].iso[1] } : i,
+    );
+    const late = items.find((i) => i.level === "story" && M.epicOf(i) === "EP-200")!;
+    const st = { ...s, board: "release" as const, items: items.map((i) => (i.id === late.id ? { ...i, iter: M.CURRENT + 3 } : i)) };
+    const node = M.buildTree(st).find((n) => n.epicId === "EP-200")!;
+    expect(node.bucket).toBe(1);
+    // Semi-actif : conservé par « epics actifs uniquement ».
+    expect(M.buildTree({ ...st, epicFilter: "activeOnly" }).some((n) => n.epicId === "EP-200")).toBe(true);
   });
 });
 

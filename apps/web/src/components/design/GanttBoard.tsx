@@ -110,6 +110,15 @@ const inspFieldDefs: { key: string; label: string; kinds?: string[] }[] = [
   { key: "dates", label: "Dates (début → fin)" },
 ];
 
+// Tag de statut d'une ligne epic/feature — indexé par M.statusBucket
+// ([libellé, fond, texte]). Bucket 4 (sans date) : pas de tag.
+const STATUS_TAGS: [string, string, string][] = [
+  ["en cours", "#0072B222", "#0072B2"],
+  ["semi-actif", "#E69F0022", "#E69F00"],
+  ["à venir", "var(--line2,#f0f0f4)", "var(--muted,#86868f)"],
+  ["terminé", "#009E7322", "#009E73"],
+];
+
 interface ScriptAction {
   id: string;
   by: Presence;
@@ -1442,13 +1451,15 @@ export function GanttBoard() {
         const subTitle = ch.total > 0 ? `charge totale des US : ${M.fmt(ch.total)} (${loadLabel})` : undefined;
         // Double-clic sur une epic/feature → pose un flag au début de son sprint.
         const flagIter = rg ? rg[0] : M.CURRENT;
-        let statusTag = "", statusStyle = "display:none";
-        if (rg) {
-          const [s0, e0] = rg;
-          if (s0 <= M.CURRENT && e0 >= M.CURRENT) { statusTag = "en cours"; statusStyle = "font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;background:#0072B222;color:#0072B2;flex:0 0 auto"; }
-          else if (s0 > M.CURRENT) { statusTag = "à venir"; statusStyle = "font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);flex:0 0 auto"; }
-          else { statusTag = "terminé"; statusStyle = "font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;background:#009E7322;color:#009E73;flex:0 0 auto"; }
-        }
+        // Même statut que le tri de l'arbre (M.statusBucket) : le tag explique
+        // l'ordre des lignes au lieu de le contredire.
+        const bucket = M.statusBucket(rg, r.us || []);
+        const tag = STATUS_TAGS[bucket];
+        const statusTag = tag ? tag[0] : "";
+        const statusStyle = tag ? `font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;background:${tag[1]};color:${tag[2]};flex:0 0 auto` : "display:none";
+        const statusTitle = bucket === 1 && rg
+          ? `Des US sont planifiées sur le sprint courant ou à venir, hors de l'intervalle ${M.iters[rg[0]].short} → ${M.iters[rg[1]].short}`
+          : undefined;
         const prio = !isFeat && r.item?.priority != null ? `P${r.item.priority}` : "";
         // Epic : effort compté sur l'intervalle de métriques + cumul (ligne de flottaison).
         let stat = "", statTitle = "";
@@ -1471,7 +1482,7 @@ export function GanttBoard() {
           }
         }
         return {
-          isArea: true, isFeat, key: r.key, hasChildren: r.hasChildren, open: r.open, statusTag, statusStyle, prio, stat, statTitle,
+          isArea: true, isFeat, key: r.key, hasChildren: r.hasChildren, open: r.open, statusTag, statusStyle, statusTitle, prio, stat, statTitle,
           hidden, hideTitle: hidden ? "Réafficher (compter dans la charge)" : "Masquer (exclure de la charge)",
           onToggleHidden: (e: React.MouseEvent) => { e.stopPropagation(); toggleRowHidden(r.key!); },
           chevron: r.open ? "▾" : r.hasChildren ? "▸" : "", onToggle: () => { if (r.hasChildren) toggleNode(r.key!); },
@@ -1616,15 +1627,19 @@ export function GanttBoard() {
         // Bande de charge intégrée au bas du header de colonnes (release garde
         // ainsi la même hauteur de header que les autres pages).
         return {
-          wrapStyle: `position:absolute;left:${left}px;top:${M.HEADER - M.RELBAND}px;width:${COLW}px;height:${M.RELBAND}px;padding:4px 12px 8px;border-right:1px solid var(--gridline,#ececf1);box-sizing:border-box;z-index:47;background:var(--panel,#fff)${inMet ? ";box-shadow:inset 0 -2px 0 var(--accent,#5b5bd6)" : ""}`,
+          // overflow:hidden — les gros nombres sont rognés dans leur colonne au
+          // lieu de déborder sur la voisine (tooltip = valeurs complètes).
+          wrapStyle: `position:absolute;left:${left}px;top:${M.HEADER - M.RELBAND}px;width:${COLW}px;height:${M.RELBAND}px;padding:4px 12px 8px;border-right:1px solid var(--gridline,#ececf1);box-sizing:border-box;overflow:hidden;z-index:47;background:var(--panel,#fff)${inMet ? ";box-shadow:inset 0 -2px 0 var(--accent,#5b5bd6)" : ""}`,
+          wrapTitle: `Charge ${M.fmt(b.total)}j / capacité ${M.fmt(b.cap)}j · ${delta >= 0 ? "+" : "−"}${M.fmt(Math.abs(delta))}j · ${Math.round((b.total / (b.cap || 1)) * 100)}%`,
           total: `${M.fmt(b.total)}j`, cap: `/ ${M.fmt(b.cap)}j`,
-          totalStyle: `font-size:12px;font-weight:600;font-family:${mono};color:${over ? "var(--color-error,#ef4444)" : "var(--ink,#1a1a20)"}`,
-          capStyle: `font-size:10px;font-family:${mono};color:var(--faint,#abacb6)`,
+          totalStyle: `font-size:12px;font-weight:600;font-family:${mono};color:${over ? "var(--color-error,#ef4444)" : "var(--ink,#1a1a20)"};flex:0 0 auto`,
+          // La capacité s'efface en premier quand la place manque.
+          capStyle: `font-size:10px;font-family:${mono};color:var(--faint,#abacb6);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap`,
           delta: (delta >= 0 ? "+" : "−") + M.fmt(Math.abs(delta)),
-          deltaStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${delta < 0 ? "var(--color-error,#ef4444)" : "var(--color-synced,#2bbf73)"}`,
+          deltaStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${delta < 0 ? "var(--color-error,#ef4444)" : "var(--color-synced,#2bbf73)"};flex:0 0 auto`,
           deltaTitle: `Capacité − effort : ${delta >= 0 ? "+" : "−"}${M.fmt(Math.abs(delta))}j`,
           pct: (over ? "⚠ " : "") + Math.round((b.total / (b.cap || 1)) * 100) + "%",
-          pctStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${over ? "var(--color-error,#ef4444)" : "var(--muted,#86868f)"}`,
+          pctStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${over ? "var(--color-error,#ef4444)" : "var(--muted,#86868f)"};flex:0 0 auto`,
           trackStyle: `margin-top:3px;height:6px;border-radius:4px;background:var(--line2,#f0f0f4);overflow:hidden;display:flex;gap:1px;${over ? "box-shadow:0 0 0 1px var(--color-error,#ef4444)" : ""}`,
           segs,
         };
@@ -1937,9 +1952,11 @@ export function GanttBoard() {
             </div>
           </>
         )}
+        {/* Bandeau Σ rétrécissable : de gros totaux ne poussent plus le reste de
+            la barre hors écran — l'intervalle s'ellipse d'abord, tooltip complet. */}
         {v.isRelease && v.relMetrics && (
-          <div title={v.relMetrics.title} style={C("height:30px;display:flex;align-items:center;gap:8px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);flex:0 0 auto")}>
-            <span style={C("font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f);white-space:nowrap")}>{v.relMetrics.rangeText}</span>
+          <div title={v.relMetrics.title} style={C("height:30px;display:flex;align-items:center;gap:8px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);flex:0 1 auto;min-width:0;overflow:hidden")}>
+            <span style={C("font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f);white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis")}>{v.relMetrics.rangeText}</span>
             <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Capa</span>
             <span style={C(`font-size:12px;font-weight:600;font-family:${"'IBM Plex Mono',monospace"};color:var(--ink,#1a1a20)`)}>{v.relMetrics.capText}</span>
             <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Effort</span>
@@ -2137,7 +2154,7 @@ export function GanttBoard() {
                       <div style={C("display:flex;align-items:center;gap:5px;min-width:0")}>
                         <span title={row.subTitle} style={C("font-size:10px;color:var(--muted,#86868f);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:'IBM Plex Mono',monospace;min-width:0")}>{row.sub}</span>
                         {row.prio && <span style={C("font-size:10px;font-weight:600;padding:1px 5px;border-radius:5px;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);flex:0 0 auto;font-family:'IBM Plex Mono',monospace")}>{row.prio}</span>}
-                        <span style={C(row.statusStyle)}>{row.statusTag}</span>
+                        <span title={row.statusTitle} style={C(row.statusStyle)}>{row.statusTag}</span>
                         {row.stat && <span title={row.statTitle} style={C("font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f);flex:0 0 auto")}>{row.stat}</span>}
                       </div>
                     </div>
@@ -2189,8 +2206,8 @@ export function GanttBoard() {
               </div>
             ))}
             {(v.loadBand as Record<string, any>[]).map((b, i) => (
-              <div key={"lb" + i} style={C(b.wrapStyle)}>
-                <div style={C("display:flex;align-items:baseline;gap:5px")}>
+              <div key={"lb" + i} title={b.wrapTitle} style={C(b.wrapStyle)}>
+                <div style={C("display:flex;align-items:baseline;gap:5px;min-width:0")}>
                   <span style={C(b.totalStyle)}>{b.total}</span>
                   <span style={C(b.capStyle)}>{b.cap}</span>
                   <div style={{ flex: 1 }} />

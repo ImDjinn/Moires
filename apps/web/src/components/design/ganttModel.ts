@@ -139,9 +139,13 @@ export interface State {
 // ---- Constantes de layout ----
 export const LEFT = 320;
 export const HEADER = 92;
-const BARH = 76; // carte à 2 lignes de titre
-const TITLELINES = 2; // lignes de titre incluses dans BARH
 const TITLELH = 17; // hauteur d'une ligne de titre (13px × 1.25)
+// Tout ce que la carte sprint/daily contient hors titre : bordures (4) +
+// paddings 7/9 (16) + entête ado/type/points (20) + pied epic/area (19).
+// BARH le sous-estimait : le pied débordait dès que le titre passait à 2 lignes.
+const CARDCHROME = 61;
+const TITLELINES = 1; // lignes de titre incluses dans BARH
+const BARH = CARDCHROME + TITLELINES * TITLELH;
 const CARDTEXTPAD = 46; // marges de colonne (20) + padding horizontal de la carte (26)
 const LANEGAP = 10;
 export const TOPPAD = 14;
@@ -150,12 +154,13 @@ const GAPBELOW = 8;
 const BOTPAD = 12;
 export const MINCOL = 252;
 export let CURRENT = 1;
-export const RELCOL = 184;
+export const RELCOL = 200; // largeur mini d'une colonne release (bande de charge : ~4 chiffres par nombre)
 export const RELBAND = 40;
 const RELPARENT = 58;
-const CUS = 58; // carte US Release : 2 lignes de titre
-const CTASK = 44; // carte tâche Release : 1 ligne de titre
 const CARDLH = 15; // hauteur d'une ligne de titre de carte Release (12px × 1.25)
+// Hors titre : bordures (3) + paddings (12/10) + gap (2) + entête (15).
+const CUS = 32 + 2 * CARDLH; // carte US Release : 2 lignes de titre
+const CTASK = 30 + CARDLH; // carte tâche Release : 1 ligne de titre
 const CGAP = 7;
 const BPAD = 9;
 const RELSPAN = 9;
@@ -585,7 +590,7 @@ interface TreeNode {
   /** US rattachées directement à l'Epic (pas de Feature parente dans le lot). */
   stories: StoryNode[];
   range: [number, number] | null;
-  /** 0 = en cours, 1 = à venir, 2 = terminé, 3 = sans date. */
+  /** Voir `statusBucket`. */
   bucket: number;
 }
 
@@ -595,12 +600,22 @@ const nodeStories = (n: TreeNode): Item[] => [...n.stories.map((st) => st.item),
 const nodeName = (n: TreeNode) => (n.epic ? n.epic.title : "(Sans epic)");
 const nodeEffort = (n: TreeNode) => nodeStories(n).reduce((s, it) => s + effortOf(it), 0);
 
-function statusBucket(range: [number, number] | null): number {
-  if (!range) return 3;
+/**
+ * Statut d'un parent (epic/feature) — sert au tri, au filtre et au tag.
+ * 0 = en cours, 1 = semi-actif, 2 = à venir, 3 = terminé, 4 = sans date.
+ *
+ * « Semi-actif » : l'intervalle du parent ne couvre pas le sprint courant, mais
+ * des US lui restent planifiées sur le sprint courant ou un sprint à venir. Le
+ * travail est donc réel, l'intervalle est simplement décalé — trié juste après
+ * les epics en cours, plutôt que noyé dans les « terminés ».
+ */
+export function statusBucket(range: [number, number] | null, us: Item[] = []): number {
+  if (!range) return 4;
   const [s0, e0] = range;
   if (s0 <= CURRENT && e0 >= CURRENT) return 0;
-  if (s0 > CURRENT) return 1;
-  return 2;
+  // Le backlog (iter >= NITER) n'est pas un sprint : il ne rend pas actif.
+  if (us.some((it) => it.iter >= CURRENT && it.iter < NITER && (it.iter < s0 || it.iter > e0))) return 1;
+  return s0 > CURRENT ? 2 : 3;
 }
 
 /** Intervalle d'un Epic : ses dates Start/Target sinon dérivé des US descendantes. */
@@ -634,9 +649,10 @@ export function buildTree(s: State): TreeNode[] {
     loose.get(key)!.push(storyNode(it));
   });
   const mk = (epic: Item | null, features: FeatureNode[], stories: StoryNode[]): TreeNode => {
-    const node: TreeNode = { epicId: epic ? epic.id : null, epic, features, stories, range: null, bucket: 3 };
-    node.range = epicRange(epic, nodeStories(node));
-    node.bucket = statusBucket(node.range);
+    const node: TreeNode = { epicId: epic ? epic.id : null, epic, features, stories, range: null, bucket: 4 };
+    const us = nodeStories(node);
+    node.range = epicRange(epic, us);
+    node.bucket = statusBucket(node.range, us);
     return node;
   };
   const nodes: TreeNode[] = epicItems.map((epic) => mk(epic, feats.filter((f) => f.epicId === epic.id).map(featNode), loose.get(epic.id) ?? []));
@@ -645,8 +661,10 @@ export function buildTree(s: State): TreeNode[] {
   if (orphan.length || looseNone.length) nodes.push(mk(null, orphan.map(featNode), looseNone));
 
   const filtered = nodes.filter((n) => {
-    if (s.epicFilter === "hideDone") return n.bucket !== 2;
-    if (s.epicFilter === "activeOnly") return n.bucket === 0; // masque terminés ET pas démarrés
+    if (s.epicFilter === "hideDone") return n.bucket !== 3;
+    // Masque terminés ET pas démarrés ; garde les semi-actifs (US sur le sprint
+    // courant ou à venir, donc du travail réel malgré l'intervalle décalé).
+    if (s.epicFilter === "activeOnly") return n.bucket <= 1;
     return true;
   });
   // Ordre : statut (en cours > à venir > terminé), puis priorité (ou nom).
