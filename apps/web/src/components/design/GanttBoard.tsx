@@ -1137,13 +1137,14 @@ export function GanttBoard() {
       const outline = isEdit ? `2px solid ${editColor}` : isSel ? `1.5px solid ${cm.accent}` : "1px solid " + cm.border;
       const showPoints = it.level !== "task";
       const est = it.level === "task" ? `${M.fmt(it.effortDays)}j` : `${M.fmt(it.points)}p`;
-      const epMeta = M.epics[M.epicOf(it)] || ({} as { color?: string; short?: string }), epColor = epMeta.color || "#888";
+      const epMeta = M.epics[M.epicOf(it)] || ({} as { color?: string; label?: string }), epColor = epMeta.color || "#888";
       const prog = M.stateProgress(it.state), sc = M.stateColors[it.state];
       return {
         ado: it.ado, typeLabel: M.typeLabels[it.type], title: it.title, showPoints, points: M.fmt(it.points) + "p", est, showFooter: !release,
-        accent: cm.accent, epicShort: epMeta.short || "",
+        accent: cm.accent, epicName: epMeta.label || "",
         epicDotStyle: `width:8px;height:8px;border-radius:2px;background:${epColor};flex:0 0 auto`,
-        epicLabelStyle: "font-size:10px;font-weight:500;color:var(--muted,#86868f);white-space:nowrap;overflow:hidden;text-overflow:ellipsis",
+        // Nom complet, tronqué par le flex seulement quand la carte est trop étroite.
+        epicLabelStyle: "font-size:10px;font-weight:500;color:var(--muted,#86868f);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0",
         area: it.area, areaLeaf: (it.area || "").split("\\").pop() || "",
         editing: isEdit, editInitials: isEdit ? edit!.by.initials : "",
         editPillStyle: `position:absolute;top:-9px;right:-7px;background:${editColor};color:#fff;font-size:10px;font-weight:700;width:19px;height:19px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid var(--panel,#fff);animation:ggpulse 1.1s ease-in-out infinite`,
@@ -2294,7 +2295,7 @@ export function GanttBoard() {
               {bar.showFooter && (
                 <div style={C("display:flex;align-items:center;gap:6px;margin-top:auto;padding-top:6px")}>
                   <div style={C(bar.epicDotStyle)} />
-                  <span style={C(bar.epicLabelStyle)}>{bar.epicShort}</span>
+                  <span title={bar.epicName} style={C(bar.epicLabelStyle)}>{bar.epicName}</span>
                   <div style={C("flex:1;min-width:6px")} />
                   <span title={bar.area} style={C("font-size:10px;color:var(--muted,#86868f);font-family:'IBM Plex Mono',monospace;flex:0 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:3px")}><span style={C("opacity:.7")}>▤</span>{bar.areaLeaf}</span>
                 </div>
