@@ -200,6 +200,15 @@ describe("buildDataset — états Daily réels ordonnés (#3)", () => {
     expect(hasBoardColumns("task")).toBe(false);
   });
 
+  it("projet sans itération : les index d'intervalle restent dans iters", () => {
+    const ds = buildDataset({ sessionId: "s", participants: [], teamMembers: [], capacities: [], iterations: [], tickets: [] });
+    applyDataset(ds);
+    const s = createInitialState(ds.items);
+    for (const i of [s.rangeFrom, s.rangeTo, s.metricsFrom, s.metricsTo, s.releaseStart]) {
+      expect(ds.iters[i]?.short).toBeDefined();
+    }
+  });
+
   it("fallback aux états par défaut si ADO n'en fournit pas", () => {
     const ds = buildDataset({ sessionId: "s", participants: [], teamMembers: [], capacities: [], iterations: [], tickets: [] });
     expect(ds.dailyStates).toEqual(["New", "Active", "Resolved", "Closed"]);

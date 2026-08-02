@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { api } from "../../services/rest.client";
 import { applySnapshot } from "../../stores/session.store";
 import { Brand } from "../Brand";
+import { LoadingScreen } from "../LoadingScreen";
 
 export function SessionLobby() {
   const [org, setOrg] = useState("");
@@ -57,6 +58,10 @@ export function SessionLobby() {
     cursor: "pointer",
     outline: "none",
   };
+
+  // L'ouverture de session déclenche un sync ADO : plusieurs secondes pendant
+  // lesquelles le lobby paraissait figé.
+  if (loading) return <LoadingScreen label="Ouverture de la session…" />;
 
   return (
     <div style={{
@@ -128,7 +133,7 @@ export function SessionLobby() {
 
         <button
           onClick={handleEnter}
-          disabled={loading || !selectedProject}
+          disabled={!selectedProject}
           style={{
             height: 44,
             marginTop: 2,
@@ -138,14 +143,14 @@ export function SessionLobby() {
             borderRadius: 10,
             fontSize: 15,
             fontWeight: 600,
-            cursor: loading || !selectedProject ? "default" : "pointer",
-            opacity: loading || !selectedProject ? 0.55 : 1,
+            cursor: !selectedProject ? "default" : "pointer",
+            opacity: !selectedProject ? 0.55 : 1,
             transition: "opacity .15s",
           }}
         >
-          {loading ? "Chargement…" : "Entrer dans la session"}
+          Entrer dans la session
         </button>
-        {!loading && !projectsLoading && !selectedProject && (
+        {!projectsLoading && !selectedProject && (
           <p style={{ fontSize: 12, color: "var(--faint)", textAlign: "center", marginTop: -12 }}>
             Sélectionnez un projet pour entrer dans la session.
           </p>

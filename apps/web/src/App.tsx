@@ -5,6 +5,7 @@ import { AuthGuard } from "./components/auth/AuthGuard";
 import { SessionLobby } from "./components/session/SessionLobby";
 import { GanttBoard } from "./components/design/GanttBoard";
 import { Brand } from "./components/Brand";
+import { LoadingScreen } from "./components/LoadingScreen";
 
 // Session chargée mais projet ADO sans aucun work item : on l'affiche
 // explicitement au lieu de retomber sur les données de démonstration du board.
@@ -58,13 +59,7 @@ function SessionRoot() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (restoring) {
-    return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
-        <span style={{ color: "var(--text-muted)" }}>Reprise de la session…</span>
-      </div>
-    );
-  }
+  if (restoring) return <LoadingScreen label="Reprise de la session…" />;
   if (!snapshot) return <SessionLobby />;
   if (snapshot.tickets.length === 0) return <EmptyProject />;
   return <GanttBoard key={snapshot.sessionId} />;

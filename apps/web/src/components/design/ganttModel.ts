@@ -386,13 +386,16 @@ function buildInitialItems(): Item[] {
 }
 
 export function createInitialState(items: Item[] = buildInitialItems()): State {
+  // Un projet ADO sans aucune itération donne NITER = 0 : sans ce plancher, les
+  // index de fin valent -1 et `iters[-1].short` casse le rendu de l'entête.
+  const last = Math.max(0, NITER - 1);
   return {
     board: "sprint", level: "story", colorMode: "epic", hideClosed: false, epicFilter: "all", epicSort: "priority", epicSortDir: "asc", containerW: 1100, containerH: 800,
-    rangeFrom: CURRENT, rangeTo: Math.min(CURRENT + 1, NITER - 1), backlog: true, rangeOpen: false, prefsOpen: false,
+    rangeFrom: CURRENT, rangeTo: Math.min(CURRENT + 1, last), backlog: true, rangeOpen: false, prefsOpen: false,
     items, hidden: {}, peopleOpen: false, sort: "az",
     expanded: {}, hiddenRows: {}, loadBy: "person", releaseStart: CURRENT,
     // ~1 trimestre par défaut : 6 sprints de 2 semaines à partir du courant.
-    metricsFrom: CURRENT, metricsTo: Math.min(CURRENT + 5, NITER - 1),
+    metricsFrom: CURRENT, metricsTo: Math.min(CURRENT + 5, last),
     rowPins: [], rowPinSel: null, scrollLeft: 0,
     milestones: [
       { id: "M1", title: "Livraison des API", iter: 3, color: "#D55E00" },
