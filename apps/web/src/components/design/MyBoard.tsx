@@ -42,13 +42,13 @@ export function htmlToText(html?: string): string {
   return text.replace(/\n{3,}/g, "\n\n").trim();
 }
 
-const KICKER = "font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)";
-const PANEL = "background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:12px";
+const KICKER = "font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c)";
+const PANEL = "background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px)";
 
 function TypeBadge({ item, theme }: { item: Item; theme: Theme }) {
   const cm = M.colorMap(item.type, theme);
   return (
-    <span style={C(`font-size:10px;font-weight:600;padding:2px 7px;border-radius:6px;background:${cm.border};color:${cm.text};white-space:nowrap`)}>
+    <span style={C(`font-size:10px;font-weight:600;padding:2px 7px;border-radius:var(--r-md,7px);background:${cm.bg};border:1px solid ${cm.border};color:${cm.text};white-space:nowrap`)}>
       {M.typeLabels[item.type] || item.type}
     </span>
   );
@@ -57,7 +57,7 @@ function TypeBadge({ item, theme }: { item: Item; theme: Theme }) {
 function StatePill({ state }: { state: string }) {
   const col = M.stateColors[state] || "#8a8f98";
   return (
-    <span style={C(`display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:var(--muted,#86868f);white-space:nowrap`)}>
+    <span style={C(`display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:var(--muted,#6b6b75);white-space:nowrap`)}>
       <span style={C(`width:8px;height:8px;border-radius:50%;flex:0 0 auto;background:${col}`)} />
       {state}
     </span>
@@ -69,7 +69,7 @@ function Field({ label, text }: { label: string; text: string }) {
   return (
     <div>
       <div style={C(`${KICKER};margin-bottom:5px`)}>{label}</div>
-      <div style={C("font-size:12.5px;line-height:1.55;color:var(--muted,#86868f);white-space:pre-wrap")}>{text}</div>
+      <div style={C("font-size:12.5px;line-height:1.55;color:var(--muted,#6b6b75);white-space:pre-wrap")}>{text}</div>
     </div>
   );
 }
@@ -80,14 +80,14 @@ function Discussion({ comments }: { comments: TicketComment[] }) {
       <div style={C(`${KICKER};margin-bottom:7px`)}>Discussion ({comments.length})</div>
       <div style={C("display:flex;flex-direction:column;gap:9px")}>
         {comments.map((c) => (
-          <div key={c.id} style={C("border-left:2px solid var(--line,#e9e9ef);padding-left:9px")}>
+          <div key={c.id} style={C("border-left:2px solid var(--line,#e8e8ee);padding-left:9px")}>
             <div style={C("display:flex;align-items:baseline;gap:7px")}>
               <span style={C("font-size:11.5px;font-weight:600;color:var(--ink,#1a1a20)")}>{c.author}</span>
-              <span style={C(`font-family:${mono};font-size:10.5px;color:var(--faint,#abacb6)`)}>
+              <span style={C(`font-family:${mono};font-size:10.5px;color:var(--faint,#71717c)`)}>
                 {c.date ? new Date(c.date).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : ""}
               </span>
             </div>
-            <div style={C("font-size:12.5px;line-height:1.5;color:var(--muted,#86868f);white-space:pre-wrap")}>{htmlToText(c.text)}</div>
+            <div style={C("font-size:12.5px;line-height:1.5;color:var(--muted,#6b6b75);white-space:pre-wrap")}>{htmlToText(c.text)}</div>
           </div>
         ))}
       </div>
@@ -112,12 +112,12 @@ function Card({ item, theme, selected, onSelect, adoUrl, comments }: {
         {adoUrl ? (
           <a href={`${adoUrl}/_workitems/edit/${item.id}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={C(`font-family:${mono};font-size:11px;color:var(--accent,#5b5bd6);text-decoration:none`)}>{item.ado}</a>
         ) : (
-          <span style={C(`font-family:${mono};font-size:11px;color:var(--faint,#abacb6)`)}>{item.ado}</span>
+          <span style={C(`font-family:${mono};font-size:11px;color:var(--faint,#71717c)`)}>{item.ado}</span>
         )}
         <div style={{ flex: 1 }} />
         <StatePill state={item.state} />
         {item.points > 0 && (
-          <span style={C(`font-family:${mono};font-size:11px;color:var(--muted,#86868f)`)}>{item.points} p</span>
+          <span style={C(`font-family:${mono};font-size:11px;color:var(--muted,#6b6b75)`)}>{item.points} p</span>
         )}
       </div>
       <div style={C("font-size:14px;font-weight:600;line-height:1.35;color:var(--ink,#1a1a20)")}>{item.title}</div>
@@ -162,18 +162,18 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
   );
 
   return (
-    <div style={C("flex:1;overflow:auto;background:var(--canvas,#f6f6f8)")}>
+    <div style={C("flex:1;overflow:auto;background:var(--canvas,#f4f4f7)")}>
       <div style={C("max-width:1180px;margin:0 auto;padding:20px 18px 40px;display:flex;flex-direction:column;gap:16px")}>
         {/* Bandeau identité + compteurs — même langage visuel que les jauges du board */}
         <div style={C(`${PANEL};padding:15px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap`)}>
-          <div style={C(`width:38px;height:38px;border-radius:50%;flex:0 0 auto;background:${me?.color || "var(--accent,#5b5bd6)"};color:#fff;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center`)}>
+          <div style={C(`width:38px;height:38px;border-radius:50%;flex:0 0 auto;background:${me?.color || "var(--accent,#5b5bd6)"};color:${me?.color ? M.onColor(me.color) : "#fff"};font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center`)}>
             {me?.initials || userName.slice(0, 1).toUpperCase()}
           </div>
           <div style={C("min-width:0")}>
             <div style={C("font-size:15px;font-weight:600;color:var(--ink,#1a1a20)")}>{me?.name || userName}</div>
-            <div style={C("font-size:12px;color:var(--muted,#86868f)")}>{me?.role || me?.teamRole || "Mes tickets du sprint"}</div>
+            <div style={C("font-size:12px;color:var(--muted,#6b6b75)")}>{me?.role || me?.teamRole || "Mes tickets du sprint"}</div>
           </div>
-          <div style={C("width:1px;height:32px;background:var(--line,#e9e9ef)")} />
+          <div style={C("width:1px;height:32px;background:var(--line,#e8e8ee)")} />
           {stat(String(cur.length), "Tickets")}
           {stat(String(points), "Points")}
           {stat(`${done}/${cur.length}`, "Terminés")}
@@ -182,7 +182,7 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
             <div style={C("text-align:right")}>
               <div style={C(KICKER)}>Sprint en cours</div>
               <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20)")}>
-                {iters[current].label} <span style={C(`font-weight:400;color:var(--muted,#86868f);font-family:${mono};font-size:11px`)}>· {iters[current].dates}</span>
+                {iters[current].label} <span style={C(`font-weight:400;color:var(--muted,#6b6b75);font-family:${mono};font-size:11px`)}>· {iters[current].dates}</span>
               </div>
             </div>
           )}
@@ -192,7 +192,7 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
           {/* Sprint en cours — détail complet */}
           <div style={C("flex:1 1 560px;min-width:0;display:flex;flex-direction:column;gap:12px")}>
             {cur.length === 0 ? (
-              <div style={C(`${PANEL};padding:22px;text-align:center;font-size:13px;color:var(--muted,#86868f)`)}>
+              <div style={C(`${PANEL};padding:22px;text-align:center;font-size:13px;color:var(--muted,#6b6b75)`)}>
                 {myId ? "Aucun ticket ne vous est assigné sur ce sprint." : "Votre compte n'est rattaché à aucun membre de l'équipe."}
               </div>
             ) : (
@@ -210,7 +210,7 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
             </div>
             <div style={C(`${PANEL};padding:6px`)}>
               {!iters[current + 1] || next.length === 0 ? (
-                <div style={C("padding:16px;text-align:center;font-size:12.5px;color:var(--muted,#86868f)")}>
+                <div style={C("padding:16px;text-align:center;font-size:12.5px;color:var(--muted,#6b6b75)")}>
                   {iters[current + 1] ? "Rien de prévu pour vous." : "Aucun sprint planifié après celui-ci."}
                 </div>
               ) : (
@@ -218,13 +218,13 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
                   <div
                     key={it.id}
                     onClick={() => onSelect(it.id)}
-                    style={C(`padding:9px 10px;border-radius:8px;display:flex;flex-direction:column;gap:6px;cursor:pointer;background:${selectedId === it.id ? "var(--accentsoft,#ececfb)" : "transparent"}`)}
+                    style={C(`padding:9px 10px;border-radius:var(--r-lg,9px);display:flex;flex-direction:column;gap:6px;cursor:pointer;background:${selectedId === it.id ? "var(--accentsoft,#ececfb)" : "transparent"}`)}
                   >
                     <div style={C("display:flex;align-items:center;gap:8px")}>
                       <TypeBadge item={it} theme={theme} />
-                      <span style={C(`font-family:${mono};font-size:11px;color:var(--faint,#abacb6)`)}>{it.ado}</span>
+                      <span style={C(`font-family:${mono};font-size:11px;color:var(--faint,#71717c)`)}>{it.ado}</span>
                       <div style={{ flex: 1 }} />
-                      {it.points > 0 && <span style={C(`font-family:${mono};font-size:11px;color:var(--muted,#86868f)`)}>{it.points} p</span>}
+                      {it.points > 0 && <span style={C(`font-family:${mono};font-size:11px;color:var(--muted,#6b6b75)`)}>{it.points} p</span>}
                     </div>
                     <div style={C("font-size:12.5px;font-weight:500;line-height:1.35;color:var(--ink,#1a1a20)")}>{it.title}</div>
                     <StatePill state={it.state} />

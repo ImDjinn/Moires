@@ -25,7 +25,16 @@
   --grid-line: var(--gridline);
   --grid-weekend: var(--colalt);
 
-  --radius-bar: 7px;
+  /* Échelle de rayons — une seule, pour toute l'app. 10 valeurs distinctes
+     cohabitaient (2 → 12px) sans règle. Les cercles restent en 50%, et 2/3px
+     restent littéraux : ce sont des capsules sur des éléments de 3 à 6px de
+     haut, où le rayon doit rester ≤ la moitié de la dimension. */
+  --r-sm: 5px;   /* puces, mini-badges, inputs compacts */
+  --r-md: 7px;   /* boutons, champs, cartes de barre */
+  --r-lg: 9px;   /* cartes, pastilles de charge */
+  --r-xl: 11px;  /* popovers, panneaux */
+
+  --radius-bar: var(--r-md);
   --bar-height: 28px;
   --row-height: 44px;
   --color-synced: #2bbf73;
@@ -35,6 +44,8 @@
   /* Ambre lisible sur panel (texte) — même logique que --color-synced-text. */
   --color-pending-text: #8a5a00;
   --color-error: #ef4444;
+  /* Rouge lisible sur panel (texte) — #ef4444 plafonne à 3,76:1. */
+  --color-error-text: #c62828;
 }
 
 :root[data-theme="dark"] {
@@ -49,6 +60,7 @@
   --color-pending-text: #f0b429;
   /* Rouge saturé qui vibre sur fond sombre → variante adoucie. */
   --color-error: #f87171;
+  --color-error-text: #f87171;
   --line: #27272e;
   --line2: #1f1f25;
   --accent: #7e7ef2;
@@ -70,6 +82,7 @@ body {
   color: var(--ink);
   overflow: hidden;
   height: 100vh;
+  height: 100dvh;
   scrollbar-width: thin;
   scrollbar-color: var(--faint) transparent;
 }
@@ -85,6 +98,7 @@ body {
 
 #root {
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
 }

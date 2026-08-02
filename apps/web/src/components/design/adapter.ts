@@ -2,7 +2,9 @@ import type { Capacity, MemberMeta, SessionSnapshot } from "@moires/shared";
 import type { Dataset, Item, Iter, Level, Person } from "./ganttModel";
 import { MONTHS_FR, stateProgress } from "./ganttModel";
 
-const PEOPLE_PALETTE = ["#6366f1", "#14b8a6", "#f97316", "#ec4899", "#0ea5e9", "#8b5cf6", "#22c55e", "#ef4444", "#eab308", "#06b6d4"];
+// Teintes conservées, luminosité abaissée jusqu'à ≥ 4,5:1 avec des initiales
+// blanches (les valeurs d'origine tombaient entre 1,9:1 et 4,5:1).
+const PEOPLE_PALETTE = ["#5e61f1", "#0e8376", "#c35305", "#e0177a", "#0b7caf", "#8452f5", "#178640", "#e71414", "#916f05", "#047f94"];
 const EPIC_PALETTE = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9", "#8b5cf6"];
 export const UNASSIGNED_ID = "__unassigned__";
 
@@ -137,7 +139,7 @@ export function buildDataset(
   });
 
   if (hasUnassigned) {
-    people.push({ id: UNASSIGNED_ID, name: "Non assigné", role: "", initials: "?", color: "#94a3b8", cap: new Array(niter).fill(0), unassigned: true });
+    people.push({ id: UNASSIGNED_ID, name: "Non assigné", role: "", initials: "?", color: "#627793", cap: new Array(niter).fill(0), unassigned: true });
   }
 
   const storyToFeature: Record<string, string> = {};

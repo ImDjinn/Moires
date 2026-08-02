@@ -170,11 +170,11 @@ export let NITER = 12;
 export let BACKLOG = 12;
 
 export let people: Person[] = [
-  { id: "alice", name: "Alice Beaumont", role: "Backend Lead", teamRole: "Tech Lead", initials: "AB", color: "#6366f1", cap: [10, 8, 10] },
-  { id: "romain", name: "Romain Duval", role: "Frontend", teamRole: "Développeur", initials: "RD", color: "#14b8a6", cap: [10, 10, 8] },
-  { id: "yuki", name: "Yuki Tanaka", role: "Backend", teamRole: "Développeur", initials: "YT", color: "#f97316", cap: [7, 10, 10] },
-  { id: "sofia", name: "Sofia Mendes", role: "QA / Tests", teamRole: "Testeur", initials: "SM", color: "#ec4899", cap: [10, 10, 10] },
-  { id: "marcus", name: "Marcus Wei", role: "DevOps", teamRole: "Développeur", initials: "MW", color: "#0ea5e9", cap: [6, 10, 10] },
+  { id: "alice", name: "Alice Beaumont", role: "Backend Lead", teamRole: "Tech Lead", initials: "AB", color: "#5e61f1", cap: [10, 8, 10] },
+  { id: "romain", name: "Romain Duval", role: "Frontend", teamRole: "Développeur", initials: "RD", color: "#0e8376", cap: [10, 10, 8] },
+  { id: "yuki", name: "Yuki Tanaka", role: "Backend", teamRole: "Développeur", initials: "YT", color: "#c35305", cap: [7, 10, 10] },
+  { id: "sofia", name: "Sofia Mendes", role: "QA / Tests", teamRole: "Testeur", initials: "SM", color: "#e0177a", cap: [10, 10, 10] },
+  { id: "marcus", name: "Marcus Wei", role: "DevOps", teamRole: "Développeur", initials: "MW", color: "#0b7caf", cap: [6, 10, 10] },
 ];
 
 export const MONTHS_FR = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
@@ -457,22 +457,67 @@ export const formatRange = (a: string, b: string) => {
   const A = fmtDate(a), B = fmtDate(b);
   return A && B ? `${A} → ${B}` : A || B;
 };
+/** Couleur de jauge (aplat) : pastilles, remplissages. */
 export const capColor = (pct: number) =>
   pct > 1 ? "var(--color-error,#ef4444)" : pct >= 0.85 ? "var(--color-pending,#f5a623)" : "var(--color-synced,#2bbf73)";
+/** Même sémantique en couleur de texte : les aplats ci-dessus sont trop clairs
+ * pour du 10-12px sur --panel (WCAG AA petit texte). */
+export const capTextColor = (pct: number) =>
+  pct > 1 ? "var(--color-error-text,#c62828)" : pct >= 0.85 ? "var(--color-pending-text,#8a5a00)" : "var(--color-synced-text,#1f8a54)";
 
-function hexToRgb(h: string): [number, number, number] {
-  h = h.replace("#", "");
+/** RGB d'une couleur écrite en #rgb, #rrggbb, hsl(h s% l%) ou rgb(r,g,b). */
+function toRgb(c: string): [number, number, number] {
+  const hsl = /hsl\(\s*([\d.]+)[\s,]+([\d.]+)%[\s,]+([\d.]+)%/.exec(c);
+  if (hsl) {
+    const h = +hsl[1], s = +hsl[2] / 100, l = +hsl[3] / 100;
+    const a = s * Math.min(l, 1 - l);
+    const f = (n: number) => {
+      const k = (n + h / 30) % 12;
+      return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+    };
+    return [f(0), f(8), f(4)];
+  }
+  const rgb = /rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/.exec(c);
+  if (rgb) return [+rgb[1], +rgb[2], +rgb[3]];
+  const h0 = c.replace("#", "");
+  const h = h0.length === 3 ? h0.replace(/(.)/g, "$1$1") : h0;
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 }
+// mix() passait par un parseur hex-only : toute entrée hsl() (hashColor) ou
+// rgb() sortait en rgb(NaN,NaN,NaN). Il partage désormais toRgb.
 function mix(a: string, b: string, t: number): string {
-  const A = hexToRgb(a), B = hexToRgb(b);
+  const A = toRgb(a), B = toRgb(b);
   const c = A.map((v, i) => Math.round(v * (1 - t) + B[i] * t));
   return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
+/** Luminance relative WCAG (0 = noir, 1 = blanc). */
+function relLum(c: string): number {
+  const v = toRgb(c).map((x) => {
+    const u = x / 255;
+    return u <= 0.03928 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+}
+/** Contraste WCAG entre deux couleurs (1 = identiques, 21 = noir sur blanc). */
+function contrast(a: string, b: string): number {
+  const [hi, lo] = [relLum(a), relLum(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+/** Couleur de texte lisible sur un aplat de données (avatar, jalon, flag).
+ * Le blanc systématique échouait l'AA sur toute la bande jaune-vert-cyan.
+ * On compare les deux ratios plutôt que de tester un seuil de luminance :
+ * le point de bascule dépend de --ink et un seuil approché choisit la
+ * mauvaise option juste autour. */
+export const onColor = (bg: string): string =>
+  contrast("#1a1a20", bg) >= contrast("#ffffff", bg) ? "#1a1a20" : "#ffffff";
+// La lightness HSL n'est pas la luminance perçue : à L fixe, hsl(60…) (jaune)
+// est bien plus clair que hsl(240…) (bleu). À 48 %/60 %, du texte blanc posé
+// dessus échouait sur 196/360 puis 328/360 teintes. 30 % (clair, texte blanc)
+// et 70 % (sombre, texte --ink) tiennent l'AA sur tout le cercle.
 export function hashColor(s: string, theme: Theme): string {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return `hsl(${h % 360} 58% ${theme === "dark" ? 60 : 48}%)`;
+  return `hsl(${h % 360} 58% ${theme === "dark" ? 70 : 30}%)`;
 }
 interface Toned {
   bg: string;
@@ -480,12 +525,18 @@ interface Toned {
   text: string;
   accent: string;
 }
+// `text` est poussé à 55 % vers le noir (clair) / le blanc (sombre) : c'est le
+// minimum qui garantit ≥ 4,5:1 sur `bg` ET sur --panel pour n'importe quelle
+// teinte, y compris les couleurs d'état renvoyées par ADO (arbitraires).
+// À 28/40 % (valeurs précédentes) les teintes jaune-vert tombaient à ~2,2:1.
 function toned(base: string, theme: Theme): Toned {
   return theme === "dark"
-    ? { bg: mix(base, "#161619", 0.76), border: mix(base, "#161619", 0.5), text: mix(base, "#ffffff", 0.4), accent: mix(base, "#ffffff", 0.12) }
-    : { bg: mix(base, "#ffffff", 0.9), border: mix(base, "#ffffff", 0.72), text: mix(base, "#000000", 0.28), accent: base };
+    ? { bg: mix(base, "#161619", 0.76), border: mix(base, "#161619", 0.5), text: mix(base, "#ffffff", 0.55), accent: mix(base, "#ffffff", 0.12) }
+    : { bg: mix(base, "#ffffff", 0.9), border: mix(base, "#ffffff", 0.72), text: mix(base, "#000000", 0.55), accent: base };
 }
 export const colorMap = (type: string, theme: Theme): Toned => toned(typeColors[type] || "#6b7280", theme);
+/** Déclinaison contrastée d'une couleur de données (fond/bordure/texte/accent). */
+export const tone = (base: string, theme: Theme): Toned => toned(base, theme);
 export function colorForBar(it: Item, colorMode: State["colorMode"], theme: Theme): Toned {
   if (colorMode === "state") return toned(stateColors[it.state], theme);
   if (colorMode === "epic") return toned((epics[epicOf(it)] || {}).color || "#888", theme);

@@ -63,7 +63,7 @@ export function SessionLobby() {
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      height: "100vh",
+      height: "100dvh",
       background: "var(--canvas)",
       padding: "0 24px",
     }}>

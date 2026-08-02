@@ -6,7 +6,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100dvh" }}>
         <span style={{ color: "var(--text-muted)" }}>Chargement...</span>
       </div>
     );

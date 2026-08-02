@@ -111,12 +111,21 @@ const inspFieldDefs: { key: string; label: string; kinds?: string[] }[] = [
 ];
 
 // Tag de statut d'une ligne epic/feature — indexé par M.statusBucket
-// ([libellé, fond, texte]). Bucket 4 (sans date) : pas de tag.
-const STATUS_TAGS: [string, string, string][] = [
-  ["en cours", "#0072B222", "#0072B2"],
-  ["semi-actif", "#E69F0022", "#E69F00"],
-  ["à venir", "var(--line2,#f0f0f4)", "var(--muted,#86868f)"],
-  ["terminé", "#009E7322", "#009E73"],
+// ([libellé, couleur de base]). Base null = tag neutre (tokens de thème).
+// Bucket 4 (sans date) : pas de tag. Les couleurs étaient figées en dur et
+// identiques dans les deux thèmes : l'ambre tombait à 2,11:1 en clair et le
+// bleu à 3,48:1 en sombre. On passe par M.tone, qui décline par thème.
+// Pastilles de couleur des jalons/flags : un nom par teinte, sinon le bouton
+// n'annonce rien d'autre que « bouton » au lecteur d'écran.
+const ANNOT_COLORS: Record<string, string> = {
+  "#E69F00": "Ambre", "#D55E00": "Orange", "#0072B2": "Bleu", "#009E73": "Vert", "#CC79A7": "Rose",
+};
+
+const STATUS_TAGS: [string, string | null][] = [
+  ["en cours", "#0072B2"],
+  ["semi-actif", "#E69F00"],
+  ["à venir", null],
+  ["terminé", "#009E73"],
 ];
 
 interface ScriptAction {
@@ -1087,12 +1096,12 @@ export function GanttBoard() {
           const it = M.iters[real], left = M.LEFT + vi * COLW;
           const current = real === M.CURRENT, past = real < M.CURRENT;
           let tag = "", tagStyle = "display:none";
-          if (current) { tag = "courante"; tagStyle = "font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;background:var(--accentsoft,#ececfb);color:var(--accent,#5b5bd6)"; }
-          else if (past) { tag = "passée"; tagStyle = "font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;background:var(--line2,#f0f0f4);color:var(--faint,#abacb6)"; }
+          if (current) { tag = "courante"; tagStyle = "font-size:10px;font-weight:600;padding:1px 6px;border-radius:var(--r-sm,5px);background:var(--accentsoft,#ececfb);color:var(--accent,#5b5bd6)"; }
+          else if (past) { tag = "passée"; tagStyle = "font-size:10px;font-weight:600;padding:1px 6px;border-radius:var(--r-sm,5px);background:var(--line2,#f1f1f5);color:var(--faint,#71717c)"; }
           return {
             // Release : le sous-titre laisse la place à la bande de charge dans le header.
             label: it.label, dates: it.dates, sub: release ? "" : it.sub, tag, tagStyle, showDot: current, dotColor: "var(--accent,#5b5bd6)",
-            titleColor: current ? "var(--accent,#5b5bd6)" : past ? "var(--muted,#86868f)" : "var(--ink,#1a1a20)",
+            titleColor: current ? "var(--accent,#5b5bd6)" : past ? "var(--muted,#6b6b75)" : "var(--ink,#1a1a20)",
             bgStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${TH}px;background:${vi % 2 ? "var(--colalt,#fafafc)" : "transparent"};border-right:1px solid var(--gridline,#ececf1)${real === M.BACKLOG ? ";border-left:1px dashed var(--line,#e8e8ee)" : ""}`,
             headStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${M.HEADER}px;padding:12px 14px;border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:47;box-sizing:border-box${current ? ";box-shadow:inset 0 -2px 0 var(--accent,#5b5bd6)" : ""}`,
           };
@@ -1108,9 +1117,9 @@ export function GanttBoard() {
             id: p.id, name: p.name, role: p.role, initials: p.initials, loadShow: daily && !p.unassigned,
             loadText: `${lp > 1 ? "⚠ " : ""}${M.fmt(used)}/${M.fmt(cap)}j · ${Math.round(lp * 100)}%`,
             loadTitle: `Charge ${M.fmt(used)} (${loadLabel}) / capacité ${M.fmt(cap)} jours ouvrés — ${M.iters[M.CURRENT].label}${loadNote}`,
-            loadTextStyle: `font-size:10px;font-family:${mono};color:${lp > 1 ? "var(--color-error,#ef4444)" : "var(--muted,#86868f)"}`,
+            loadTextStyle: `font-size:10px;font-family:${mono};color:${lp > 1 ? "var(--color-error-text,#c62828)" : "var(--muted,#6b6b75)"}`,
             loadFillStyle: `position:absolute;left:0;top:0;height:100%;width:${Math.min(lp, 1) * 100}%;background:${lc};border-radius:3px`,
-            avatarStyle: `width:30px;height:30px;border-radius:50%;background:${p.color};color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
+            avatarStyle: `width:30px;height:30px;border-radius:50%;background:${p.color};color:${M.onColor(p.color)};font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
             // Ouvre le panneau personne (et ferme le panneau ticket).
             onOpen: openable
               ? (e: React.MouseEvent) => { e.stopPropagation(); setFieldPicker(null); setState({ selectedId: null, prefsOpen: false }); setPersonSel(p.id); }
@@ -1132,13 +1141,13 @@ export function GanttBoard() {
           const used = capUsed[p.id][real], cap = M.capOf(p, real), pct = cap ? used / cap : used, c = M.capColor(pct);
           const editable = p.id !== UNASSIGNED_ID;
           banners.push({
-            style: `position:absolute;left:${M.LEFT + vi * COLW + 10}px;top:${by}px;width:${COLW - 20}px;height:${M.BANNER}px;display:flex;align-items:center;gap:8px;padding:0 9px;background:var(--panel2,#fafafc);border:1px solid var(--line2,#f0f0f4);border-radius:7px;box-sizing:border-box;z-index:4${editable ? ";cursor:pointer" : ""}`,
+            style: `position:absolute;left:${M.LEFT + vi * COLW + 10}px;top:${by}px;width:${COLW - 20}px;height:${M.BANNER}px;display:flex;align-items:center;gap:8px;padding:0 9px;background:var(--panel2,#fafafc);border:1px solid var(--line2,#f1f1f5);border-radius:var(--r-md,7px);box-sizing:border-box;z-index:4${editable ? ";cursor:pointer" : ""}`,
             fillStyle: `position:absolute;left:0;top:0;height:100%;width:${Math.min(pct, 1) * 100}%;background:${c};border-radius:3px`,
             text: `${M.fmt(used)}/${M.fmt(cap)}j`,
-            textStyle: `font-size:10px;font-family:${mono};color:var(--muted,#86868f);white-space:nowrap;flex:0 0 auto`,
+            textStyle: `font-size:10px;font-family:${mono};color:var(--muted,#6b6b75);white-space:nowrap;flex:0 0 auto`,
             title: `Charge ${M.fmt(used)} (${loadLabel}) / capacité ${M.fmt(cap)} jours ouvrés${loadNote} — cliquer pour modifier la capacité`,
             pct: (pct > 1 ? "⚠ " : "") + Math.round(pct * 100) + "%",
-            pctStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${pct > 1 ? "var(--color-error,#ef4444)" : c};flex:0 0 auto`,
+            pctStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${pct > 1 ? "var(--color-error-text,#c62828)" : c};flex:0 0 auto`,
             editing: !!capEdit && capEdit.personId === p.id && capEdit.real === real,
             capVal: cap,
             onClick: (e: React.MouseEvent) => {
@@ -1163,21 +1172,21 @@ export function GanttBoard() {
       const prog = M.stateProgress(it.state), sc = M.stateColors[it.state];
       return {
         ado: it.ado, typeLabel: M.typeLabels[it.type], title: it.title, showPoints, points: M.fmt(it.points) + "p", est, showFooter: !release,
-        accent: cm.accent, epicName: epMeta.label || "",
+        accent: cm.text, epicName: epMeta.label || "",
         epicDotStyle: `width:8px;height:8px;border-radius:2px;background:${epColor};flex:0 0 auto`,
         // Nom complet, tronqué par le flex seulement quand la carte est trop étroite.
-        epicLabelStyle: "font-size:10px;font-weight:500;color:var(--muted,#86868f);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0",
+        epicLabelStyle: "font-size:10px;font-weight:500;color:var(--muted,#6b6b75);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0",
         area: it.area, areaLeaf: (it.area || "").split("\\").pop() || "",
         editing: isEdit, editInitials: isEdit ? edit!.by.initials : "",
-        editPillStyle: `position:absolute;top:-9px;right:-7px;background:${editColor};color:#fff;font-size:10px;font-weight:700;width:19px;height:19px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid var(--panel,#fff);animation:ggpulse 1.1s ease-in-out infinite`,
-        badgeStyle: `font-size:10px;font-weight:600;padding:1px 5px;border-radius:5px;background:${cm.border};color:${cm.text}`,
-        accentStyle: `position:absolute;left:0;top:0;bottom:0;width:4px;background:${epColor};border-radius:9px 0 0 9px`,
-        progressStyle: `height:100%;width:${Math.round(prog * 100)}%;background:${sc};border-radius:0 0 0 9px;transition:width .2s`,
+        editPillStyle: `position:absolute;top:-9px;right:-7px;background:${editColor};color:${M.onColor(editColor || "#5b5bd6")};font-size:10px;font-weight:700;width:19px;height:19px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid var(--panel,#fff);animation:ggpulse 1.1s ease-in-out infinite`,
+        badgeStyle: `font-size:10px;font-weight:600;padding:1px 5px;border-radius:var(--r-sm,5px);background:${cm.bg};border:1px solid ${cm.border};color:${cm.text}`,
+        accentStyle: `position:absolute;left:0;top:0;bottom:0;width:4px;background:${epColor};border-radius:var(--r-lg,9px) 0 0 var(--r-lg,9px)`,
+        progressStyle: `height:100%;width:${Math.round(prog * 100)}%;background:${sc};border-radius:0 0 0 var(--r-lg,9px);transition:width .2s`,
         // Opacité par défaut/survol via .gg-grip (index.css) ; inline seulement
         // pour les états sélectionné/drag (le style inline prime sur la classe).
-        handleStyle: `width:3px;height:22px;border-radius:2px;background:${isSel ? cm.accent : "var(--faint,#abacb6)"}${isSel || dragging ? ";opacity:.9" : ""}`,
+        handleStyle: `width:3px;height:22px;border-radius:2px;background:${isSel ? cm.accent : "var(--faint,#71717c)"}${isSel || dragging ? ";opacity:.9" : ""}`,
         resizable: !daily,
-        style: `position:absolute;left:${b.left}px;top:${b.top}px;width:${width}px;height:${b.height}px;background:${cm.bg};border:${outline};border-radius:9px;padding:7px 12px 9px 14px;cursor:${dragging ? "grabbing" : "grab"};box-shadow:${isSel || dragging ? "0 8px 24px rgba(20,20,40,.16)" : "var(--shadow)"};overflow:visible;user-select:none;display:flex;flex-direction:column;transform:${transform};transition:${dragging ? "none" : "box-shadow .14s,border-color .14s"};z-index:${dragging ? 40 : isSel ? 30 : isEdit ? 28 : 12};box-sizing:border-box;outline-offset:1px`,
+        style: `position:absolute;left:${b.left}px;top:${b.top}px;width:${width}px;height:${b.height}px;background:${cm.bg};border:${outline};border-radius:var(--r-lg,9px);padding:7px 12px 9px 14px;cursor:${dragging ? "grabbing" : "grab"};box-shadow:${isSel || dragging ? "0 8px 24px rgba(20,20,40,.16)" : "var(--shadow)"};overflow:visible;user-select:none;display:flex;flex-direction:column;transform:${transform};transition:${dragging ? "none" : "box-shadow .14s,border-color .14s"};z-index:${dragging ? 40 : isSel ? 30 : isEdit ? 28 : 12};box-sizing:border-box;outline-offset:1px`,
         onDown: (e: React.PointerEvent) => startDrag(it.id, "move", e),
         onResize: (e: React.PointerEvent) => startDrag(it.id, "resize", e),
         onClick: (e: React.MouseEvent) => e.stopPropagation(),
@@ -1198,13 +1207,13 @@ export function GanttBoard() {
       const row = layout.rows.find((r) => r.personId === pid);
       if (vi != null && row)
         dropGhost = {
-          style: `position:absolute;left:${M.LEFT + vi * COLW + 4}px;top:${row.top + 4}px;width:${COLW - 8}px;height:${row.height - 8}px;border:2px dashed var(--accent,#5b5bd6);border-radius:10px;background:var(--accentsoft,#ececfb);opacity:.45;z-index:11;pointer-events:none`,
+          style: `position:absolute;left:${M.LEFT + vi * COLW + 4}px;top:${row.top + 4}px;width:${COLW - 8}px;height:${row.height - 8}px;border:2px dashed var(--accent,#5b5bd6);border-radius:var(--r-lg,9px);background:var(--accentsoft,#ececfb);opacity:.45;z-index:11;pointer-events:none`,
         };
     }
 
     const cursors = M.cursorList.map((c, k) => ({
       name: c.name, color: c.color,
-      labelStyle: `margin:-3px 0 0 13px;background:${c.color};color:#fff;font-size:11px;font-weight:600;padding:2px 7px;border-radius:9px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.25)`,
+      labelStyle: `margin:-3px 0 0 13px;background:${c.color};color:${M.onColor(c.color)};font-size:11px;font-weight:600;padding:2px 7px;border-radius:var(--r-lg,9px);white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.25)`,
       setRef: (el: HTMLDivElement | null) => { if (el) curEls.current[k] = el; },
     }));
     const presenceSrc = realSession
@@ -1215,7 +1224,7 @@ export function GanttBoard() {
       : M.presenceList;
     const presence = presenceSrc.map((p, i) => ({
       initials: p.initials, name: p.name,
-      style: `width:26px;height:26px;border-radius:50%;background:${p.color};color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;border:2px solid var(--panel,#fff);margin-left:${i ? -7 : 0}px`,
+      style: `width:26px;height:26px;border-radius:50%;background:${p.color};color:${M.onColor(p.color)};font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;border:2px solid var(--panel,#fff);margin-left:${i ? -7 : 0}px`,
     }));
     const onlineLabel = realSession ? `${peers.length + 1} en ligne` : "3 en ligne";
 
@@ -1234,7 +1243,7 @@ export function GanttBoard() {
       const active = state.level === l.key;
       return {
         label: l.label, onClick: () => setState({ level: l.key, selectedId: null }),
-        style: `padding:5px 13px;border-radius:6px;border:none;font-size:12px;white-space:nowrap;font-weight:${active ? 600 : 500};cursor:pointer;background:${active ? "var(--panel,#fff)" : "transparent"};color:${active ? "var(--ink,#1a1a20)" : "var(--muted,#86868f)"};box-shadow:${active ? "0 1px 2px rgba(20,20,40,.12)" : "none"}`,
+        style: `padding:5px 13px;border-radius:var(--r-md,7px);border:none;font-size:12px;white-space:nowrap;font-weight:${active ? 600 : 500};cursor:pointer;background:${active ? "var(--panel,#fff)" : "transparent"};color:${active ? "var(--ink,#1a1a20)" : "var(--muted,#6b6b75)"};box-shadow:${active ? "0 1px 2px rgba(20,20,40,.12)" : "none"}`,
       };
     });
 
@@ -1282,8 +1291,8 @@ export function GanttBoard() {
         return s.length > 300 ? s.slice(0, 300) + "…" : s;
       };
       return {
-        ado: item.ado, typeLabel: M.typeLabels[item.type], accent: cm.accent,
-        badgeStyle: `font-size:10px;font-weight:600;padding:2px 7px;border-radius:6px;background:${cm.border};color:${cm.text}`,
+        ado: item.ado, typeLabel: M.typeLabels[item.type], accent: cm.text,
+        badgeStyle: `font-size:10px;font-weight:600;padding:2px 7px;border-radius:var(--r-md,7px);background:${cm.bg};border:1px solid ${cm.border};color:${cm.text}`,
         // Commit au blur (pas à chaque frappe) : évite un write-back ADO par caractère.
         title: item.title, onTitle: (e: React.FocusEvent<HTMLTextAreaElement>) => { const val = e.target.value.trim(); if (!val) { e.target.value = item.title; return; } if (val !== item.title) setField(item.id, "title", val); },
         parents: ancestors.map((p, i) => ({
@@ -1292,7 +1301,7 @@ export function GanttBoard() {
         })),
         states: M.dailyStates(item.level).map((k) => {
           const active = item.state === k, col = M.stateColors[k];
-          return { label: k, onClick: () => setField(item.id, "state", k), style: `padding:7px 9px;border-radius:7px;border:1px solid ${active ? col : "var(--line,#e8e8ee)"};background:${active ? col : "var(--panel2,#fafafc)"};color:${active ? "#fff" : "var(--muted,#86868f)"};font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis` };
+          return { label: k, onClick: () => setField(item.id, "state", k), style: `padding:7px 9px;border-radius:var(--r-md,7px);border:1px solid ${active ? col : "var(--line,#e8e8ee)"};background:${active ? col : "var(--panel2,#fafafc)"};color:${active ? "#fff" : "var(--muted,#6b6b75)"};font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis` };
         }),
         assignee: item.person, onAssignee: (e: React.ChangeEvent<HTMLSelectElement>) => setField(item.id, "person", e.target.value),
         people: M.people.map((p) => ({ value: p.id, label: p.name })),
@@ -1371,7 +1380,7 @@ export function GanttBoard() {
           name: selPerson.name, poste: selPerson.role, teamRole: selPerson.teamRole, initials: selPerson.initials,
           onCommitPoste: (e: React.FocusEvent<HTMLInputElement>) => commitMemberMeta(selPerson.id, { poste: e.target.value }),
           onCommitRole: (e: React.FocusEvent<HTMLInputElement>) => commitMemberMeta(selPerson.id, { teamRole: e.target.value }),
-          avatarStyle: `width:34px;height:34px;border-radius:50%;background:${selPerson.color};color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
+          avatarStyle: `width:34px;height:34px;border-radius:50%;background:${selPerson.color};color:${M.onColor(selPerson.color)};font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
           // Itération courante et suivantes : la capacité des sprints passés ne s'édite plus.
           rows: M.iters.slice(M.CURRENT, M.NITER).map((it, k) => {
             const i = M.CURRENT + k;
@@ -1382,7 +1391,7 @@ export function GanttBoard() {
               usedText: `${M.fmt(used)} /`,
               cap,
               pctText: (pct > 1 ? "⚠ " : "") + Math.round(pct * 100) + "%",
-              pctStyle: `font-size:11px;font-weight:600;font-family:${mono};color:${pct > 1 ? "var(--color-error,#ef4444)" : M.capColor(pct)};width:${pct > 1 ? 52 : 40}px;text-align:right;flex:0 0 auto`,
+              pctStyle: `font-size:11px;font-weight:600;font-family:${mono};color:${pct > 1 ? "var(--color-error-text,#c62828)" : M.capTextColor(pct)};width:${pct > 1 ? 52 : 40}px;text-align:right;flex:0 0 auto`,
               // Même convention que les champs du panneau ticket : commit au blur.
               onCommit: (e: React.FocusEvent<HTMLInputElement>) => {
                 const n = parseFloat(e.target.value.replace(",", "."));
@@ -1407,13 +1416,13 @@ export function GanttBoard() {
             cols: idx.map((i) => ({ key: i, label: M.iters[i].label, dates: M.iters[i].dates, current: i === M.CURRENT })),
             rows: members.map((p, ri) => ({
               key: p.id, name: p.name, poste: p.role, initials: p.initials,
-              avatarStyle: `width:26px;height:26px;border-radius:50%;background:${p.color};color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
+              avatarStyle: `width:26px;height:26px;border-radius:50%;background:${p.color};color:${M.onColor(p.color)};font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
               cells: idx.map((i, ci) => {
                 const used = capUsed[p.id]?.[i] || 0, cap = M.capOf(p, i), pct = cap ? used / cap : used;
                 return {
                   key: i, cap,
                   subText: `${M.fmt(used)}j · ${(pct > 1 ? "⚠ " : "") + Math.round(pct * 100)}%`,
-                  subStyle: `font-size:10px;font-family:${mono};color:${pct > 1 ? "var(--color-error,#ef4444)" : "var(--faint,#abacb6)"}`,
+                  subStyle: `font-size:10px;font-family:${mono};color:${pct > 1 ? "var(--color-error-text,#c62828)" : "var(--faint,#71717c)"}`,
                   title: `${p.name} — ${M.iters[i].label} : charge ${M.fmt(used)} (${loadLabel}) / capacité ${M.fmt(cap)} jours ouvrés${loadNote}`,
                   // Même convention que le panneau personne : commit au blur.
                   onCommit: (e: React.FocusEvent<HTMLInputElement>) => {
@@ -1449,7 +1458,7 @@ export function GanttBoard() {
               return {
                 key: i, text: `${M.fmt(used)} / ${M.fmt(cap)}j`,
                 pctText: (pct > 1 ? "⚠ " : "") + Math.round(pct * 100) + "%",
-                pctStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${pct > 1 ? "var(--color-error,#ef4444)" : M.capColor(pct)}`,
+                pctStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${pct > 1 ? "var(--color-error-text,#c62828)" : M.capTextColor(pct)}`,
               };
             }),
             onClose: () => setCapMatrixOpen(false),
@@ -1499,7 +1508,10 @@ export function GanttBoard() {
         const bucket = M.statusBucket(rg, r.us || []);
         const tag = STATUS_TAGS[bucket];
         const statusTag = tag ? tag[0] : "";
-        const statusStyle = tag ? `font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;background:${tag[1]};color:${tag[2]};flex:0 0 auto` : "display:none";
+        const statusTone = tag && tag[1] ? M.tone(tag[1], theme) : null;
+        const statusStyle = tag
+          ? `font-size:10px;font-weight:600;padding:1px 6px;border-radius:var(--r-sm,5px);background:${statusTone ? statusTone.bg : "var(--line2,#f1f1f5)"};color:${statusTone ? statusTone.text : "var(--muted,#6b6b75)"};flex:0 0 auto`
+          : "display:none";
         const statusTitle = bucket === 1 && rg
           ? `Des US sont planifiées sur le sprint courant ou à venir, hors de l'intervalle ${M.iters[rg[0]].short} → ${M.iters[rg[1]].short}`
           : undefined;
@@ -1517,7 +1529,7 @@ export function GanttBoard() {
             if (before < met.cap && cumEff > met.cap) {
               relWaterline = {
                 lineStyle: `position:absolute;left:0;top:${r.top}px;width:${TW}px;height:0;border-top:2px dashed var(--color-error,#ef4444);z-index:44;pointer-events:none`,
-                flagStyle: `position:absolute;left:10px;top:${r.top - 9}px;z-index:44;background:var(--color-error,#ef4444);color:#fff;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:600;white-space:nowrap;pointer-events:auto`,
+                flagStyle: `position:absolute;left:10px;top:${r.top - 9}px;z-index:44;background:var(--color-error,#ef4444);color:#fff;padding:2px 8px;border-radius:var(--r-sm,5px);font-size:10px;font-weight:600;white-space:nowrap;pointer-events:auto`,
                 label: `Capacité épuisée · ${M.fmt(met.cap)}j (${metShorts})`,
                 title: `Cumul de l'effort des epics dans l'ordre d'affichage : tout ce qui est sous cette ligne ne tient pas dans la capacité de l'intervalle ${metShorts}.`,
               };
@@ -1534,7 +1546,7 @@ export function GanttBoard() {
           onDoubleClick: () => addFlag(r.key!, flagIter),
           ado: "", badge: "", title: "", adoStyle: "display:none", badgeStyle: "display:none",
           chevStyle: `font-size:12px;color:var(--ink,#1a1a20);width:14px;flex:0 0 auto;cursor:${r.hasChildren ? "pointer" : "default"};text-align:center`,
-          leftStyle: `position:absolute;left:0;top:${r.top}px;width:${M.LEFT}px;height:${r.height}px;background:${sel && r.item && sel === r.item.id ? "var(--accentsoft,#ececfb)" : isFeat ? "var(--panel,#fff)" : "var(--panel2,#fafafc)"};border-right:1px solid var(--line,#e8e8ee);border-bottom:1px solid var(--line2,#f0f0f4);padding:0 12px 0 ${indent}px;z-index:32;box-sizing:border-box;display:flex;align-items:center;gap:8px${hidden ? ";opacity:.45;filter:grayscale(1)" : ""}`,
+          leftStyle: `position:absolute;left:0;top:${r.top}px;width:${M.LEFT}px;height:${r.height}px;background:${sel && r.item && sel === r.item.id ? "var(--accentsoft,#ececfb)" : isFeat ? "var(--panel,#fff)" : "var(--panel2,#fafafc)"};border-right:1px solid var(--line,#e8e8ee);border-bottom:1px solid var(--line2,#f1f1f5);padding:0 12px 0 ${indent}px;z-index:32;box-sizing:border-box;display:flex;align-items:center;gap:8px${hidden ? ";opacity:.45;filter:grayscale(1)" : ""}`,
           sepStyle: `position:absolute;left:0;top:${r.top + r.height}px;width:${TW}px;height:1px;background:var(--gridline,#ececf1);z-index:5`,
           // Ligne adossée à un work item ADO → ouvre son panneau (le chevron reste
           // dédié au pli/dépli). Nœud « (Sans epic) » : pas d'item, on plie.
@@ -1553,9 +1565,9 @@ export function GanttBoard() {
         return {
           isTask, hasChildren: c.hasChildren, chevron: c.open ? "▾" : "▸",
           ado: it.ado, title: it.title, points: M.fmt(it.points) + "p", badge: M.typeLabels[it.type], showPoints: !isTask,
-          adoStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${cm.accent}`,
-          badgeStyle: `font-size:10px;font-weight:600;padding:1px 5px;border-radius:4px;background:${cm.border};color:${cm.text}`,
-          chevStyle: `font-size:8px;color:var(--muted,#86868f);cursor:pointer;flex:0 0 auto;width:12px;text-align:center`,
+          adoStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${cm.text}`,
+          badgeStyle: `font-size:10px;font-weight:600;padding:1px 5px;border-radius:var(--r-sm,5px);background:${cm.bg};border:1px solid ${cm.border};color:${cm.text}`,
+          chevStyle: `font-size:8px;color:var(--muted,#6b6b75);cursor:pointer;flex:0 0 auto;width:12px;text-align:center`,
           onToggle: (e: React.MouseEvent) => { e.stopPropagation(); if (c.hasChildren) toggleNode(it.id); },
           onDown: (e: React.PointerEvent) => startDrag(it.id, "move", e),
           onClick: (e: React.MouseEvent) => { e.stopPropagation(); setState({ selectedId: it.id }); },
@@ -1563,7 +1575,7 @@ export function GanttBoard() {
             if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setState({ selectedId: it.id }); }
           },
           dotStyle: `width:6px;height:6px;border-radius:50%;background:${sc};flex:0 0 auto;margin-top:4px`,
-          style: `position:absolute;left:${c.left}px;top:${c.top}px;width:${c.width}px;height:${c.height}px;background:${cm.bg};border:${isSel ? "1.5px solid " + cm.accent : "1px solid " + cm.border};border-left:3px solid ${ep.color || cm.accent};border-radius:7px;padding:${isTask ? "5px 9px" : "6px 10px"};cursor:${dragging ? "grabbing" : "grab"};box-shadow:${isSel || dragging ? "0 8px 24px rgba(20,20,40,.16)" : "var(--shadow)"};user-select:none;display:flex;flex-direction:column;gap:2px;transform:${transform};transition:${dragging ? "none" : "box-shadow .12s"};z-index:${dragging ? 40 : isSel ? 30 : 13};box-sizing:border-box;overflow:hidden`,
+          style: `position:absolute;left:${c.left}px;top:${c.top}px;width:${c.width}px;height:${c.height}px;background:${cm.bg};border:${isSel ? "1.5px solid " + cm.accent : "1px solid " + cm.border};border-left:3px solid ${ep.color || cm.accent};border-radius:var(--r-md,7px);padding:${isTask ? "5px 9px" : "6px 10px"};cursor:${dragging ? "grabbing" : "grab"};box-shadow:${isSel || dragging ? "0 8px 24px rgba(20,20,40,.16)" : "var(--shadow)"};user-select:none;display:flex;flex-direction:column;gap:2px;transform:${transform};transition:${dragging ? "none" : "box-shadow .12s"};z-index:${dragging ? 40 : isSel ? 30 : 13};box-sizing:border-box;overflow:hidden`,
         };
       });
 
@@ -1603,7 +1615,7 @@ export function GanttBoard() {
           });
         }
         relEpics.push({
-          containerStyle: `position:absolute;left:${barLeft}px;top:${barTop}px;width:${barW}px;height:${barH}px;border:1px solid ${r.accent};border-radius:7px;overflow:hidden;display:flex;z-index:6${editable ? ";cursor:grab" : ""}${state.hiddenRows[r.key!] ? ";opacity:.4;filter:grayscale(1)" : ""}`,
+          containerStyle: `position:absolute;left:${barLeft}px;top:${barTop}px;width:${barW}px;height:${barH}px;border:1px solid ${r.accent};border-radius:var(--r-md,7px);overflow:hidden;display:flex;z-index:6${editable ? ";cursor:grab" : ""}${state.hiddenRows[r.key!] ? ";opacity:.4;filter:grayscale(1)" : ""}`,
           segs,
           // Epic/Feature : la barre entière est déplaçable pour décaler l'intervalle.
           onDown: editable ? (e: React.PointerEvent) => startEpicResize(r.item!.id, "M", e) : undefined,
@@ -1614,11 +1626,11 @@ export function GanttBoard() {
         // Marqueur pointillé sur leur sprint pour voir la charge qui déborde.
         M.outsideCharge(ch.per, cols, [sReal, eReal]).forEach((o) => {
           relEpics.push({
-            containerStyle: `position:absolute;left:${M.LEFT + o.vi * COLW + 6}px;top:${barTop}px;width:${COLW - 12}px;height:${barH}px;border:1.5px dashed ${r.accent};border-radius:7px;display:flex;z-index:6${state.hiddenRows[r.key!] ? ";opacity:.4;filter:grayscale(1)" : ""}`,
+            containerStyle: `position:absolute;left:${M.LEFT + o.vi * COLW + 6}px;top:${barTop}px;width:${COLW - 12}px;height:${barH}px;border:1.5px dashed ${r.accent};border-radius:var(--r-md,7px);display:flex;z-index:6${state.hiddenRows[r.key!] ? ";opacity:.4;filter:grayscale(1)" : ""}`,
             segs: [{
               segStyle: "flex:1;display:flex;align-items:center;justify-content:center",
               fillStyle: "display:none", label: M.fmt(o.val),
-              labelStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${r.accent};opacity:.85`,
+              labelStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${M.tone(r.accent || "#0072B2", theme).text};opacity:.85`,
             }],
             title: `${M.fmt(o.val)} (${loadLabel}) sur ${M.iters[o.real].short}, hors de l'intervalle ${M.iters[sReal].short} → ${M.iters[eReal].short}`,
           });
@@ -1657,8 +1669,9 @@ export function GanttBoard() {
         relRowPins.push({
           title: pin.title,
           lineStyle: `position:absolute;left:${x}px;top:${r.top}px;width:0;height:${r.height}px;border-left:2px solid ${pin.color};z-index:15;pointer-events:none`,
-          flagStyle: `position:absolute;left:${x + 3}px;top:${r.top + 6 + off * 20}px;z-index:31;display:flex;align-items:center;gap:4px;background:${pin.color};color:#fff;padding:2px 7px 2px 6px;border-radius:5px;font-size:10px;font-weight:600;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.2);max-width:${COLW - 10}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis`,
-          onClick: (e: React.MouseEvent) => { e.stopPropagation(); setAnnotAnchor({ x: e.clientX, y: e.clientY }); setState({ rowPinSel: pin.id, milestoneSel: null }); },
+          flagStyle: `position:absolute;left:${x + 3}px;top:${r.top + 6 + off * 20}px;z-index:31;display:flex;align-items:center;gap:4px;background:${pin.color};color:${M.onColor(pin.color)};padding:2px 7px 2px 6px;border-radius:var(--r-sm,5px);font-size:10px;font-weight:600;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.2);max-width:${COLW - 10}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis`,
+          label: `Flag ${pin.title} — ${M.iters[pin.iter]?.short ?? ""}`,
+          onClick: (e?: React.MouseEvent) => { e?.stopPropagation(); setAnnotAnchor(e ? { x: e.clientX, y: e.clientY } : null); setState({ rowPinSel: pin.id, milestoneSel: null }); },
         });
       });
 
@@ -1678,15 +1691,15 @@ export function GanttBoard() {
           wrapStyle: `position:absolute;left:${left}px;top:${M.HEADER - M.RELBAND}px;width:${COLW}px;height:${M.RELBAND}px;padding:4px 12px 8px;border-right:1px solid var(--gridline,#ececf1);box-sizing:border-box;overflow:hidden;z-index:47;background:var(--panel,#fff)${inMet ? ";box-shadow:inset 0 -2px 0 var(--accent,#5b5bd6)" : ""}`,
           wrapTitle: `Charge ${M.fmt(b.total)}j / capacité ${M.fmt(b.cap)}j · ${delta >= 0 ? "+" : "−"}${M.fmt(Math.abs(delta))}j · ${Math.round((b.total / (b.cap || 1)) * 100)}%`,
           total: `${M.fmt(b.total)}j`, cap: `/ ${M.fmt(b.cap)}j`,
-          totalStyle: `font-size:12px;font-weight:600;font-family:${mono};color:${over ? "var(--color-error,#ef4444)" : "var(--ink,#1a1a20)"};flex:0 0 auto`,
+          totalStyle: `font-size:12px;font-weight:600;font-family:${mono};color:${over ? "var(--color-error-text,#c62828)" : "var(--ink,#1a1a20)"};flex:0 0 auto`,
           // La capacité s'efface en premier quand la place manque.
-          capStyle: `font-size:10px;font-family:${mono};color:var(--faint,#abacb6);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap`,
+          capStyle: `font-size:10px;font-family:${mono};color:var(--faint,#71717c);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap`,
           delta: (delta >= 0 ? "+" : "−") + M.fmt(Math.abs(delta)),
-          deltaStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${delta < 0 ? "var(--color-error,#ef4444)" : "var(--color-synced,#2bbf73)"};flex:0 0 auto`,
+          deltaStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${delta < 0 ? "var(--color-error-text,#c62828)" : "var(--color-synced-text,#1f8a54)"};flex:0 0 auto`,
           deltaTitle: `Capacité − effort : ${delta >= 0 ? "+" : "−"}${M.fmt(Math.abs(delta))}j`,
           pct: (over ? "⚠ " : "") + Math.round((b.total / (b.cap || 1)) * 100) + "%",
-          pctStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${over ? "var(--color-error,#ef4444)" : "var(--muted,#86868f)"};flex:0 0 auto`,
-          trackStyle: `margin-top:3px;height:6px;border-radius:4px;background:var(--line2,#f0f0f4);overflow:hidden;display:flex;gap:1px;${over ? "box-shadow:0 0 0 1px var(--color-error,#ef4444)" : ""}`,
+          pctStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${over ? "var(--color-error-text,#c62828)" : "var(--muted,#6b6b75)"};flex:0 0 auto`,
+          trackStyle: `margin-top:3px;height:6px;border-radius:var(--r-sm,5px);background:var(--line2,#f1f1f5);overflow:hidden;display:flex;gap:1px;${over ? "box-shadow:0 0 0 1px var(--color-error,#ef4444)" : ""}`,
           segs,
         };
       });
@@ -1701,7 +1714,7 @@ export function GanttBoard() {
         capText: M.fmt(met.cap) + "j",
         effortText: M.fmt(met.effort) + "j",
         deltaText: (met.delta >= 0 ? "+" : "−") + M.fmt(Math.abs(met.delta)) + "j",
-        deltaStyle: `font-size:12px;font-weight:700;font-family:${mono};color:${met.delta < 0 ? "var(--color-error,#ef4444)" : "var(--color-synced,#2bbf73)"}`,
+        deltaStyle: `font-size:12px;font-weight:700;font-family:${mono};color:${met.delta < 0 ? "var(--color-error-text,#c62828)" : "var(--color-synced-text,#1f8a54)"}`,
         pctText: Math.round((met.effort / (met.cap || 1)) * 100) + "%",
         title: `${metShorts} · capacité ${M.fmt(met.cap)}j − effort ${M.fmt(met.effort)}j (charge en ${loadLabel}${loadNote} · personnes visibles, lignes masquées exclues)`,
       };
@@ -1714,8 +1727,9 @@ export function GanttBoard() {
         milestones.push({
           title: m.title,
           lineStyle: `position:absolute;left:${x}px;top:${M.HEADER}px;width:0;height:${TH - M.HEADER}px;border-left:2px dashed ${m.color};z-index:14;pointer-events:none`,
-          flagStyle: `position:absolute;left:${x + 4}px;top:${M.HEADER + 6}px;z-index:30;display:flex;align-items:center;gap:5px;background:${m.color};color:#fff;padding:3px 8px 3px 7px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.18);${selM ? "outline:2px solid var(--panel,#fff);outline-offset:1px" : ""}`,
-          onClick: (e: React.MouseEvent) => { e.stopPropagation(); setAnnotAnchor(selM ? null : { x: e.clientX, y: e.clientY }); setState({ milestoneSel: selM ? null : m.id, rangeOpen: false, peopleOpen: false }); },
+          flagStyle: `position:absolute;left:${x + 4}px;top:${M.HEADER + 6}px;z-index:30;display:flex;align-items:center;gap:5px;background:${m.color};color:${M.onColor(m.color)};padding:3px 8px 3px 7px;border-radius:var(--r-md,7px);font-size:11px;font-weight:600;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.18);${selM ? "outline:2px solid var(--panel,#fff);outline-offset:1px" : ""}`,
+          label: `Jalon ${m.title} — ${M.iters[m.iter]?.short ?? ""}`,
+          onClick: (e?: React.MouseEvent) => { e?.stopPropagation(); setAnnotAnchor(selM || !e ? null : { x: e.clientX, y: e.clientY }); setState({ milestoneSel: selM ? null : m.id, rangeOpen: false, peopleOpen: false }); },
         });
       });
     }
@@ -1726,7 +1740,12 @@ export function GanttBoard() {
           title: milestoneSelObj.title, onTitle: (e: React.ChangeEvent<HTMLInputElement>) => setMilestone(milestoneSelObj.id, "title", e.target.value),
           iter: String(milestoneSelObj.iter), onIter: (e: React.ChangeEvent<HTMLSelectElement>) => setMilestone(milestoneSelObj.id, "iter", Number(e.target.value)),
           iterOptions: M.iters.slice(0, M.NITER).map((it, i) => ({ value: String(i), label: it.label })),
-          colors: ["#D55E00", "#0072B2", "#009E73", "#CC79A7", "#E69F00"].map((c) => ({ onClick: () => setMilestone(milestoneSelObj.id, "color", c), style: `width:22px;height:22px;border-radius:6px;background:${c};cursor:pointer;border:2px solid ${c === milestoneSelObj.color ? "var(--ink,#1a1a20)" : "transparent"}` })),
+          colors: ["#D55E00", "#0072B2", "#009E73", "#CC79A7", "#E69F00"].map((c) => ({
+            onClick: () => setMilestone(milestoneSelObj.id, "color", c),
+            label: ANNOT_COLORS[c] || c,
+            selected: c === milestoneSelObj.color,
+            style: `width:24px;height:24px;border-radius:var(--r-md,7px);padding:0;background:${c};cursor:pointer;border:2px solid ${c === milestoneSelObj.color ? "var(--ink,#1a1a20)" : "transparent"}`,
+          })),
           onRemove: () => removeMilestone(milestoneSelObj.id),
           onClose: () => setState({ milestoneSel: null }),
         }
@@ -1737,7 +1756,12 @@ export function GanttBoard() {
           title: rowPinSrc.title, onTitle: (e: React.ChangeEvent<HTMLInputElement>) => setFlag(rowPinSrc.id, "title", e.target.value),
           iter: String(rowPinSrc.iter), onIter: (e: React.ChangeEvent<HTMLSelectElement>) => setFlag(rowPinSrc.id, "iter", Number(e.target.value)),
           iterOptions: M.iters.slice(0, M.NITER).map((it, i) => ({ value: String(i), label: it.label })),
-          colors: ["#E69F00", "#D55E00", "#0072B2", "#009E73", "#CC79A7"].map((c) => ({ onClick: () => setFlag(rowPinSrc.id, "color", c), style: `width:22px;height:22px;border-radius:6px;background:${c};cursor:pointer;border:2px solid ${c === rowPinSrc.color ? "var(--ink,#1a1a20)" : "transparent"}` })),
+          colors: ["#E69F00", "#D55E00", "#0072B2", "#009E73", "#CC79A7"].map((c) => ({
+            onClick: () => setFlag(rowPinSrc.id, "color", c),
+            label: ANNOT_COLORS[c] || c,
+            selected: c === rowPinSrc.color,
+            style: `width:24px;height:24px;border-radius:var(--r-md,7px);padding:0;background:${c};cursor:pointer;border:2px solid ${c === rowPinSrc.color ? "var(--ink,#1a1a20)" : "transparent"}`,
+          })),
           onRemove: () => removeFlag(rowPinSrc.id),
           onClose: () => setState({ rowPinSel: null }),
         }
@@ -1775,7 +1799,7 @@ export function GanttBoard() {
     const activeIds = M.activePersonIds(state.items);
     const personRow = (p: M.Person) => ({
       name: p.name, role: p.role, checked: !state.hidden[p.id],
-      dotStyle: `width:24px;height:24px;border-radius:50%;background:${p.color};color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
+      dotStyle: `width:24px;height:24px;border-radius:50%;background:${p.color};color:${M.onColor(p.color)};font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
       initials: p.initials,
       // `false` explicite (et non suppression) : marque le choix de l'utilisateur.
       onToggle: (e: React.ChangeEvent<HTMLInputElement>) => setState({ hidden: { ...state.hidden, [p.id]: !e.target.checked } }),
@@ -1796,7 +1820,7 @@ export function GanttBoard() {
       sortOptions: [{ value: "az", label: "Nom A→Z" }, { value: "za", label: "Nom Z→A" }, { value: "loadDesc", label: "Charge ↓" }, { value: "loadAsc", label: "Charge ↑" }, { value: "gapDesc", label: "Écart charge/capa ↓" }, { value: "gapAsc", label: "Écart charge/capa ↑" }, { value: "random", label: "Aléatoire" }],
       onSort: (e: React.ChangeEvent<HTMLSelectElement>) => { const val = e.target.value; if (val === "random") M.resetRandOrder(); setState({ sort: val }); },
       onShuffle: () => { M.resetRandOrder(); setState({ sort: "random" }); },
-      shuffleStyle: `width:28px;height:28px;flex:0 0 auto;border-radius:6px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center`,
+      shuffleStyle: `width:28px;height:28px;flex:0 0 auto;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center`,
       peopleOpen: state.peopleOpen,
       onPeopleToggle: (e: React.MouseEvent) => { e.stopPropagation(); setState((s) => ({ peopleOpen: !s.peopleOpen, rangeOpen: false, prefsOpen: false })); },
       loadFieldValue: prefs.loadField,
@@ -1821,7 +1845,7 @@ export function GanttBoard() {
       onPeopleClose: () => setState({ peopleOpen: false }),
       boardTabs: [{ key: "me", label: "@me" }, { key: "daily", label: "Daily" }, { key: "sprint", label: "Sprint Planning" }, { key: "release", label: "Release Planning" }].map((t) => {
         const active = state.board === t.key;
-        return { label: t.label, onClick: () => setState({ board: t.key as State["board"], selectedId: null, rangeOpen: false, peopleOpen: false }), style: `padding:6px 14px;border-radius:6px;border:none;font-size:13px;font-weight:${active ? 600 : 500};cursor:pointer;white-space:nowrap;background:${active ? "var(--panel,#fff)" : "transparent"};color:${active ? "var(--ink,#1a1a20)" : "var(--muted,#86868f)"};box-shadow:${active ? "0 1px 2px rgba(20,20,40,.12)" : "none"}` };
+        return { label: t.label, onClick: () => setState({ board: t.key as State["board"], selectedId: null, rangeOpen: false, peopleOpen: false }), style: `padding:6px 14px;border-radius:var(--r-md,7px);border:none;font-size:13px;font-weight:${active ? 600 : 500};cursor:pointer;white-space:nowrap;background:${active ? "var(--panel,#fff)" : "transparent"};color:${active ? "var(--ink,#1a1a20)" : "var(--muted,#6b6b75)"};box-shadow:${active ? "0 1px 2px rgba(20,20,40,.12)" : "none"}` };
       }),
       isRelease: release, showSort: !release, showGranularity: !release, isMe,
       leftKicker: release ? "Projet" : "Équipe",
@@ -1841,7 +1865,7 @@ export function GanttBoard() {
       epicFilterOptions: [{ value: "all", label: "Tous les epics" }, { value: "hideDone", label: "Masquer terminés" }, { value: "activeOnly", label: "Actifs seulement" }],
       onEpicFilter: (e: React.ChangeEvent<HTMLSelectElement>) => setState({ epicFilter: e.target.value as State["epicFilter"] }),
       rangeLabel, range, rangeOpen: state.rangeOpen,
-      rangeBtnStyle: `height:30px;padding:0 12px;border-radius:7px;border:1px solid ${state.rangeOpen ? "var(--accent,#5b5bd6)" : "var(--line,#e9e9ef)"};background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:7px;white-space:nowrap;flex:0 0 auto`,
+      rangeBtnStyle: `height:30px;padding:0 12px;border-radius:var(--r-md,7px);border:1px solid ${state.rangeOpen ? "var(--accent,#5b5bd6)" : "var(--line,#e8e8ee)"};background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:7px;white-space:nowrap;flex:0 0 auto`,
       onRangeToggle: (e: React.MouseEvent) => { e.stopPropagation(); setState((s) => ({ rangeOpen: !s.rangeOpen, peopleOpen: false, prefsOpen: false })); },
       syncLabel: syncing ? "Sync…" : "ADO sync.", syncStyle, syncDotStyle,
       syncTitle: syncing ? "Synchronisation Azure DevOps en cours…" : "Azure DevOps synchronisé",
@@ -1852,12 +1876,12 @@ export function GanttBoard() {
       stop: (e: React.MouseEvent) => e.stopPropagation(),
       selected: !!item, insp, personPanel, capMatrix, toast: state.toast,
       onCapMatrixToggle: (e: React.MouseEvent) => { e.stopPropagation(); setCapMatrixOpen((o) => !o); setState({ peopleOpen: false, rangeOpen: false, prefsOpen: false }); },
-      labelCss: "font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6);margin-bottom:7px",
-      selectCss: "width:100%;height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;outline:none",
-      inputCss: `width:100%;height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:13px;font-family:${mono};outline:none;box-sizing:border-box`,
-      stepperCss: "display:flex;align-items:center;height:36px;border:1px solid var(--line,#e8e8ee);border-radius:8px;background:var(--panel2,#fafafc);overflow:hidden",
+      labelCss: "font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c);margin-bottom:7px",
+      selectCss: "width:100%;height:36px;padding:0 10px;border-radius:var(--r-lg,9px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;outline:none",
+      inputCss: `width:100%;height:36px;padding:0 10px;border-radius:var(--r-lg,9px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:13px;font-family:${mono};outline:none;box-sizing:border-box`,
+      stepperCss: "display:flex;align-items:center;height:36px;border:1px solid var(--line,#e8e8ee);border-radius:var(--r-lg,9px);background:var(--panel2,#fafafc);overflow:hidden",
       stepInputCss: `flex:1;min-width:0;width:100%;text-align:center;border:none;background:transparent;font-size:14px;font-weight:600;font-family:${mono};color:var(--ink,#1a1a20);outline:none`,
-      stepBtnCss: "width:34px;height:100%;border:none;background:transparent;color:var(--muted,#86868f);font-size:17px;cursor:pointer;flex:0 0 auto",
+      stepBtnCss: "width:34px;height:100%;border:none;background:transparent;color:var(--muted,#6b6b75);font-size:17px;cursor:pointer;flex:0 0 auto",
     };
   }
 
@@ -1865,8 +1889,8 @@ export function GanttBoard() {
   // Éditeur jalon/flag ancré près de sa cible (position du clic), clampé au viewport.
   // Fallback en haut à droite si aucune ancre (ex. ouverture au clavier).
   const annotEditorStyle = annotAnchor
-    ? `position:fixed;left:${Math.min(annotAnchor.x + 10, window.innerWidth - 306)}px;top:${Math.min(annotAnchor.y + 6, window.innerHeight - 300)}px;width:288px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:92;padding:15px 16px;animation:ggdrop .14s ease`
-    : "position:absolute;top:104px;right:18px;width:288px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:92;padding:15px 16px;animation:ggdrop .14s ease";
+    ? `position:fixed;left:${Math.min(annotAnchor.x + 10, window.innerWidth - 306)}px;top:${Math.min(annotAnchor.y + 6, window.innerHeight - 300)}px;width:288px;background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px);box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:92;padding:15px 16px;animation:ggdrop .14s ease`
+    : "position:absolute;top:104px;right:18px;width:288px;background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px);box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:92;padding:15px 16px;animation:ggdrop .14s ease";
   // Ligne du popover Personnes (partagée actifs / inactifs).
   const personLine = (p: (typeof v.peopleList)[number], key: number) => (
     <label key={key} style={C("display:flex;align-items:center;gap:10px;padding:5px 0;cursor:pointer")}>
@@ -1874,7 +1898,7 @@ export function GanttBoard() {
       <div style={C(p.dotStyle)}>{p.initials}</div>
       <div style={C("line-height:1.2;min-width:0")}>
         <div style={C("font-size:13px;font-weight:500;color:var(--ink,#1a1a20)")}>{p.name}</div>
-        <div style={C("font-size:11px;color:var(--muted,#86868f)")}>{p.role}</div>
+        <div style={C("font-size:11px;color:var(--muted,#6b6b75)")}>{p.role}</div>
       </div>
     </label>
   );
@@ -1884,19 +1908,19 @@ export function GanttBoard() {
       <div onClick={v.onPeopleClose} style={C("position:fixed;inset:0;z-index:89")} />
       {/* role="dialog" sans aria-modal : le fond reste atteignable au clavier
           (pas de piège de focus), l'annoncer comme modal serait faux. */}
-      <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label="Personnes affichées" style={C("position:absolute;top:38px;right:0;width:266px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:14px 15px;animation:ggdrop .14s ease;outline:none")}>
+      <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label="Personnes affichées" style={C("position:absolute;top:38px;right:0;width:266px;background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px);box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:14px 15px;animation:ggdrop .14s ease;outline:none")}>
         <div style={C("display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px")}>
-          <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Personnes affichées</span>
+          <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c)")}>Personnes affichées</span>
           <div style={C("display:flex;gap:10px;flex:0 0 auto")}>
             <button onClick={v.onShowAllPeople} style={C("border:none;background:none;color:var(--accent,#5b5bd6);font-size:11px;font-weight:500;cursor:pointer;padding:0")}>Tout afficher</button>
-            <button onClick={v.onHideAllPeople} style={C("border:none;background:none;color:var(--muted,#86868f);font-size:11px;font-weight:500;cursor:pointer;padding:0")}>Tout désélectionner</button>
+            <button onClick={v.onHideAllPeople} style={C("border:none;background:none;color:var(--muted,#6b6b75);font-size:11px;font-weight:500;cursor:pointer;padding:0")}>Tout désélectionner</button>
           </div>
         </div>
         <div style={C("max-height:52vh;overflow-y:auto;margin:0 -15px;padding:0 15px")}>
         {v.peopleList.map(personLine)}
         {v.peopleInactive.length > 0 && (
-          <details style={C("margin-top:6px;border-top:1px solid var(--line,#e9e9ef);padding-top:6px")}>
-            <summary style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6);cursor:pointer;padding:3px 0;list-style:none")}>
+          <details style={C("margin-top:6px;border-top:1px solid var(--line,#e8e8ee);padding-top:6px")}>
+            <summary style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c);cursor:pointer;padding:3px 0;list-style:none")}>
               Inactifs ({v.peopleInactive.length}) <span style={C("opacity:.6;font-size:9px")}>▾</span>
             </summary>
             {v.peopleInactive.map(personLine)}
@@ -1910,20 +1934,20 @@ export function GanttBoard() {
   return (
     <div style={v.rootStyle}>
       {/* Header row 1 */}
-      <div style={C("height:54px;flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:0 18px;border-bottom:1px solid var(--line,#e9e9ef);background:var(--panel,#fff);position:relative;z-index:70")}>
+      <div style={C("height:54px;flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:0 18px;border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);position:relative;z-index:70")}>
         <Brand size={24} />
-        <div style={C("display:flex;flex:0 0 auto;background:var(--panel2,#fafafc);border:1px solid var(--line,#e9e9ef);border-radius:8px;padding:2px;gap:2px")}>
+        <div style={C("display:flex;flex:0 0 auto;background:var(--panel2,#fafafc);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-lg,9px);padding:2px;gap:2px")}>
           {v.boardTabs.map((t) => (
             <button key={t.label} onClick={t.onClick} style={C(t.style)}>{t.label}</button>
           ))}
         </div>
-        <div style={C("width:1px;height:22px;flex:0 0 auto;background:var(--line,#e9e9ef)")} />
+        <div style={C("width:1px;height:22px;flex:0 0 auto;background:var(--line,#e8e8ee)")} />
         {/* Bloc rétrécissable (ellipse) : le header tient sur une ligne aux petites largeurs. */}
         <div style={C("display:flex;align-items:center;gap:8px;min-width:0;flex:0 1 auto")}>
           <div style={C("width:7px;height:7px;flex:0 0 auto;border-radius:50%;background:var(--accent,#5b5bd6);box-shadow:0 0 0 3px var(--accentsoft,#ececfb)")} />
           <div style={C("line-height:1.2;min-width:0")}>
-            <div style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6);white-space:nowrap")}>Itération courante</div>
-            <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{v.currentLabel} <span style={C("font-weight:400;color:var(--muted,#86868f);font-family:'IBM Plex Mono',monospace;font-size:11px")}>· {v.currentDates}</span></div>
+            <div style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c);white-space:nowrap")}>Itération courante</div>
+            <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{v.currentLabel} <span style={C("font-weight:400;color:var(--muted,#6b6b75);font-family:'IBM Plex Mono',monospace;font-size:11px")}>· {v.currentDates}</span></div>
           </div>
         </div>
         <div style={{ flex: 1 }} />
@@ -1933,61 +1957,61 @@ export function GanttBoard() {
           <>
             {/* Popover rendu dans le wrapper du bouton : il s'ouvre sous lui. */}
             <div style={C("position:relative;flex:0 0 auto")}>
-              <button onClick={v.onPeopleToggle} style={C("height:30px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap")}>
+              <button onClick={v.onPeopleToggle} style={C("height:30px;padding:0 11px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap")}>
                 <span style={C("opacity:.7;display:flex")}><IconUsers size={13} /></span> Personnes {v.peopleLabel} <span style={C("opacity:.5;font-size:9px")}>▾</span>
               </button>
               {v.peopleOpen && peoplePopover}
             </div>
-            <button onClick={v.onCapMatrixToggle} title="Matrice de capacité — tous les membres × itérations" style={C("height:30px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;flex:0 0 auto")}>⊞ Capacités</button>
-            <div style={C("width:1px;height:22px;flex:0 0 auto;background:var(--line,#e9e9ef)")} />
+            <button onClick={v.onCapMatrixToggle} title="Matrice de capacité — tous les membres × itérations" style={C("height:30px;padding:0 11px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;flex:0 0 auto")}>⊞ Capacités</button>
+            <div style={C("width:1px;height:22px;flex:0 0 auto;background:var(--line,#e8e8ee)")} />
           </>
         )}
         <div title={v.syncTitle} style={C(v.syncStyle)}>
           <div style={C(v.syncDotStyle)} />
           <span style={C("overflow:hidden;text-overflow:ellipsis")}>{v.syncLabel}</span>
         </div>
-        <div style={C("width:1px;height:22px;flex:0 0 auto;background:var(--line,#e9e9ef)")} />
+        <div style={C("width:1px;height:22px;flex:0 0 auto;background:var(--line,#e8e8ee)")} />
         <div style={C("display:flex;align-items:center;gap:9px;flex:0 0 auto")}>
           <div style={{ display: "flex" }}>
             {v.presence.map((p, i) => (
               <div key={i} style={C(p.style)} title={p.name}>{p.initials}</div>
             ))}
           </div>
-          <span style={C("font-size:12px;color:var(--muted,#86868f);white-space:nowrap")}>{v.onlineLabel}</span>
+          <span style={C("font-size:12px;color:var(--muted,#6b6b75);white-space:nowrap")}>{v.onlineLabel}</span>
         </div>
-        <div style={C("width:1px;height:22px;flex:0 0 auto;background:var(--line,#e9e9ef)")} />
-        <button onClick={v.onToggleTheme} title={v.themeTitle} aria-label={v.themeTitle} style={C("width:30px;height:30px;flex:0 0 auto;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center")}>{v.themeIcon}</button>
+        <div style={C("width:1px;height:22px;flex:0 0 auto;background:var(--line,#e8e8ee)")} />
+        <button onClick={v.onToggleTheme} title={v.themeTitle} aria-label={v.themeTitle} style={C("width:30px;height:30px;flex:0 0 auto;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center")}>{v.themeIcon}</button>
         {user && (
-          <div style={C("width:1px;height:22px;background:var(--line,#e9e9ef)")} />
+          <div style={C("width:1px;height:22px;background:var(--line,#e8e8ee)")} />
         )}
         {user && (
           <div style={{ position: "relative" }}>
             <button
               onClick={(e) => { e.stopPropagation(); setUserMenuOpen((o) => !o); }}
-              style={C("height:30px;padding:0 10px 0 4px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:7px")}
+              style={C("height:30px;padding:0 10px 0 4px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:7px")}
             >
-              <span style={C(`width:22px;height:22px;border-radius:50%;background:${myColor};color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`)}>{initials(user.displayName)}</span>
+              <span style={C(`width:22px;height:22px;border-radius:50%;background:${myColor};color:${M.onColor(myColor)};font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`)}>{initials(user.displayName)}</span>
               <span style={{ maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.displayName}</span>
               <span style={C("opacity:.5;font-size:9px")}>▾</span>
             </button>
             {userMenuOpen && (
               <>
               <div onClick={() => setUserMenuOpen(false)} style={C("position:fixed;inset:0;z-index:89")} />
-              <div onClick={(e) => e.stopPropagation()} ref={focusPopover} tabIndex={-1} role="dialog" aria-label="Menu du compte" style={C("position:absolute;top:38px;right:0;width:250px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:6px;animation:ggdrop .14s ease;outline:none")}>
+              <div onClick={(e) => e.stopPropagation()} ref={focusPopover} tabIndex={-1} role="dialog" aria-label="Menu du compte" style={C("position:absolute;top:38px;right:0;width:250px;background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px);box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:6px;animation:ggdrop .14s ease;outline:none")}>
                 <div style={C("padding:8px 10px 10px")}>
-                  <div style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Connecté en tant que</div>
+                  <div style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c)")}>Connecté en tant que</div>
                   <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>{user.displayName}</div>
                 </div>
-                <div style={C("height:1px;background:var(--line,#e9e9ef);margin:2px 0")} />
+                <div style={C("height:1px;background:var(--line,#e8e8ee);margin:2px 0")} />
                 {realSession && (
-                  <button onClick={copyInvite} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:7px;background:transparent;color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
+                  <button onClick={copyInvite} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:var(--r-md,7px);background:transparent;color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
                     <span style={C("opacity:.7;display:flex")}><IconUsers size={13} /></span> Copier le lien d'invitation
                   </button>
                 )}
-                <button onClick={exitSession} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:7px;background:transparent;color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
+                <button onClick={exitSession} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:var(--r-md,7px);background:transparent;color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
                   <span style={C("opacity:.7;display:flex")}><IconSwap size={13} /></span> Changer de projet
                 </button>
-                <button onClick={logout} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:7px;background:transparent;color:var(--color-error,#ef4444);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
+                <button onClick={logout} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:var(--r-md,7px);background:transparent;color:var(--color-error,#ef4444);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
                   <span style={C("opacity:.7;display:flex")}><IconLogout size={13} /></span> Se déconnecter
                 </button>
               </div>
@@ -2001,11 +2025,11 @@ export function GanttBoard() {
           sont rendus au niveau racine, donc jamais rognés par l'overflow).
           Masquée sur @me : aucun de ces réglages (granularité, tri, intervalle)
           ne s'applique à une liste de tickets personnelle. */}
-      <div style={C(`height:46px;flex:0 0 auto;display:${v.isMe ? "none" : "flex"};align-items:center;gap:14px;padding:0 18px;border-bottom:1px solid var(--line,#e9e9ef);background:var(--panel,#fff);position:relative;z-index:60;overflow-x:auto;overflow-y:hidden`)}>
+      <div style={C(`height:46px;flex:0 0 auto;display:${v.isMe ? "none" : "flex"};align-items:center;gap:14px;padding:0 18px;border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);position:relative;z-index:60;overflow-x:auto;overflow-y:hidden`)}>
         {v.showGranularity && (
           <>
-            <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Granularité</span>
-            <div style={C("display:flex;background:var(--panel2,#fafafc);border:1px solid var(--line,#e9e9ef);border-radius:8px;padding:2px;gap:2px")}>
+            <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c)")}>Granularité</span>
+            <div style={C("display:flex;background:var(--panel2,#fafafc);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-lg,9px);padding:2px;gap:2px")}>
               {v.levels.map((l) => (
                 <button key={l.label} onClick={l.onClick} style={C(l.style)}>{l.label}</button>
               ))}
@@ -2015,32 +2039,32 @@ export function GanttBoard() {
         {/* Bandeau Σ rétrécissable : de gros totaux ne poussent plus le reste de
             la barre hors écran — l'intervalle s'ellipse d'abord, tooltip complet. */}
         {v.isRelease && v.relMetrics && (
-          <div title={v.relMetrics.title} style={C("height:30px;display:flex;align-items:center;gap:8px;padding:0 11px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);flex:0 1 auto;min-width:0;overflow:hidden")}>
-            <span style={C("font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f);white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis")}>{v.relMetrics.rangeText}</span>
-            <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Capa</span>
+          <div title={v.relMetrics.title} style={C("height:30px;display:flex;align-items:center;gap:8px;padding:0 11px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);flex:0 1 auto;min-width:0;overflow:hidden")}>
+            <span style={C("font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--muted,#6b6b75);white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis")}>{v.relMetrics.rangeText}</span>
+            <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#71717c)")}>Capa</span>
             <span style={C(`font-size:12px;font-weight:600;font-family:${"'IBM Plex Mono',monospace"};color:var(--ink,#1a1a20)`)}>{v.relMetrics.capText}</span>
-            <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Effort</span>
+            <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#71717c)")}>Effort</span>
             <span style={C(`font-size:12px;font-weight:600;font-family:${"'IBM Plex Mono',monospace"};color:var(--ink,#1a1a20)`)}>{v.relMetrics.effortText}</span>
             <span style={C(v.relMetrics.deltaStyle)}>{v.relMetrics.deltaText}</span>
-            <span style={C("font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f)")}>{v.relMetrics.pctText}</span>
+            <span style={C("font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#6b6b75)")}>{v.relMetrics.pctText}</span>
           </div>
         )}
         <div style={{ flex: 1 }} />
-        <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Charge</span>
-        <select value={v.loadFieldValue} onChange={v.onLoadField} aria-label="Champ de charge" title="Champ utilisé pour les jauges de charge et le tri « Charge »" style={C("height:30px;padding:0 8px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
+        <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c)")}>Charge</span>
+        <select value={v.loadFieldValue} onChange={v.onLoadField} aria-label="Champ de charge" title="Champ utilisé pour les jauges de charge et le tri « Charge »" style={C("height:30px;padding:0 8px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
           {v.loadFieldOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         {v.loadWarning && <span title={v.loadWarningTitle} style={C("font-size:11px;font-weight:600;color:var(--color-pending-text,#8a5a00);white-space:nowrap;cursor:help")}>{v.loadWarning}</span>}
         {v.isRelease && (
           <>
-            <div style={C("width:1px;height:20px;background:var(--line,#e9e9ef)")} />
-            <button onClick={v.onAddMilestone} style={C("height:30px;padding:0 12px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px")}>◆ Jalon</button>
+            <div style={C("width:1px;height:20px;background:var(--line,#e8e8ee)")} />
+            <button onClick={v.onAddMilestone} style={C("height:30px;padding:0 12px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px")}>◆ Jalon</button>
           </>
         )}
         {/* Bouton du popover d'affichage, à droite comme le popover qu'il ouvre. */}
         {(v.isRelease || !v.isDaily) && (
           <>
-            <div style={C("width:1px;height:20px;background:var(--line,#e9e9ef)")} />
+            <div style={C("width:1px;height:20px;background:var(--line,#e8e8ee)")} />
             <button onClick={v.onRangeToggle} style={C(v.rangeBtnStyle)}>
               <span style={C("opacity:.7;display:flex")}>{v.isRelease ? <IconGear size={13} /> : <IconCalendar size={13} />}</span> {v.isRelease ? "Vue" : v.rangeLabel} <span style={C("opacity:.5;font-size:9px")}>▾</span>
             </button>
@@ -2052,19 +2076,19 @@ export function GanttBoard() {
       {v.rangeOpen && (
         <>
         <div onClick={() => setState({ rangeOpen: false })} style={C("position:fixed;inset:0;z-index:89")} />
-        <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label={v.range.isRelease ? "Réglages d'affichage" : "Intervalle d'itérations affiché"} style={C("position:absolute;top:104px;right:18px;width:340px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:15px 16px;animation:ggdrop .14s ease;outline:none")}>
+        <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label={v.range.isRelease ? "Réglages d'affichage" : "Intervalle d'itérations affiché"} style={C("position:absolute;top:104px;right:18px;width:340px;background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px);box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:15px 16px;animation:ggdrop .14s ease;outline:none")}>
           {v.range.showRange && (
             <>
-              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6);margin-bottom:11px")}>Intervalle d'itérations affiché</div>
+              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c);margin-bottom:11px")}>Intervalle d'itérations affiché</div>
               <div style={C("display:flex;flex-direction:column;gap:10px")}>
                 <div>
-                  <div style={C("font-size:11px;color:var(--muted,#86868f);margin-bottom:5px")}>De</div>
+                  <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>De</div>
                   <select value={v.range.from} onChange={v.range.onFrom} aria-label="Première itération affichée" style={C(v.selectCss)}>
                     {v.range.iterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
                 <div>
-                  <div style={C("font-size:11px;color:var(--muted,#86868f);margin-bottom:5px")}>À</div>
+                  <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>À</div>
                   <select value={v.range.to} onChange={v.range.onTo} aria-label="Dernière itération affichée" style={C(v.selectCss)}>
                     {v.range.iterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
@@ -2078,28 +2102,28 @@ export function GanttBoard() {
           )}
           {v.range.isRelease && (
             <>
-              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6);margin-bottom:11px")}>Affichage</div>
+              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c);margin-bottom:11px")}>Affichage</div>
               <div style={C("display:flex;flex-direction:column;gap:10px;margin-bottom:13px")}>
                 <div>
-                  <div style={C("font-size:11px;color:var(--muted,#86868f);margin-bottom:5px")}>Charge par</div>
+                  <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>Charge par</div>
                   <select value={v.loadByValue} onChange={v.onLoadBy} aria-label="Regroupement de la charge" style={C(v.selectCss)}>
                     {v.loadByOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
                 <div>
-                  <div style={C("font-size:11px;color:var(--muted,#86868f);margin-bottom:5px")}>Filtre epics</div>
+                  <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>Filtre epics</div>
                   <select value={v.epicFilter} onChange={v.onEpicFilter} aria-label="Filtre des epics" style={C(v.selectCss)}>
                     {v.epicFilterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
                 {v.relMetrics && (
                   <div>
-                    <div style={C("font-size:11px;color:var(--muted,#86868f);margin-bottom:5px")}>Intervalle des métriques</div>
+                    <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>Intervalle des métriques</div>
                     <div style={C("display:flex;align-items:center;gap:8px")}>
                       <select value={v.relMetrics.from} onChange={v.relMetrics.onFrom} aria-label="Début de l'intervalle des métriques" style={C(v.selectCss)}>
                         {v.relMetrics.options.map((o: { value: string; label: string }) => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
-                      <span style={C("font-size:11px;color:var(--faint,#abacb6);flex:0 0 auto")}>→</span>
+                      <span style={C("font-size:11px;color:var(--faint,#71717c);flex:0 0 auto")}>→</span>
                       <select value={v.relMetrics.to} onChange={v.relMetrics.onTo} aria-label="Fin de l'intervalle des métriques" style={C(v.selectCss)}>
                         {v.relMetrics.options.map((o: { value: string; label: string }) => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
@@ -2107,9 +2131,9 @@ export function GanttBoard() {
                   </div>
                 )}
               </div>
-              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6);margin-bottom:9px")}>Vue long terme</div>
-              <div style={C("font-size:12px;line-height:1.45;color:var(--muted,#86868f);margin-bottom:11px")}>Toutes les itérations sont affichées. Défilez horizontalement pour naviguer ; la vue démarre sur l'itération courante. Double-cliquez sur une ligne ou une barre pour poser un flag.</div>
-              <button onClick={v.range.onGoCurrent} style={C("width:100%;height:32px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer")}>Aller à l'itération courante</button>
+              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c);margin-bottom:9px")}>Vue long terme</div>
+              <div style={C("font-size:12px;line-height:1.45;color:var(--muted,#6b6b75);margin-bottom:11px")}>Toutes les itérations sont affichées. Défilez horizontalement pour naviguer ; la vue démarre sur l'itération courante. Double-cliquez sur une ligne ou une barre pour poser un flag.</div>
+              <button onClick={v.range.onGoCurrent} style={C("width:100%;height:32px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer")}>Aller à l'itération courante</button>
             </>
           )}
           <label style={C("display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;font-size:13px;color:var(--ink,#1a1a20)")}>
@@ -2117,7 +2141,7 @@ export function GanttBoard() {
             Masquer les tickets fermés
           </label>
           {v.range.hasPast && (
-            <button onClick={v.range.onReset} style={C("margin-top:10px;width:100%;height:32px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--muted,#86868f);font-size:12px;font-weight:500;cursor:pointer")}>Revenir à l'itération courante</button>
+            <button onClick={v.range.onReset} style={C("margin-top:10px;width:100%;height:32px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--muted,#6b6b75);font-size:12px;font-weight:500;cursor:pointer")}>Revenir à l'itération courante</button>
           )}
         </div>
         </>
@@ -2130,20 +2154,20 @@ export function GanttBoard() {
         <div onClick={() => { setAnnotAnchor(null); v.rowPinEditor!.onClose(); }} style={C("position:fixed;inset:0;z-index:91")} />
         <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label="Éditer le flag" style={C(annotEditorStyle + ";outline:none")}>
           <div style={C("display:flex;align-items:center;justify-content:space-between;margin-bottom:11px")}>
-            <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6)")}>⚑ Flag</span>
-            <button onClick={v.rowPinEditor.onClose} aria-label="Fermer" style={C("width:24px;height:24px;border-radius:6px;border:none;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;font-size:14px;line-height:1")}>✕</button>
+            <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c)")}>⚑ Flag</span>
+            <button onClick={v.rowPinEditor.onClose} aria-label="Fermer" style={C("width:24px;height:24px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:14px;line-height:1")}>✕</button>
           </div>
-          <div style={C("font-size:11px;color:var(--muted,#86868f);margin-bottom:5px")}>Libellé</div>
+          <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>Libellé</div>
           <input value={v.rowPinEditor.title} onChange={v.rowPinEditor.onTitle} style={C(v.inputCss)} />
-          <div style={C("font-size:11px;color:var(--muted,#86868f);margin:11px 0 5px")}>Sprint</div>
+          <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin:11px 0 5px")}>Sprint</div>
           <select value={v.rowPinEditor.iter} onChange={v.rowPinEditor.onIter} style={C(v.selectCss)}>
             {v.rowPinEditor.iterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <div style={C("font-size:11px;color:var(--muted,#86868f);margin:11px 0 6px")}>Couleur</div>
+          <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin:11px 0 6px")}>Couleur</div>
           <div style={C("display:flex;gap:8px")}>
-            {v.rowPinEditor.colors.map((c, i) => <div key={i} onClick={c.onClick} style={C(c.style)} />)}
+            {v.rowPinEditor.colors.map((c, i) => <button key={i} type="button" onClick={c.onClick} aria-label={c.label} aria-pressed={c.selected} style={C(c.style)} />)}
           </div>
-          <button onClick={v.rowPinEditor.onRemove} style={C("margin-top:14px;width:100%;height:32px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--color-error,#ef4444);font-size:12px;font-weight:500;cursor:pointer")}>Supprimer le flag</button>
+          <button onClick={v.rowPinEditor.onRemove} style={C("margin-top:14px;width:100%;height:32px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--color-error,#ef4444);font-size:12px;font-weight:500;cursor:pointer")}>Supprimer le flag</button>
         </div>
         </>
       )}
@@ -2154,20 +2178,20 @@ export function GanttBoard() {
         <div onClick={() => { setAnnotAnchor(null); v.milestoneEditor!.onClose(); }} style={C("position:fixed;inset:0;z-index:91")} />
         <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label="Éditer le jalon" style={C(annotEditorStyle + ";outline:none")}>
           <div style={C("display:flex;align-items:center;justify-content:space-between;margin-bottom:11px")}>
-            <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6)")}>◆ Jalon</span>
-            <button onClick={v.milestoneEditor.onClose} aria-label="Fermer" style={C("width:24px;height:24px;border-radius:6px;border:none;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;font-size:14px;line-height:1")}>✕</button>
+            <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c)")}>◆ Jalon</span>
+            <button onClick={v.milestoneEditor.onClose} aria-label="Fermer" style={C("width:24px;height:24px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:14px;line-height:1")}>✕</button>
           </div>
-          <div style={C("font-size:11px;color:var(--muted,#86868f);margin-bottom:5px")}>Titre</div>
+          <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>Titre</div>
           <input value={v.milestoneEditor.title} onChange={v.milestoneEditor.onTitle} style={C(v.inputCss)} />
-          <div style={C("font-size:11px;color:var(--muted,#86868f);margin:11px 0 5px")}>À partir de l'itération</div>
+          <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin:11px 0 5px")}>À partir de l'itération</div>
           <select value={v.milestoneEditor.iter} onChange={v.milestoneEditor.onIter} style={C(v.selectCss)}>
             {v.milestoneEditor.iterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <div style={C("font-size:11px;color:var(--muted,#86868f);margin:11px 0 6px")}>Couleur</div>
+          <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin:11px 0 6px")}>Couleur</div>
           <div style={C("display:flex;gap:8px")}>
-            {v.milestoneEditor.colors.map((c, i) => <div key={i} onClick={c.onClick} style={C(c.style)} />)}
+            {v.milestoneEditor.colors.map((c, i) => <button key={i} type="button" onClick={c.onClick} aria-label={c.label} aria-pressed={c.selected} style={C(c.style)} />)}
           </div>
-          <button onClick={v.milestoneEditor.onRemove} style={C("margin-top:14px;width:100%;height:32px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--color-error,#ef4444);font-size:12px;font-weight:500;cursor:pointer")}>Supprimer le jalon</button>
+          <button onClick={v.milestoneEditor.onRemove} style={C("margin-top:14px;width:100%;height:32px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--color-error,#ef4444);font-size:12px;font-weight:500;cursor:pointer")}>Supprimer le jalon</button>
         </div>
         </>
       )}
@@ -2184,7 +2208,7 @@ export function GanttBoard() {
 
       {/* Canvas */}
       {!v.isMe && (
-      <div ref={v.onScrollRef} onPointerDown={onPanDown} onPointerMove={onPanMove} onPointerUp={onPanEnd} onPointerCancel={onPanEnd} onClickCapture={onPanClickCapture} style={C("flex:1;position:relative;overflow:auto;background:var(--canvas,#f6f6f8);cursor:grab")}>
+      <div ref={v.onScrollRef} onPointerDown={onPanDown} onPointerMove={onPanMove} onPointerUp={onPanEnd} onPointerCancel={onPanEnd} onClickCapture={onPanClickCapture} style={C("flex:1;position:relative;overflow:auto;background:var(--canvas,#f4f4f7);cursor:grab")}>
         <div ref={v.onCanvasRef} onClick={v.onBgClick} onPointerMove={emitCursor} style={C(`position:relative;width:${v.totalWidth}px;height:${v.totalHeight}px;min-height:100%`)}>
           {v.columns.map((col, i) => <div key={"bg" + i} style={C(col.bgStyle)} />)}
           {v.emptyAreaStyle && <div style={C(v.emptyAreaStyle)} />}
@@ -2212,13 +2236,13 @@ export function GanttBoard() {
                     <div style={C("flex:1;min-width:0")}>
                       <div title={row.name} style={C("font-size:12px;font-weight:600;line-height:1.25;color:var(--ink,#1a1a20);overflow-wrap:anywhere")}>{row.name}</div>
                       <div style={C("display:flex;align-items:center;gap:5px;min-width:0")}>
-                        <span title={row.subTitle} style={C("font-size:10px;color:var(--muted,#86868f);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:'IBM Plex Mono',monospace;min-width:0")}>{row.sub}</span>
-                        {row.prio && <span style={C("font-size:10px;font-weight:600;padding:1px 5px;border-radius:5px;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);flex:0 0 auto;font-family:'IBM Plex Mono',monospace")}>{row.prio}</span>}
+                        <span title={row.subTitle} style={C("font-size:10px;color:var(--muted,#6b6b75);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:'IBM Plex Mono',monospace;min-width:0")}>{row.sub}</span>
+                        {row.prio && <span style={C("font-size:10px;font-weight:600;padding:1px 5px;border-radius:var(--r-sm,5px);background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);flex:0 0 auto;font-family:'IBM Plex Mono',monospace")}>{row.prio}</span>}
                         <span title={row.statusTitle} style={C(row.statusStyle)}>{row.statusTag}</span>
-                        {row.stat && <span title={row.statTitle} style={C("font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f);flex:0 0 auto")}>{row.stat}</span>}
+                        {row.stat && <span title={row.statTitle} style={C("font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#6b6b75);flex:0 0 auto")}>{row.stat}</span>}
                       </div>
                     </div>
-                    <button onClick={row.onToggleHidden} title={row.hideTitle} aria-label={row.hideTitle} style={C("margin-left:auto;flex:0 0 auto;border:none;background:transparent;color:var(--muted,#86868f);cursor:pointer;line-height:1;padding:2px;opacity:.7")}>{row.hidden ? <IconEyeOff size={13} /> : <IconEye size={13} />}</button>
+                    <button onClick={row.onToggleHidden} title={row.hideTitle} aria-label={row.hideTitle} style={C("margin-left:auto;flex:0 0 auto;border:none;background:transparent;color:var(--muted,#6b6b75);cursor:pointer;line-height:1;padding:2px;opacity:.7")}>{row.hidden ? <IconEyeOff size={13} /> : <IconEye size={13} />}</button>
                   </>
                 )}
                 <span style={C(row.adoStyle)}>{row.ado}</span>
@@ -2241,10 +2265,10 @@ export function GanttBoard() {
                 <div style={C(row.avatarStyle)}>{row.initials}</div>
                 <div style={C("line-height:1.25;min-width:0")}>
                   <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{row.name}</div>
-                  <div style={C("font-size:11px;color:var(--muted,#86868f)")}>{row.role}</div>
+                  <div style={C("font-size:11px;color:var(--muted,#6b6b75)")}>{row.role}</div>
                   {row.loadShow && (
                     <div title={row.loadTitle} style={C("display:flex;align-items:center;gap:6px;margin-top:5px")}>
-                      <div style={C("width:46px;height:5px;border-radius:3px;background:var(--line2,#f0f0f4);position:relative;overflow:hidden;flex:0 0 auto")}><div style={C(row.loadFillStyle)} /></div>
+                      <div style={C("width:46px;height:5px;border-radius:3px;background:var(--line2,#f1f1f5);position:relative;overflow:hidden;flex:0 0 auto")}><div style={C(row.loadFillStyle)} /></div>
                       <span style={C(row.loadTextStyle)}>{row.loadText}</span>
                     </div>
                   )}
@@ -2261,8 +2285,8 @@ export function GanttBoard() {
                   <span style={C(`font-size:13px;font-weight:600;color:${col.titleColor};letter-spacing:-.01em`)}>{col.label}</span>
                   <span style={C(col.tagStyle)}>{col.tag}</span>
                 </div>
-                <div style={C("font-size:11px;color:var(--muted,#86868f);font-family:'IBM Plex Mono',monospace;margin-top:5px")}>{col.dates}</div>
-                <div style={C("font-size:11px;color:var(--faint,#aeaeb8);margin-top:2px")}>{col.sub}</div>
+                <div style={C("font-size:11px;color:var(--muted,#6b6b75);font-family:'IBM Plex Mono',monospace;margin-top:5px")}>{col.dates}</div>
+                <div style={C("font-size:11px;color:var(--faint,#71717c);margin-top:2px")}>{col.sub}</div>
               </div>
             ))}
             {(v.loadBand as Record<string, any>[]).map((b, i) => (
@@ -2283,11 +2307,11 @@ export function GanttBoard() {
 
           <div style={C("position:sticky;top:0;left:0;width:0;height:0;z-index:48")}>
             <div style={C(v.leftHeaderStyle)}>
-              <div style={C("font-size:10px;font-weight:600;letter-spacing:.08em;color:var(--faint,#aeaeb8);text-transform:uppercase")}>{v.leftKicker}</div>
+              <div style={C("font-size:10px;font-weight:600;letter-spacing:.08em;color:var(--faint,#71717c);text-transform:uppercase")}>{v.leftKicker}</div>
               <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20);margin-top:3px")}>{v.leftTitle}</div>
               {v.showSort && (
                 <div style={C("display:flex;align-items:center;gap:6px;margin-top:8px")}>
-                  <select value={v.sortValue} onChange={v.onSort} aria-label="Tri des personnes" style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:6px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
+                  <select value={v.sortValue} onChange={v.onSort} aria-label="Tri des personnes" style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
                     {v.sortOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                   <button onClick={v.onShuffle} aria-label="Tri aléatoire" title="Tri aléatoire (relance à chaque clic)" style={C(v.shuffleStyle)}>↻</button>
@@ -2295,8 +2319,8 @@ export function GanttBoard() {
               )}
               {v.isRelease && (
                 <div style={C("display:flex;align-items:center;gap:6px;margin-top:9px")}>
-                  <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#abacb6);flex:0 0 auto")}>Trier</span>
-                  <select value={v.epicSort} onChange={v.onEpicSort} aria-label="Tri des epics" style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:6px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
+                  <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#71717c);flex:0 0 auto")}>Trier</span>
+                  <select value={v.epicSort} onChange={v.onEpicSort} aria-label="Tri des epics" style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
                     {v.epicSortOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
@@ -2309,8 +2333,8 @@ export function GanttBoard() {
               aria-label="Modifier la capacité"
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); b.onClick(e as unknown as React.MouseEvent); } }}
               title={b.title}>
-              <span style={C("font-size:10px;color:var(--faint,#abacb6);font-weight:500;flex:0 0 auto")}>charge</span>
-              <div style={C("flex:1;height:5px;border-radius:3px;background:var(--line2,#f0f0f4);overflow:hidden;position:relative")}>
+              <span style={C("font-size:10px;color:var(--faint,#71717c);font-weight:500;flex:0 0 auto")}>charge</span>
+              <div style={C("flex:1;height:5px;border-radius:3px;background:var(--line2,#f1f1f5);overflow:hidden;position:relative")}>
                 <div style={C(b.fillStyle)} />
               </div>
               {b.editing ? (
@@ -2327,7 +2351,7 @@ export function GanttBoard() {
                     if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                     else if (e.key === "Escape") setCapEdit(null);
                   }}
-                  style={C(`width:52px;height:18px;font-size:10px;font-family:${mono};border:1px solid var(--accent,#5b5bd6);border-radius:4px;padding:0 4px;background:var(--panel,#fff);color:var(--ink,#1a1a20);flex:0 0 auto;outline:none;box-sizing:border-box`)}
+                  style={C(`width:52px;height:18px;font-size:10px;font-family:${mono};border:1px solid var(--accent,#5b5bd6);border-radius:var(--r-sm,5px);padding:0 4px;background:var(--panel,#fff);color:var(--ink,#1a1a20);flex:0 0 auto;outline:none;box-sizing:border-box`)}
                 />
               ) : (
                 <>
@@ -2348,7 +2372,7 @@ export function GanttBoard() {
                 <span style={C(`font-size:11px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:${bar.accent}`)}>{bar.ado}</span>
                 <span style={C(bar.badgeStyle)}>{bar.typeLabel}</span>
                 <div style={{ flex: 1 }} />
-                {bar.showPoints && <span style={C("font-size:11px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f);background:var(--line2,#f0f0f4);padding:1px 6px;border-radius:5px")}>{bar.points}</span>}
+                {bar.showPoints && <span style={C("font-size:11px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#6b6b75);background:var(--line2,#f1f1f5);padding:1px 6px;border-radius:var(--r-sm,5px)")}>{bar.points}</span>}
               </div>
               <div style={C("font-size:13px;font-weight:500;line-height:1.25;color:var(--ink,#1a1a20);overflow-wrap:anywhere")}>{bar.title}</div>
               {bar.showFooter && (
@@ -2356,10 +2380,10 @@ export function GanttBoard() {
                   <div style={C(bar.epicDotStyle)} />
                   <span title={bar.epicName} style={C(bar.epicLabelStyle)}>{bar.epicName}</span>
                   <div style={C("flex:1;min-width:6px")} />
-                  <span title={bar.area} style={C("font-size:10px;color:var(--muted,#86868f);font-family:'IBM Plex Mono',monospace;flex:0 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:3px")}><span style={C("opacity:.7")}>▤</span>{bar.areaLeaf}</span>
+                  <span title={bar.area} style={C("font-size:10px;color:var(--muted,#6b6b75);font-family:'IBM Plex Mono',monospace;flex:0 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:3px")}><span style={C("opacity:.7")}>▤</span>{bar.areaLeaf}</span>
                 </div>
               )}
-              <div style={C("position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--line2,#f0f0f4)")}>
+              <div style={C("position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--line2,#f1f1f5)")}>
                 <div style={C(bar.progressStyle)} />
               </div>
               {bar.editing && <div style={C(bar.editPillStyle)}>{bar.editInitials}</div>}
@@ -2388,14 +2412,18 @@ export function GanttBoard() {
           {(v.relRowPins as Record<string, any>[]).map((p, i) => (
             <div key={"rp" + i}>
               <div style={C(p.lineStyle)} />
-              <div onClick={p.onClick} style={C(p.flagStyle)}>⚑ {p.title}</div>
+              <div onClick={p.onClick} role="button" tabIndex={0} aria-label={p.label}
+                onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); p.onClick(); } }}
+                style={C(p.flagStyle)}>⚑ {p.title}</div>
             </div>
           ))}
 
           {(v.milestones as Record<string, any>[]).map((m, i) => (
             <div key={"ms" + i}>
               <div style={C(m.lineStyle)} />
-              <div onClick={m.onClick} style={C(m.flagStyle)}>◆ {m.title}</div>
+              <div onClick={m.onClick} role="button" tabIndex={0} aria-label={m.label}
+                onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); m.onClick(); } }}
+                style={C(m.flagStyle)}>◆ {m.title}</div>
             </div>
           ))}
 
@@ -2407,7 +2435,7 @@ export function GanttBoard() {
                 <span style={C(c.adoStyle)}>{c.ado}</span>
                 <span style={C(c.badgeStyle)}>{c.badge}</span>
                 <div style={C("flex:1;min-width:4px")} />
-                {c.showPoints && <span style={C("font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#86868f)")}>{c.points}</span>}
+                {c.showPoints && <span style={C("font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#6b6b75)")}>{c.points}</span>}
               </div>
               <div style={C("display:flex;align-items:flex-start;gap:5px;min-width:0")}>
                 <div style={C(c.dotStyle)} />
@@ -2431,7 +2459,7 @@ export function GanttBoard() {
               <svg width="20" height="22" viewBox="0 0 20 22" fill="none" style={{ display: "block", filter: "drop-shadow(0 1px 2px rgba(0,0,0,.25))" }}>
                 <path d="M2 2 L2 16 L6 12.5 L9 19 L12 17.7 L9 11.3 L14.5 11 Z" fill={p.color} stroke="#fff" strokeWidth="1.3" strokeLinejoin="round" />
               </svg>
-              <div style={C(`margin:-3px 0 0 13px;background:${p.color};color:#fff;font-size:11px;font-weight:600;padding:2px 7px;border-radius:9px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.25)`)}>{p.displayName}</div>
+              <div style={C(`margin:-3px 0 0 13px;background:${p.color};color:${M.onColor(p.color)};font-size:11px;font-weight:600;padding:2px 7px;border-radius:var(--r-lg,9px);white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.25)`)}>{p.displayName}</div>
             </div>
           ))}
         </div>
@@ -2440,18 +2468,18 @@ export function GanttBoard() {
 
       {/* Inspector */}
       {v.selected && v.insp && (
-        <div onClick={v.insp.onPanelClick} style={C(`position:absolute;right:0;top:${v.isMe ? 54 : 100}px;bottom:0;width:330px;background:var(--panel,#fff);border-left:1px solid var(--line,#e9e9ef);z-index:65;box-shadow:-8px 0 26px rgba(20,20,40,.07);display:flex;flex-direction:column;animation:ggpop .16s ease`)}>
-          <div style={C("padding:16px 18px 13px;border-bottom:1px solid var(--line2,#f0f0f4)")}>
+        <div onClick={v.insp.onPanelClick} style={C(`position:absolute;right:0;top:${v.isMe ? 54 : 100}px;bottom:0;width:330px;background:var(--panel,#fff);border-left:1px solid var(--line,#e8e8ee);z-index:65;box-shadow:-8px 0 26px rgba(20,20,40,.07);display:flex;flex-direction:column;animation:ggpop .16s ease`)}>
+          <div style={C("padding:16px 18px 13px;border-bottom:1px solid var(--line2,#f1f1f5)")}>
             <div style={C("display:flex;align-items:center;gap:8px")}>
               <span style={C(`font-size:12px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:${v.insp.accent}`)}>{v.insp.ado}</span>
               <span style={C(v.insp.badgeStyle)}>{v.insp.typeLabel}</span>
               <div style={{ flex: 1 }} />
-              <button onClick={v.insp.onPrefsToggle} title="Personnaliser les champs affichés" aria-label="Personnaliser les champs affichés" style={C(`width:26px;height:26px;border-radius:6px;border:none;background:${v.insp.prefsOpen ? "var(--accentsoft,#ececfb)" : "var(--line2,#f0f0f4)"};color:${v.insp.prefsOpen ? "var(--accent,#5b5bd6)" : "var(--muted,#86868f)"};cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center`)}><IconGear size={13} /></button>
+              <button onClick={v.insp.onPrefsToggle} title="Personnaliser les champs affichés" aria-label="Personnaliser les champs affichés" style={C(`width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:${v.insp.prefsOpen ? "var(--accentsoft,#ececfb)" : "var(--line2,#f1f1f5)"};color:${v.insp.prefsOpen ? "var(--accent,#5b5bd6)" : "var(--muted,#6b6b75)"};cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center`)}><IconGear size={13} /></button>
               {v.insp.adoHref && (
-                <a href={v.insp.adoHref} target="_blank" rel="noreferrer" title="Ouvrir dans Azure DevOps" aria-label="Ouvrir dans Azure DevOps" style={C("width:26px;height:26px;border-radius:6px;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;text-decoration:none")}>↗</a>
+                <a href={v.insp.adoHref} target="_blank" rel="noreferrer" title="Ouvrir dans Azure DevOps" aria-label="Ouvrir dans Azure DevOps" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;text-decoration:none")}>↗</a>
               )}
-              <button onClick={v.insp.onDup} title={`Dupliquer (${modLabel}D)`} aria-label="Dupliquer" style={C("width:26px;height:26px;border-radius:6px;border:none;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center")}><IconCopy size={13} /></button>
-              <button onClick={v.insp.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:6px;border:none;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;font-size:15px;line-height:1")}>✕</button>
+              <button onClick={v.insp.onDup} title={`Dupliquer (${modLabel}D)`} aria-label="Dupliquer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center")}><IconCopy size={13} /></button>
+              <button onClick={v.insp.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1")}>✕</button>
             </div>
             <textarea key={"title" + v.insp.ado + ":" + v.insp.title} aria-label="Titre du ticket" defaultValue={v.insp.title} onBlur={v.insp.onTitle}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); } }}
@@ -2460,7 +2488,7 @@ export function GanttBoard() {
               <div style={C("margin-top:6px;display:flex;flex-direction:column;gap:2px")}>
                 {v.insp.parents.map((p) => (
                   <button key={p.id} onClick={p.onClick} title={`${p.typeLabel} — ouvrir son panneau`}
-                    style={C(`margin-left:${p.indent}px;border:none;background:transparent;padding:0;text-align:left;font-size:11px;color:var(--muted,#86868f);cursor:pointer;display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis`)}>
+                    style={C(`margin-left:${p.indent}px;border:none;background:transparent;padding:0;text-align:left;font-size:11px;color:var(--muted,#6b6b75);cursor:pointer;display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis`)}>
                     <span style={C("flex:0 0 auto")}>↳</span>
                     <span style={C("overflow:hidden;text-overflow:ellipsis")}>{p.label}</span>
                   </button>
@@ -2470,9 +2498,9 @@ export function GanttBoard() {
           </div>
           {/* Popover personnalisation des champs — réglage par type de work item */}
           {v.insp.prefsOpen && (
-            <div onClick={v.stop} ref={focusPopover} tabIndex={-1} style={C("position:absolute;top:46px;left:12px;right:12px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:20;padding:14px 16px;animation:ggdrop .14s ease;max-height:72%;overflow:auto;outline:none")}>
-              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Champs affichés — {v.insp.wit}</div>
-              <div style={C("font-size:11px;line-height:1.4;color:var(--muted,#86868f);margin:4px 0 9px")}>S'applique à tous les tickets « {v.insp.wit} ».</div>
+            <div onClick={v.stop} ref={focusPopover} tabIndex={-1} style={C("position:absolute;top:46px;left:12px;right:12px;background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px);box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:20;padding:14px 16px;animation:ggdrop .14s ease;max-height:72%;overflow:auto;outline:none")}>
+              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c)")}>Champs affichés — {v.insp.wit}</div>
+              <div style={C("font-size:11px;line-height:1.4;color:var(--muted,#6b6b75);margin:4px 0 9px")}>S'applique à tous les tickets « {v.insp.wit} ».</div>
               {v.insp.prefFields.map((f) => (
                 <label key={f.label} style={C(`display:flex;align-items:center;gap:9px;padding:4px 0;cursor:pointer;font-size:13px;font-family:${sans};color:var(--ink,#1a1a20)`)}>
                   <input type="checkbox" checked={f.checked} onChange={f.onToggle} style={C("width:15px;height:15px;accent-color:var(--accent,#5b5bd6);cursor:pointer")} />
@@ -2481,11 +2509,11 @@ export function GanttBoard() {
               ))}
               {v.insp.extraFields.length > 0 && (
                 <>
-                  <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6);margin:13px 0 5px")}>Champs supplémentaires</div>
+                  <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c);margin:13px 0 5px")}>Champs supplémentaires</div>
                   {v.insp.extraFields.map((f) => (
                     <div key={f.ref} title={f.ref} style={C(`display:flex;align-items:center;justify-content:space-between;gap:8px;padding:3px 0;font-size:13px;font-family:${sans};color:var(--ink,#1a1a20)`)}>
                       <span style={C("white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{f.label}</span>
-                      <button onClick={f.onRemove} title="Retirer ce champ" aria-label={`Retirer le champ ${f.label}`} style={C("border:none;background:none;color:var(--faint,#aeaeb8);cursor:pointer;font-size:14px;line-height:1;padding:0")}>×</button>
+                      <button onClick={f.onRemove} title="Retirer ce champ" aria-label={`Retirer le champ ${f.label}`} style={C("border:none;background:none;color:var(--faint,#71717c);cursor:pointer;font-size:14px;line-height:1;padding:0")}>×</button>
                     </div>
                   ))}
                 </>
@@ -2494,22 +2522,22 @@ export function GanttBoard() {
                 <div style={C("margin-top:12px")}>
                   <input autoFocus value={v.insp.picker.q} onChange={v.insp.picker.onQ} placeholder="Rechercher un champ ADO…" style={C(v.inputCss)} />
                   {v.insp.picker.loading ? (
-                    <div style={C("font-size:12px;color:var(--muted,#86868f);padding:9px 2px")}>Chargement des champs ADO…</div>
+                    <div style={C("font-size:12px;color:var(--muted,#6b6b75);padding:9px 2px")}>Chargement des champs ADO…</div>
                   ) : v.insp.picker.options.length === 0 ? (
-                    <div style={C("font-size:12px;color:var(--muted,#86868f);padding:9px 2px")}>Aucun champ disponible</div>
+                    <div style={C("font-size:12px;color:var(--muted,#6b6b75);padding:9px 2px")}>Aucun champ disponible</div>
                   ) : (
                     <div style={C("max-height:170px;overflow:auto;margin-top:6px")}>
                       {v.insp.picker.options.map((o) => (
-                        <button key={o.ref} onClick={o.onPick} title={o.ref} style={C("display:block;width:100%;text-align:left;border:none;background:none;padding:6px 4px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--ink,#1a1a20)")}>
+                        <button key={o.ref} onClick={o.onPick} title={o.ref} style={C("display:block;width:100%;text-align:left;border:none;background:none;padding:6px 4px;border-radius:var(--r-md,7px);cursor:pointer;font-size:13px;color:var(--ink,#1a1a20)")}>
                           {o.label}
                         </button>
                       ))}
                     </div>
                   )}
-                  <button onClick={v.insp.picker.onClose} style={C("margin-top:8px;width:100%;height:28px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fbfbfd);color:var(--muted,#86868f);font-size:11px;font-weight:500;cursor:pointer")}>Annuler</button>
+                  <button onClick={v.insp.picker.onClose} style={C("margin-top:8px;width:100%;height:28px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--muted,#6b6b75);font-size:11px;font-weight:500;cursor:pointer")}>Annuler</button>
                 </div>
               ) : (
-                <button onClick={v.insp.onAddField} style={C("margin-top:12px;width:100%;height:32px;border-radius:7px;border:1px dashed var(--line,#e9e9ef);background:transparent;color:var(--accent,#5b5bd6);font-size:12px;font-weight:500;cursor:pointer")}>+ Ajouter un champ supplémentaire</button>
+                <button onClick={v.insp.onAddField} style={C("margin-top:12px;width:100%;height:32px;border-radius:var(--r-md,7px);border:1px dashed var(--line,#e8e8ee);background:transparent;color:var(--accent,#5b5bd6);font-size:12px;font-weight:500;cursor:pointer")}>+ Ajouter un champ supplémentaire</button>
               )}
             </div>
           )}
@@ -2599,52 +2627,52 @@ export function GanttBoard() {
               </div>
             ))}
           </div>
-          <div style={C("padding:12px 18px;border-top:1px solid var(--line2,#f0f0f4);display:flex;align-items:center;gap:8px")}>
+          <div style={C("padding:12px 18px;border-top:1px solid var(--line2,#f1f1f5);display:flex;align-items:center;gap:8px")}>
             <div style={C(v.insp.footDotStyle)} />
-            <span style={C("font-size:11px;color:var(--muted,#86868f)")}>{v.insp.footLabel}</span>
+            <span style={C("font-size:11px;color:var(--muted,#6b6b75)")}>{v.insp.footLabel}</span>
           </div>
         </div>
       )}
 
       {/* Panneau personne — capacités par itération */}
       {v.personPanel && (
-        <div style={C("position:absolute;right:0;top:100px;bottom:0;width:330px;background:var(--panel,#fff);border-left:1px solid var(--line,#e9e9ef);z-index:65;box-shadow:-8px 0 26px rgba(20,20,40,.07);display:flex;flex-direction:column;animation:ggpop .16s ease")}>
-          <div style={C("padding:16px 18px 12px;border-bottom:1px solid var(--line2,#f0f0f4);display:flex;align-items:center;gap:11px")}>
+        <div style={C("position:absolute;right:0;top:100px;bottom:0;width:330px;background:var(--panel,#fff);border-left:1px solid var(--line,#e8e8ee);z-index:65;box-shadow:-8px 0 26px rgba(20,20,40,.07);display:flex;flex-direction:column;animation:ggpop .16s ease")}>
+          <div style={C("padding:16px 18px 12px;border-bottom:1px solid var(--line2,#f1f1f5);display:flex;align-items:center;gap:11px")}>
             <div style={C(v.personPanel.avatarStyle)}>{v.personPanel.initials}</div>
             <div style={C("min-width:0;flex:1")}>
               <div style={C("font-size:14px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{v.personPanel.name}</div>
-              {v.personPanel.poste && <div style={C("font-size:11px;color:var(--muted,#86868f)")}>{v.personPanel.poste}</div>}
+              {v.personPanel.poste && <div style={C("font-size:11px;color:var(--muted,#6b6b75)")}>{v.personPanel.poste}</div>}
             </div>
-            <button onClick={v.personPanel.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:6px;border:none;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;font-size:15px;line-height:1;flex:0 0 auto")}>✕</button>
+            <button onClick={v.personPanel.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1;flex:0 0 auto")}>✕</button>
           </div>
-          <div style={C("padding:14px 18px;border-bottom:1px solid var(--line2,#f0f0f4);display:flex;flex-direction:column;gap:11px")}>
+          <div style={C("padding:14px 18px;border-bottom:1px solid var(--line2,#f1f1f5);display:flex;flex-direction:column;gap:11px")}>
             <div>
               <div style={C(v.labelCss)}>Poste</div>
               <input type="text" key={"poste:" + v.personPanel.name + ":" + (v.personPanel.poste || "")}
                 defaultValue={v.personPanel.poste || ""} placeholder="—" onBlur={v.personPanel.onCommitPoste}
                 onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                style={C("width:100%;height:34px;padding:0 10px;border-radius:8px;border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:13px;outline:none;box-sizing:border-box")} />
+                style={C("width:100%;height:34px;padding:0 10px;border-radius:var(--r-lg,9px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:13px;outline:none;box-sizing:border-box")} />
             </div>
             <div>
               <div style={C(v.labelCss)}>Rôle</div>
               <input type="text" key={"role:" + v.personPanel.name + ":" + (v.personPanel.teamRole || "")}
                 defaultValue={v.personPanel.teamRole || ""} placeholder="—" onBlur={v.personPanel.onCommitRole}
                 onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                style={C("width:100%;height:34px;padding:0 10px;border-radius:8px;border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:13px;outline:none;box-sizing:border-box")} />
+                style={C("width:100%;height:34px;padding:0 10px;border-radius:var(--r-lg,9px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:13px;outline:none;box-sizing:border-box")} />
             </div>
           </div>
           <div style={C("flex:1;overflow-y:auto;padding:14px 18px")}>
             <div style={C(v.labelCss)}>Capacité par itération</div>
             {v.personPanel.rows.map((r) => (
-              <div key={r.key} style={C("display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--line2,#f0f0f4)")}>
+              <div key={r.key} style={C("display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--line2,#f1f1f5)")}>
                 <div style={C("flex:1;min-width:0")}>
                   <div style={C(`font-size:13px;font-weight:${r.current ? 600 : 500};color:${r.current ? "var(--accent,#5b5bd6)" : "var(--ink,#1a1a20)"};white-space:nowrap;overflow:hidden;text-overflow:ellipsis`)}>{r.label}</div>
-                  <div style={C(`font-size:10px;color:var(--faint,#abacb6);font-family:${mono}`)}>{r.dates}</div>
+                  <div style={C(`font-size:10px;color:var(--faint,#71717c);font-family:${mono}`)}>{r.dates}</div>
                 </div>
-                <span title="Charge planifiée" style={C(`font-size:11px;color:var(--muted,#86868f);font-family:${mono};flex:0 0 auto`)}>{r.usedText}</span>
+                <span title="Charge planifiée" style={C(`font-size:11px;color:var(--muted,#6b6b75);font-family:${mono};flex:0 0 auto`)}>{r.usedText}</span>
                 <input type="text" inputMode="decimal" key={"cap" + r.key + ":" + r.cap} defaultValue={String(r.cap)}
                   onBlur={r.onCommit} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                  style={C(`width:52px;height:30px;text-align:center;border:1px solid var(--line,#e8e8ee);border-radius:7px;background:var(--panel2,#fafafc);font-size:13px;font-weight:600;font-family:${mono};color:var(--ink,#1a1a20);outline:none;flex:0 0 auto;box-sizing:border-box`)} />
+                  style={C(`width:52px;height:30px;text-align:center;border:1px solid var(--line,#e8e8ee);border-radius:var(--r-md,7px);background:var(--panel2,#fafafc);font-size:13px;font-weight:600;font-family:${mono};color:var(--ink,#1a1a20);outline:none;flex:0 0 auto;box-sizing:border-box`)} />
                 <span style={C(r.pctStyle)}>{r.pctText}</span>
               </div>
             ))}
@@ -2656,22 +2684,22 @@ export function GanttBoard() {
       {v.capMatrix && (
         <>
           <div onClick={v.capMatrix.onClose} style={C("position:absolute;inset:0;z-index:84;background:rgba(20,20,40,.25)")} />
-          <div onClick={v.stop} ref={focusPopover} tabIndex={-1} style={C("position:absolute;left:50%;top:76px;transform:translateX(-50%);max-width:calc(100% - 56px);max-height:calc(100% - 132px);background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:12px;box-shadow:0 18px 50px rgba(20,20,40,.22);z-index:85;display:flex;flex-direction:column;animation:ggpop .16s ease;outline:none")}>
-            <div style={C("padding:14px 18px 12px;border-bottom:1px solid var(--line2,#f0f0f4);display:flex;align-items:center;gap:12px;flex:0 0 auto")}>
+          <div onClick={v.stop} ref={focusPopover} tabIndex={-1} style={C("position:absolute;left:50%;top:76px;transform:translateX(-50%);max-width:calc(100% - 56px);max-height:calc(100% - 132px);background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px);box-shadow:0 18px 50px rgba(20,20,40,.22);z-index:85;display:flex;flex-direction:column;animation:ggpop .16s ease;outline:none")}>
+            <div style={C("padding:14px 18px 12px;border-bottom:1px solid var(--line2,#f1f1f5);display:flex;align-items:center;gap:12px;flex:0 0 auto")}>
               <div style={C("font-size:14px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap")}>Matrice de capacité</div>
-              <div style={C("font-size:11px;color:var(--muted,#86868f);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>capacité en jours ouvrés par membre et par itération · Tab pour passer à la cellule suivante · collage d'une plage Excel pris en charge</div>
+              <div style={C("font-size:11px;color:var(--muted,#6b6b75);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>capacité en jours ouvrés par membre et par itération · Tab pour passer à la cellule suivante · collage d'une plage Excel pris en charge</div>
               <div style={{ flex: 1 }} />
-              <button onClick={v.capMatrix.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:6px;border:none;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;font-size:15px;line-height:1;flex:0 0 auto")}>✕</button>
+              <button onClick={v.capMatrix.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1;flex:0 0 auto")}>✕</button>
             </div>
             <div style={C("overflow:auto;flex:1 1 auto")}>
               <table style={{ borderCollapse: "separate", borderSpacing: 0 }}>
                 <thead>
                   <tr>
-                    <th style={C("position:sticky;left:0;top:0;z-index:3;background:var(--panel,#fff);border-bottom:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line2,#f0f0f4);padding:10px 14px;text-align:left;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Membre</th>
+                    <th style={C("position:sticky;left:0;top:0;z-index:3;background:var(--panel,#fff);border-bottom:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line2,#f1f1f5);padding:10px 14px;text-align:left;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c)")}>Membre</th>
                     {v.capMatrix.cols.map((c) => (
                       <th key={c.key} style={C(`position:sticky;top:0;z-index:2;background:var(--panel,#fff);border-bottom:1px solid var(--line,#e8e8ee);padding:10px 12px;text-align:center;min-width:96px${c.current ? ";box-shadow:inset 0 -2px 0 var(--accent,#5b5bd6)" : ""}`)}>
                         <div style={C(`font-size:12px;font-weight:600;color:${c.current ? "var(--accent,#5b5bd6)" : "var(--ink,#1a1a20)"};white-space:nowrap`)}>{c.label}</div>
-                        <div style={C(`font-size:10px;font-weight:400;color:var(--faint,#abacb6);font-family:${mono};white-space:nowrap`)}>{c.dates}</div>
+                        <div style={C(`font-size:10px;font-weight:400;color:var(--faint,#71717c);font-family:${mono};white-space:nowrap`)}>{c.dates}</div>
                       </th>
                     ))}
                   </tr>
@@ -2679,28 +2707,28 @@ export function GanttBoard() {
                 <tbody>
                   {v.capMatrix.rows.map((r) => (
                     <tr key={r.key}>
-                      <td style={C("position:sticky;left:0;z-index:1;background:var(--panel,#fff);border-bottom:1px solid var(--line2,#f0f0f4);border-right:1px solid var(--line2,#f0f0f4);padding:7px 14px")}>
+                      <td style={C("position:sticky;left:0;z-index:1;background:var(--panel,#fff);border-bottom:1px solid var(--line2,#f1f1f5);border-right:1px solid var(--line2,#f1f1f5);padding:7px 14px")}>
                         <div style={C("display:flex;align-items:center;gap:9px")}>
                           <div style={C(r.avatarStyle)}>{r.initials}</div>
                           <div style={C("min-width:0")}>
                             <div style={C("font-size:13px;font-weight:500;color:var(--ink,#1a1a20);white-space:nowrap")}>{r.name}</div>
-                            {r.poste && <div style={C("font-size:10px;color:var(--muted,#86868f);white-space:nowrap")}>{r.poste}</div>}
+                            {r.poste && <div style={C("font-size:10px;color:var(--muted,#6b6b75);white-space:nowrap")}>{r.poste}</div>}
                           </div>
                         </div>
                       </td>
                       {r.cells.map((cell) => (
-                        <td key={cell.key} title={cell.title} style={C("border-bottom:1px solid var(--line2,#f0f0f4);padding:7px 12px;text-align:center;vertical-align:middle")}>
+                        <td key={cell.key} title={cell.title} style={C("border-bottom:1px solid var(--line2,#f1f1f5);padding:7px 12px;text-align:center;vertical-align:middle")}>
                           <input type="text" inputMode="decimal" key={"mcap" + r.key + ":" + cell.key + ":" + cell.cap} defaultValue={String(cell.cap)}
                             aria-label={`Capacité de ${r.name} — ${v.capMatrix!.cols.find((c) => c.key === cell.key)?.label}`}
                             onBlur={cell.onCommit} onPaste={cell.onPaste} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} onFocus={(e) => e.target.select()}
-                            style={C(`width:52px;height:30px;text-align:center;border:1px solid var(--line,#e8e8ee);border-radius:7px;background:var(--panel2,#fafafc);font-size:13px;font-weight:600;font-family:${mono};color:var(--ink,#1a1a20);outline:none;box-sizing:border-box`)} />
+                            style={C(`width:52px;height:30px;text-align:center;border:1px solid var(--line,#e8e8ee);border-radius:var(--r-md,7px);background:var(--panel2,#fafafc);font-size:13px;font-weight:600;font-family:${mono};color:var(--ink,#1a1a20);outline:none;box-sizing:border-box`)} />
                           <div style={C(cell.subStyle)}>{cell.subText}</div>
                         </td>
                       ))}
                     </tr>
                   ))}
                   <tr>
-                    <td style={C("position:sticky;left:0;bottom:0;z-index:1;background:var(--panel,#fff);border-top:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line2,#f0f0f4);padding:9px 14px;font-size:11px;font-weight:600;color:var(--muted,#86868f);white-space:nowrap")}>Σ équipe · charge / capa</td>
+                    <td style={C("position:sticky;left:0;bottom:0;z-index:1;background:var(--panel,#fff);border-top:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line2,#f1f1f5);padding:9px 14px;font-size:11px;font-weight:600;color:var(--muted,#6b6b75);white-space:nowrap")}>Σ équipe · charge / capa</td>
                     {v.capMatrix.totals.map((t) => (
                       <td key={t.key} style={C("position:sticky;bottom:0;background:var(--panel,#fff);border-top:1px solid var(--line,#e8e8ee);padding:9px 12px;text-align:center")}>
                         <div style={C(`font-size:11px;font-family:${mono};color:var(--ink,#1a1a20);white-space:nowrap`)}>{t.text}</div>
@@ -2717,7 +2745,7 @@ export function GanttBoard() {
 
       {/* Toast */}
       {v.toast && (
-        <div role="status" aria-live="polite" style={C("position:absolute;bottom:22px;left:50%;z-index:80;background:var(--ink,#1a1a20);color:var(--panel,#fff);padding:9px 16px;border-radius:9px;font-size:13px;font-weight:500;box-shadow:0 8px 28px rgba(0,0,0,.28);animation:ggtoast .22s ease;display:flex;align-items:center;gap:9px;transform:translateX(-50%)")}>
+        <div role="status" aria-live="polite" style={C("position:absolute;bottom:22px;left:50%;z-index:80;background:var(--ink,#1a1a20);color:var(--panel,#fff);padding:9px 16px;border-radius:var(--r-lg,9px);font-size:13px;font-weight:500;box-shadow:0 8px 28px rgba(0,0,0,.28);animation:ggtoast .22s ease;display:flex;align-items:center;gap:9px;transform:translateX(-50%)")}>
           <div style={C("width:7px;height:7px;border-radius:50%;background:var(--color-synced,#2bbf73)")} />{v.toast}
         </div>
       )}
