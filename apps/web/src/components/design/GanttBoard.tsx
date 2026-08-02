@@ -1515,7 +1515,8 @@ export function GanttBoard() {
           sepStyle: `position:absolute;left:0;top:${r.top + r.height}px;width:${TW}px;height:1px;background:var(--gridline,#ececf1);z-index:5`,
           // Ligne adossée à un work item ADO → ouvre son panneau (le chevron reste
           // dédié au pli/dépli). Nœud « (Sans epic) » : pas d'item, on plie.
-          onClick: () => { if (r.item) setState({ selectedId: r.item.id }); else if (r.hasChildren) toggleNode(r.key!); },
+          // stopPropagation : sinon le clic remonte au canvas (onBgClick) qui referme aussitôt le panneau.
+          onClick: (e?: React.MouseEvent) => { e?.stopPropagation(); if (r.item) setState({ selectedId: r.item.id }); else if (r.hasChildren) toggleNode(r.key!); },
         };
       });
 
