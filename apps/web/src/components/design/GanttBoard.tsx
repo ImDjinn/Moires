@@ -141,6 +141,10 @@ export function GanttBoard() {
   if (dataset) M.applyDataset(dataset);
 
   const user = useAuthStore((s) => s.user);
+  // Écritures ADO encore en vol. Le bandeau « ADO sync. » suivait un minuteur
+  // cosmétique d'une seconde : un ticket pouvait afficher « Synchronisé » alors
+  // que son write-back échouerait ensuite. On suit le statut réel des tickets.
+  const pendingWrites = useTicketsStore((s) => s.tickets.some((t) => t.syncStatus === "pending"));
   const realSession = !!dataset && !!snapshot && !!user;
   const realSessionRef = useRef(realSession);
   realSessionRef.current = realSession;
@@ -538,6 +542,14 @@ export function GanttBoard() {
     [setState],
   );
 
+  // Écriture d'annotation refusée : l'état local a déjà été appliqué en
+  // optimiste et n'est rechargé qu'à l'ouverture de session — on le dit, plutôt
+  // que d'afficher « enregistré » sur une modification perdue.
+  const annotFailed = useCallback(
+    (what: string) => toast(`${what} non enregistré côté serveur — rechargez la page`),
+    [toast],
+  );
+
   const addMilestone = useCallback(() => {
     const st = stateRef.current;
     const sid = sessionIdRef.current;
@@ -546,30 +558,30 @@ export function GanttBoard() {
       // Persistance : le serveur attribue l'id.
       api.createMilestone(sid, draft)
         .then((m) => setState((s) => ({ milestones: [...s.milestones, m], milestoneSel: m.id })))
-        .catch(() => {});
+        .catch(() => toast("Impossible d'ajouter le jalon (erreur serveur)"));
     } else {
       const id = "M" + Date.now().toString(36);
       setState({ milestones: [...st.milestones, { id, ...draft }], milestoneSel: id });
     }
     sync("Jalon ajouté");
-  }, [setState, sync]);
+  }, [setState, sync, toast]);
   const setMilestone = useCallback(
     (id: string, field: string, value: unknown) => {
       setState((s) => ({ milestones: s.milestones.map((m) => (m.id === id ? { ...m, [field]: value } : m)) }));
       const sid = sessionIdRef.current;
-      if (realSessionRef.current && sid) api.updateMilestone(sid, id, { [field]: value }).catch(() => {});
+      if (realSessionRef.current && sid) api.updateMilestone(sid, id, { [field]: value }).catch(() => annotFailed("Jalon"));
       sync("Jalon mis à jour");
     },
-    [setState, sync],
+    [setState, sync, annotFailed],
   );
   const removeMilestone = useCallback(
     (id: string) => {
       setState((s) => ({ milestones: s.milestones.filter((m) => m.id !== id), milestoneSel: null }));
       const sid = sessionIdRef.current;
-      if (realSessionRef.current && sid) api.deleteMilestone(sid, id).catch(() => {});
+      if (realSessionRef.current && sid) api.deleteMilestone(sid, id).catch(() => annotFailed("Suppression du jalon"));
       sync("Jalon supprimé");
     },
-    [setState, sync],
+    [setState, sync, annotFailed],
   );
 
   // Pose un nouveau flag sur une ligne (plusieurs flags par ligne autorisés).
@@ -593,19 +605,19 @@ export function GanttBoard() {
     (id: string, field: string, value: unknown) => {
       setState((s) => ({ rowPins: s.rowPins.map((p) => (p.id === id ? { ...p, [field]: value } : p)) }));
       const sid = sessionIdRef.current;
-      if (realSessionRef.current && sid) api.updateRowPin(sid, id, { [field]: value }).catch(() => {});
+      if (realSessionRef.current && sid) api.updateRowPin(sid, id, { [field]: value }).catch(() => annotFailed("Flag"));
       sync("Flag mis à jour");
     },
-    [setState, sync],
+    [setState, sync, annotFailed],
   );
   const removeFlag = useCallback(
     (id: string) => {
       setState((s) => ({ rowPins: s.rowPins.filter((p) => p.id !== id), rowPinSel: null }));
       const sid = sessionIdRef.current;
-      if (realSessionRef.current && sid) api.deleteRowPin(sid, id).catch(() => {});
+      if (realSessionRef.current && sid) api.deleteRowPin(sid, id).catch(() => annotFailed("Suppression du flag"));
       sync("Flag supprimé");
     },
-    [setState, sync],
+    [setState, sync, annotFailed],
   );
 
   // Redimensionne/déplace une Feature en Release : son intervalle vient de ses
@@ -781,6 +793,14 @@ export function GanttBoard() {
       if (tagged && !tagged._scrollBound) {
         tagged._scrollBound = true;
         tagged.addEventListener("scroll", () => {
+          // scrollLeft n'est lu que par le Release planning (clamp des poignées
+          // de redimensionnement au viewport). Le publier dans le state sur les
+          // autres boards relançait computeView — layout, barres, centaines de
+          // chaînes de style — à chaque frame de défilement, pour une valeur que
+          // personne ne lit. Le collage du header/panneau gauche est fait par le
+          // compositeur (position:sticky), pas par React : rien d'autre à
+          // recalculer au scroll.
+          if (stateRef.current.board !== "release") return;
           if (scrollRaf.current) return;
           scrollRaf.current = requestAnimationFrame(() => {
             scrollRaf.current = 0;
@@ -1199,7 +1219,10 @@ export function GanttBoard() {
     }));
     const onlineLabel = realSession ? `${peers.length + 1} en ligne` : "3 en ligne";
 
-    const syncing = state.sync === "syncing";
+    // Le minuteur couvre les enregistrements hors tickets (capacité, profil,
+    // annotations) ; `pendingWrites` maintient l'indicateur tant qu'une écriture
+    // ADO n'est pas confirmée par le serveur.
+    const syncing = state.sync === "syncing" || (realSession && pendingWrites);
     // Le libellé se rétrécit sur les petites largeurs (le titre au survol donne
     // le texte complet) ; la pastille d'état, elle, reste toujours visible.
     const syncStyle = `display:flex;align-items:center;gap:7px;font-size:12px;font-weight:500;min-width:0;white-space:nowrap;color:${syncing ? "var(--accent,#5b5bd6)" : "var(--color-synced-text,#1f8a54)"}`;
@@ -1859,7 +1882,9 @@ export function GanttBoard() {
   const peoplePopover = (
     <>
       <div onClick={v.onPeopleClose} style={C("position:fixed;inset:0;z-index:89")} />
-      <div onClick={v.stop} ref={focusPopover} tabIndex={-1} style={C("position:absolute;top:38px;right:0;width:266px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:14px 15px;animation:ggdrop .14s ease;outline:none")}>
+      {/* role="dialog" sans aria-modal : le fond reste atteignable au clavier
+          (pas de piège de focus), l'annoncer comme modal serait faux. */}
+      <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label="Personnes affichées" style={C("position:absolute;top:38px;right:0;width:266px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:14px 15px;animation:ggdrop .14s ease;outline:none")}>
         <div style={C("display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px")}>
           <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Personnes affichées</span>
           <div style={C("display:flex;gap:10px;flex:0 0 auto")}>
@@ -1948,7 +1973,7 @@ export function GanttBoard() {
             {userMenuOpen && (
               <>
               <div onClick={() => setUserMenuOpen(false)} style={C("position:fixed;inset:0;z-index:89")} />
-              <div onClick={(e) => e.stopPropagation()} ref={focusPopover} tabIndex={-1} style={C("position:absolute;top:38px;right:0;width:250px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:6px;animation:ggdrop .14s ease;outline:none")}>
+              <div onClick={(e) => e.stopPropagation()} ref={focusPopover} tabIndex={-1} role="dialog" aria-label="Menu du compte" style={C("position:absolute;top:38px;right:0;width:250px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:6px;animation:ggdrop .14s ease;outline:none")}>
                 <div style={C("padding:8px 10px 10px")}>
                   <div style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Connecté en tant que</div>
                   <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>{user.displayName}</div>
@@ -2002,7 +2027,7 @@ export function GanttBoard() {
         )}
         <div style={{ flex: 1 }} />
         <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#abacb6)")}>Charge</span>
-        <select value={v.loadFieldValue} onChange={v.onLoadField} title="Champ utilisé pour les jauges de charge et le tri « Charge »" style={C("height:30px;padding:0 8px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
+        <select value={v.loadFieldValue} onChange={v.onLoadField} aria-label="Champ de charge" title="Champ utilisé pour les jauges de charge et le tri « Charge »" style={C("height:30px;padding:0 8px;border-radius:7px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
           {v.loadFieldOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         {v.loadWarning && <span title={v.loadWarningTitle} style={C("font-size:11px;font-weight:600;color:var(--color-pending-text,#8a5a00);white-space:nowrap;cursor:help")}>{v.loadWarning}</span>}
@@ -2027,20 +2052,20 @@ export function GanttBoard() {
       {v.rangeOpen && (
         <>
         <div onClick={() => setState({ rangeOpen: false })} style={C("position:fixed;inset:0;z-index:89")} />
-        <div onClick={v.stop} ref={focusPopover} tabIndex={-1} style={C("position:absolute;top:104px;right:18px;width:340px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:15px 16px;animation:ggdrop .14s ease;outline:none")}>
+        <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label={v.range.isRelease ? "Réglages d'affichage" : "Intervalle d'itérations affiché"} style={C("position:absolute;top:104px;right:18px;width:340px;background:var(--panel,#fff);border:1px solid var(--line,#e9e9ef);border-radius:11px;box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:15px 16px;animation:ggdrop .14s ease;outline:none")}>
           {v.range.showRange && (
             <>
               <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6);margin-bottom:11px")}>Intervalle d'itérations affiché</div>
               <div style={C("display:flex;flex-direction:column;gap:10px")}>
                 <div>
                   <div style={C("font-size:11px;color:var(--muted,#86868f);margin-bottom:5px")}>De</div>
-                  <select value={v.range.from} onChange={v.range.onFrom} style={C(v.selectCss)}>
+                  <select value={v.range.from} onChange={v.range.onFrom} aria-label="Première itération affichée" style={C(v.selectCss)}>
                     {v.range.iterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
                 <div>
                   <div style={C("font-size:11px;color:var(--muted,#86868f);margin-bottom:5px")}>À</div>
-                  <select value={v.range.to} onChange={v.range.onTo} style={C(v.selectCss)}>
+                  <select value={v.range.to} onChange={v.range.onTo} aria-label="Dernière itération affichée" style={C(v.selectCss)}>
                     {v.range.iterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
@@ -2057,13 +2082,13 @@ export function GanttBoard() {
               <div style={C("display:flex;flex-direction:column;gap:10px;margin-bottom:13px")}>
                 <div>
                   <div style={C("font-size:11px;color:var(--muted,#86868f);margin-bottom:5px")}>Charge par</div>
-                  <select value={v.loadByValue} onChange={v.onLoadBy} style={C(v.selectCss)}>
+                  <select value={v.loadByValue} onChange={v.onLoadBy} aria-label="Regroupement de la charge" style={C(v.selectCss)}>
                     {v.loadByOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
                 <div>
                   <div style={C("font-size:11px;color:var(--muted,#86868f);margin-bottom:5px")}>Filtre epics</div>
-                  <select value={v.epicFilter} onChange={v.onEpicFilter} style={C(v.selectCss)}>
+                  <select value={v.epicFilter} onChange={v.onEpicFilter} aria-label="Filtre des epics" style={C(v.selectCss)}>
                     {v.epicFilterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
@@ -2071,11 +2096,11 @@ export function GanttBoard() {
                   <div>
                     <div style={C("font-size:11px;color:var(--muted,#86868f);margin-bottom:5px")}>Intervalle des métriques</div>
                     <div style={C("display:flex;align-items:center;gap:8px")}>
-                      <select value={v.relMetrics.from} onChange={v.relMetrics.onFrom} style={C(v.selectCss)}>
+                      <select value={v.relMetrics.from} onChange={v.relMetrics.onFrom} aria-label="Début de l'intervalle des métriques" style={C(v.selectCss)}>
                         {v.relMetrics.options.map((o: { value: string; label: string }) => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
                       <span style={C("font-size:11px;color:var(--faint,#abacb6);flex:0 0 auto")}>→</span>
-                      <select value={v.relMetrics.to} onChange={v.relMetrics.onTo} style={C(v.selectCss)}>
+                      <select value={v.relMetrics.to} onChange={v.relMetrics.onTo} aria-label="Fin de l'intervalle des métriques" style={C(v.selectCss)}>
                         {v.relMetrics.options.map((o: { value: string; label: string }) => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
                     </div>
@@ -2103,7 +2128,7 @@ export function GanttBoard() {
       {v.rowPinEditor && (
         <>
         <div onClick={() => { setAnnotAnchor(null); v.rowPinEditor!.onClose(); }} style={C("position:fixed;inset:0;z-index:91")} />
-        <div onClick={v.stop} ref={focusPopover} tabIndex={-1} style={C(annotEditorStyle + ";outline:none")}>
+        <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label="Éditer le flag" style={C(annotEditorStyle + ";outline:none")}>
           <div style={C("display:flex;align-items:center;justify-content:space-between;margin-bottom:11px")}>
             <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6)")}>⚑ Flag</span>
             <button onClick={v.rowPinEditor.onClose} aria-label="Fermer" style={C("width:24px;height:24px;border-radius:6px;border:none;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;font-size:14px;line-height:1")}>✕</button>
@@ -2127,7 +2152,7 @@ export function GanttBoard() {
       {v.milestoneEditor && (
         <>
         <div onClick={() => { setAnnotAnchor(null); v.milestoneEditor!.onClose(); }} style={C("position:fixed;inset:0;z-index:91")} />
-        <div onClick={v.stop} ref={focusPopover} tabIndex={-1} style={C(annotEditorStyle + ";outline:none")}>
+        <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label="Éditer le jalon" style={C(annotEditorStyle + ";outline:none")}>
           <div style={C("display:flex;align-items:center;justify-content:space-between;margin-bottom:11px")}>
             <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#abacb6)")}>◆ Jalon</span>
             <button onClick={v.milestoneEditor.onClose} aria-label="Fermer" style={C("width:24px;height:24px;border-radius:6px;border:none;background:var(--line2,#f0f0f4);color:var(--muted,#86868f);cursor:pointer;font-size:14px;line-height:1")}>✕</button>
@@ -2262,7 +2287,7 @@ export function GanttBoard() {
               <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20);margin-top:3px")}>{v.leftTitle}</div>
               {v.showSort && (
                 <div style={C("display:flex;align-items:center;gap:6px;margin-top:8px")}>
-                  <select value={v.sortValue} onChange={v.onSort} style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:6px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
+                  <select value={v.sortValue} onChange={v.onSort} aria-label="Tri des personnes" style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:6px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
                     {v.sortOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                   <button onClick={v.onShuffle} aria-label="Tri aléatoire" title="Tri aléatoire (relance à chaque clic)" style={C(v.shuffleStyle)}>↻</button>
@@ -2271,7 +2296,7 @@ export function GanttBoard() {
               {v.isRelease && (
                 <div style={C("display:flex;align-items:center;gap:6px;margin-top:9px")}>
                   <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#abacb6);flex:0 0 auto")}>Trier</span>
-                  <select value={v.epicSort} onChange={v.onEpicSort} style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:6px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
+                  <select value={v.epicSort} onChange={v.onEpicSort} aria-label="Tri des epics" style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:6px;border:1px solid var(--line,#e9e9ef);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
                     {v.epicSortOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>

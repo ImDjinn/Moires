@@ -183,6 +183,22 @@ describe("AdoService", () => {
     );
   });
 
+  it("patchWorkItem préfixe un test de concurrence sur la révision attendue", async () => {
+    fetchMock.mockResolvedValue(ok({ rev: 7 }));
+    await service.patchWorkItem("org", "42", "endDate", "2026-06-12", 6, "tkn");
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    // Le test précède l'écriture : ADO refuse le patch entier si la rev a bougé.
+    expect(body[0]).toEqual({ op: "test", path: "/rev", value: 6 });
+    expect(body[1]).toMatchObject({ op: "replace", path: "/fields/Microsoft.VSTS.Scheduling.FinishDate" });
+  });
+
+  it("patchWorkItemRaw sans révision attendue : aucun test de concurrence ajouté", async () => {
+    fetchMock.mockResolvedValue(ok({ rev: 7 }));
+    await service.patchWorkItemRaw("org", "42", [{ op: "replace", path: "/fields/X", value: 1 }], "tkn");
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body).toEqual([{ op: "replace", path: "/fields/X", value: 1 }]);
+  });
+
   it("propage une erreur si l'API ADO répond non-OK", async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 403, text: () => Promise.resolve("denied") });
     await expect(service.getProjects("org", "tkn")).rejects.toThrow("ADO API error: 403");

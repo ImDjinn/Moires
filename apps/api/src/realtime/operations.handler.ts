@@ -10,12 +10,18 @@ const FIELDS = new Set<string>(OPERATION_FIELDS);
 // évite de gonfler Redis et le broadcast avec des chaînes énormes.
 const MAX_VALUE_LENGTH = 65536;
 
+// Référence de champ ADO (Custom.WorkType, Microsoft.VSTS.Scheduling.Effort) :
+// segments alphanumériques séparés par des points. Écarte au passage les clés
+// qui ciblent la chaîne de prototypes (__proto__, constructor) — setTicketField
+// écrit `customFields[ref]` avec une clé venue du client.
+const CUSTOM_REF_RE = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$/;
+
 // Le payload WS arrive non typé à l'exécution : sans cette garde, un champ
 // arbitraire écraserait n'importe quelle propriété du ticket en cache
 // (setTicketField fait `(t as any)[field] = value`).
 function isValidOperation(op: Operation): boolean {
   if (typeof op?.ticketId !== "string" || typeof op.field !== "string") return false;
-  if (!FIELDS.has(op.field) && !(op.field.startsWith("custom:") && op.field.length > "custom:".length)) return false;
+  if (!FIELDS.has(op.field) && !(op.field.startsWith("custom:") && CUSTOM_REF_RE.test(op.field.slice("custom:".length)))) return false;
   const v = op.value;
   if (typeof v === "string") return v.length <= MAX_VALUE_LENGTH;
   return v === null || typeof v === "number" ||

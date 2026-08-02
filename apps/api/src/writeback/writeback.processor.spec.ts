@@ -110,6 +110,7 @@ describe("WritebackProcessor.process", () => {
       "t1",
       [{ op: "replace", path: "/fields/WEF_ABC_Kanban.Column", value: "Doing" }],
       "tok",
+      3, // rev attendue : ADO refuse si le work item a changé depuis la lecture
     );
     expect(redis.updateTicket).toHaveBeenCalledWith(
       "s1",
@@ -156,6 +157,26 @@ describe("WritebackProcessor.process", () => {
     const { processor, prisma, redis, ado, broadcast } = makeProcessor();
     redis.getTicket.mockResolvedValue({ ...ticket });
     ado.patchWorkItem.mockRejectedValue(new Error("ADO API error: 400 RuleValidationException: champ requis"));
+
+    await expect(
+      run(processor, { data: { sessionId: "s1", op, logId: "log1" }, attemptsMade: 0, opts: { attempts: 5 } }),
+    ).rejects.toMatchObject({ name: "UnrecoverableError" });
+
+    expect(prisma.operationsLog.update).toHaveBeenCalledWith({
+      where: { id: "log1" },
+      data: { adoSyncStatus: "failed" },
+    });
+    expect(broadcast.send).toHaveBeenCalledWith(
+      "s1",
+      "ticket:updated",
+      expect.objectContaining({ id: "t1", syncStatus: "error" }),
+    );
+  });
+
+  it("conflit de révision (409) : échec immédiat sans retry, le ticket repart sur la valeur ADO", async () => {
+    const { processor, prisma, redis, ado, broadcast } = makeProcessor();
+    redis.getTicket.mockResolvedValue({ ...ticket });
+    ado.patchWorkItem.mockRejectedValue(new Error("ADO API error: 409 the test operation failed"));
 
     await expect(
       run(processor, { data: { sessionId: "s1", op, logId: "log1" }, attemptsMade: 0, opts: { attempts: 5 } }),

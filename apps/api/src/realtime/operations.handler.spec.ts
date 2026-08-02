@@ -53,6 +53,8 @@ describe("OperationsHandler", () => {
     for (const bad of [
       { ...op, field: "adoRev" as any },      // propriété interne du ticket
       { ...op, field: "custom:" as any },     // custom vide
+      { ...op, field: "custom:__proto__" as any },        // chaîne de prototypes
+      { ...op, field: "custom:A.B; DROP" as any },        // ref au format invalide
       { ...op, value: { nested: true } as any }, // valeur non scalaire
       { ...op, ticketId: 42 as any },
       { ...op, value: "x".repeat(65537) },          // chaîne au-delà du plafond

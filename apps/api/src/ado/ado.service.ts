@@ -490,7 +490,7 @@ export class AdoService {
     expectedRev: number,
     token: string,
   ): Promise<number> {
-    return this.patchWorkItemRaw(org, id, this.mapper.toJsonPatch(field, value), token);
+    return this.patchWorkItemRaw(org, id, this.mapper.toJsonPatch(field, value), token, expectedRev);
   }
 
   /** Crée un work item (json-patch "add"). Retourne le work item brut créé. */
@@ -512,20 +512,34 @@ export class AdoService {
     );
   }
 
-  /** Patch JSON brut (plusieurs champs en une écriture atomique). Retourne la nouvelle rev. */
+  /**
+   * Patch JSON brut (plusieurs champs en une écriture atomique). Retourne la nouvelle rev.
+   *
+   * `expectedRev` : contrôle de concurrence optimiste. L'opération `test` sur
+   * /rev fait refuser l'écriture par ADO si le work item a changé depuis notre
+   * lecture (modification faite directement dans ADO, ou par un autre
+   * participant) au lieu de l'écraser en silence. Le conflit est non
+   * retryable — la rev de la tentative suivante serait tout aussi périmée —
+   * donc traité comme une erreur de validation par le WritebackProcessor.
+   */
   async patchWorkItemRaw(
     org: string,
     id: string,
     patches: ({ op: "replace"; path: string; value: unknown } | { op: "remove"; path: string })[],
     token: string,
+    expectedRev?: number,
   ): Promise<number> {
+    const body =
+      expectedRev != null
+        ? [{ op: "test", path: "/rev", value: expectedRev }, ...patches]
+        : patches;
     const data = await this.adoFetch(
       `${this.orgUrl(org)}/_apis/wit/workitems/${encodeURIComponent(id)}?api-version=7.1`,
       token,
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json-patch+json" },
-        body: JSON.stringify(patches),
+        body: JSON.stringify(body),
       },
     );
     return data.rev;

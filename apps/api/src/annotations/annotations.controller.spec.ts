@@ -31,6 +31,20 @@ describe("AnnotationsController", () => {
     expect(() => ctrl.createMilestone("s1", { title: "T", iter: -1, color: "#000" })).toThrow(BadRequestException);
   });
 
+  it("rejette une couleur non hexadécimale (injection CSS chez les autres participants)", () => {
+    const { ctrl } = make();
+    // La couleur est interpolée dans les styles inline du board de tous les
+    // participants ; css() découpant sur « ; », une chaîne libre y ajoute des
+    // propriétés arbitraires.
+    expect(() => ctrl.createMilestone("s1", { title: "T", iter: 1, color: "red;position:fixed;inset:0" })).toThrow(BadRequestException);
+    expect(() => ctrl.createRowPin("s1", { rowKey: "epic:E1", title: "T", iter: 1, color: "javascript:x" })).toThrow(BadRequestException);
+  });
+
+  it("rejette un titre au-delà du plafond", () => {
+    const { ctrl } = make();
+    expect(() => ctrl.createMilestone("s1", { title: "x".repeat(201), iter: 1, color: "#000" })).toThrow(BadRequestException);
+  });
+
   it("crée un flag et passe rowKey + champs", async () => {
     const { svc, ctrl } = make();
     await ctrl.createRowPin("s1", { rowKey: "epic:E1", iter: 2, title: "Flag", color: "#E69F00" });

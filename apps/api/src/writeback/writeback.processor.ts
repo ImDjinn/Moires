@@ -72,6 +72,7 @@ export class WritebackProcessor implements OnModuleInit {
           op.ticketId,
           [{ op: "replace", path: `/fields/${col.columnField}`, value: op.value }],
           token,
+          ticket.adoRev,
         );
         ticket.state = col.state!;
       } else {
@@ -103,8 +104,11 @@ export class WritebackProcessor implements OnModuleInit {
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       // 400 = erreur de validation ADO (champ requis, picklist, type, règle du
-      // process) : non transitoire, retenter est inutile — échec immédiat.
-      const validation = msg.includes("ADO API error: 400");
+      // process). 409/412 = le test de concurrence sur /rev a échoué : le work
+      // item a changé depuis notre lecture. Dans les deux cas c'est non
+      // transitoire (la rev resterait périmée au retry) : échec immédiat, le
+      // ticket repart sur la valeur réelle d'ADO.
+      const validation = /ADO API error: 4(00|09|12)\b/.test(msg);
       console.error(
         `[writeback] échec tentative ${job.attemptsMade + 1}/${job.opts.attempts || 5} —`,
         `session=${sessionId} ticket=${op.ticketId} field=${op.field}:`,

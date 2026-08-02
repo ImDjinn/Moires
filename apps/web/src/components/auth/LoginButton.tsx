@@ -28,7 +28,11 @@ export function LoginButton() {
       setError(
         res.status === 401
           ? "PAT ou organisation invalide. Vérifiez le nom de l'organisation, le jeton et ses autorisations."
-          : "La connexion a échoué. Réessayez.",
+          // 429 : verrou anti-brute-force (10 échecs / 15 min). « Réessayez »
+          // serait contre-productif — chaque tentative prolonge l'attente.
+          : res.status === 429
+            ? "Trop de tentatives échouées. Attendez 15 minutes avant de réessayer."
+            : "La connexion a échoué. Réessayez.",
       );
     } catch {
       setError("La connexion a échoué. Réessayez.");

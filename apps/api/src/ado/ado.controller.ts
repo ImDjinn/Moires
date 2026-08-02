@@ -1,20 +1,14 @@
 import {
   Controller,
   Get,
-  Post,
   Param,
-  Body,
   Req,
-  Res,
   UseGuards,
   BadRequestException,
 } from "@nestjs/common";
-import { Request, Response } from "express";
+import { Request } from "express";
 import { AuthGuard, AuthenticatedUser } from "../auth/auth.guard";
 import { User } from "../auth/user.decorator";
-import { signedCookieOpts } from "../auth/cookies";
-import { ADO_ORG_RE } from "../auth/org";
-import { PrismaService } from "../database/prisma.service";
 import { RedisService } from "../database/redis.service";
 import { AdoService } from "./ado.service";
 
@@ -23,7 +17,6 @@ import { AdoService } from "./ado.service";
 export class AdoController {
   constructor(
     private ado: AdoService,
-    private prisma: PrismaService,
     private redis: RedisService,
   ) {}
 
@@ -41,29 +34,14 @@ export class AdoController {
 
   // L'org est choisie et validée à la connexion (PAT scopé à une seule org) :
   // on renvoie simplement celle du cookie, sans appel cross-org à ADO.
+  // Pas de route pour en changer : `ado_org` n'est posé que par /auth/login,
+  // après validation du PAT contre l'org. Une route qui le réécrirait sur simple
+  // demande donnerait accès aux sessions (donc aux tickets en cache) d'une org
+  // dont l'utilisateur n'a aucun jeton — cf. isSessionMember.
   @Get("organizations")
   getOrganizations(@Req() req: Request) {
     const org = req.signedCookies?.ado_org ?? null;
     return { organizations: org ? [{ id: org, name: org }] : [], selected: org };
-  }
-
-  @Post("organizations/select")
-  async selectOrganization(
-    @Body() body: { org: string },
-    @User() user: AuthenticatedUser,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    if (!body?.org) throw new BadRequestException("org is required");
-    // L'org est interpolée dans les URLs ADO par toutes les routes en aval.
-    if (!ADO_ORG_RE.test(body.org)) throw new BadRequestException("Invalid organization name");
-    // Aligné sur la durée restante de la session (exp du cookie signé) : un TTL
-    // fixe de 8h faisait « perdre » l'org avant l'expiration d'une session 30 j.
-    res.cookie("ado_org", body.org, signedCookieOpts(user.exp - Date.now()));
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { defaultAdoOrg: body.org },
-    });
-    return { selected: body.org };
   }
 
   @Get("projects")
