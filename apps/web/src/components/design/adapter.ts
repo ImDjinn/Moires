@@ -1,6 +1,6 @@
 import type { Capacity, MemberMeta, SessionSnapshot } from "@moires/shared";
 import type { Dataset, Item, Iter, Level, Person } from "./ganttModel";
-import { MONTHS_FR, stateProgress } from "./ganttModel";
+import { MONTHS_FR, currentIter, stateProgress } from "./ganttModel";
 
 // Teintes conservées, luminosité abaissée jusqu'à ≥ 4,5:1 avec des initiales
 // blanches (les valeurs d'origine tombaient entre 1,9:1 et 4,5:1).
@@ -65,9 +65,7 @@ export function buildDataset(
 
   const pathToIndex = new Map(src.map((it, i) => [it.path, i]));
 
-  const today = new Date().toISOString().slice(0, 10);
-  const foundCurrent = src.findIndex((it) => it.startDate.slice(0, 10) <= today && today <= it.finishDate.slice(0, 10));
-  const current = foundCurrent >= 0 ? foundCurrent : 0;
+  const current = currentIter(iters);
 
   const memberIds = new Set(snapshot.teamMembers.map((m) => m.id));
   // Capacité par membre × itération (défaut 0 si non renseignée).

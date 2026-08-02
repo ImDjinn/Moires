@@ -12,18 +12,20 @@ function t(p: Partial<Ticket>): Ticket {
   };
 }
 
-// Itérations en 2020 (toutes passées) => l'itération courante est l'index 0.
+const day = (offset: number) => new Date(Date.now() + offset * 864e5).toISOString().slice(0, 10);
+
+// S1 contient aujourd'hui, S2/S3 à venir => l'itération courante est l'index 0.
 const snapshot: SessionSnapshot = {
   sessionId: "s", participants: [], teamMembers: [{ id: "m1", displayName: "A", capacityHoursPerDay: 8 }], capacities: [],
   iterations: [
-    { id: "1", name: "S1", path: "P\\1", startDate: "2020-01-01", finishDate: "2020-01-14" },
-    { id: "2", name: "S2", path: "P\\2", startDate: "2020-02-01", finishDate: "2020-02-14" },
-    { id: "3", name: "S3", path: "P\\3", startDate: "2020-03-01", finishDate: "2020-03-14" },
+    { id: "1", name: "S1", path: "P\\1", startDate: day(-5), finishDate: day(5) },
+    { id: "2", name: "S2", path: "P\\2", startDate: day(10), finishDate: day(20) },
+    { id: "3", name: "S3", path: "P\\3", startDate: day(25), finishDate: day(35) },
   ],
   tickets: [
-    t({ id: "EA", title: "En cours 2", startDate: "2020-01-05", targetDate: "2020-02-10", priority: 2, customFields: { "Custom.Valeur": 8 } }), // [0,1] en cours
-    t({ id: "ED", title: "En cours 1", startDate: "2020-01-05", targetDate: "2020-01-10", priority: 1, customFields: { "Custom.Valeur": 3 } }), // [0,0] en cours
-    t({ id: "EB", title: "À venir", startDate: "2020-02-05", targetDate: "2020-03-10", priority: 1 }),     // [1,2] à venir
+    t({ id: "EA", title: "En cours 2", startDate: day(-3), targetDate: day(15), priority: 2, customFields: { "Custom.Valeur": 8 } }), // [0,1] en cours
+    t({ id: "ED", title: "En cours 1", startDate: day(-3), targetDate: day(2), priority: 1, customFields: { "Custom.Valeur": 3 } }),  // [0,0] en cours
+    t({ id: "EB", title: "À venir", startDate: day(12), targetDate: day(30), priority: 1 }),                                          // [1,2] à venir
   ],
 };
 
@@ -34,7 +36,7 @@ function stateWith(over: Partial<M.State>): M.State {
 }
 
 describe("buildTree — groupement par Epic + statut/priorité + filtre", () => {
-  it("l'itération courante est l'index 0 (dates passées)", () => {
+  it("l'itération courante est celle qui contient aujourd'hui", () => {
     const ds = buildDataset(snapshot);
     expect(ds.current).toBe(0);
   });

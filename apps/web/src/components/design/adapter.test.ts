@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { SessionSnapshot, Ticket } from "@moires/shared";
 import { buildDataset } from "./adapter";
-import { applyDataset, hasBoardColumns, createInitialState, relLoadBand, capOf } from "./ganttModel";
+import { applyDataset, hasBoardColumns, createInitialState, relLoadBand, capOf, currentIter, iters as mockIters } from "./ganttModel";
 
 function ticket(p: Partial<Ticket>): Ticket {
   return {
@@ -30,8 +30,44 @@ const snapshot: SessionSnapshot = {
   ],
 };
 
+describe("currentIter", () => {
+  const list = [
+    { label: "S1", short: "S1", dates: "", sub: "", iso: ["2026-06-15", "2026-06-26"] as [string, string] },
+    { label: "S2", short: "S2", dates: "", sub: "", iso: ["2026-06-29", "2026-07-10"] as [string, string] },
+    { label: "Backlog", short: "Backlog", dates: "", sub: "", iso: ["", ""] as [string, string] },
+  ];
+
+  it("prend l'itération qui contient le jour", () => {
+    expect(currentIter(list, "2026-07-01")).toBe(1);
+    expect(currentIter(list, "2026-06-26")).toBe(0);
+  });
+
+  it("hors sprint, prend la dernière déjà commencée (jamais la plus vieille)", () => {
+    expect(currentIter(list, "2026-06-27")).toBe(0); // trou entre sprints
+    expect(currentIter(list, "2026-09-01")).toBe(1); // tous terminés
+  });
+
+  it("avant le premier sprint, prend le premier", () => {
+    expect(currentIter(list, "2026-01-01")).toBe(0);
+  });
+
+  it("ignore le Backlog (sans dates)", () => {
+    expect(currentIter(list, "2026-12-31")).toBe(1);
+  });
+
+  it("les itérations mock restent alignées sur aujourd'hui", () => {
+    const [s, e] = mockIters[currentIter(mockIters)].iso;
+    const today = new Date().toISOString().slice(0, 10);
+    expect(s <= today && today <= e).toBe(true);
+  });
+});
+
 describe("buildDataset", () => {
   const ds = buildDataset(snapshot);
+
+  it("marque comme courante l'itération contenant aujourd'hui", () => {
+    expect(ds.current).toBe(currentIter(ds.iters));
+  });
 
   it("ajoute le Backlog après les itérations datées", () => {
     expect(ds.iters).toHaveLength(3);

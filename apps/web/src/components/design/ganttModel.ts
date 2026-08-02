@@ -154,7 +154,6 @@ export const BANNER = 24;
 const GAPBELOW = 8;
 const BOTPAD = 12;
 export const MINCOL = 252;
-export let CURRENT = 1;
 export const RELCOL = 200; // largeur mini d'une colonne release (bande de charge : ~4 chiffres par nombre)
 export const RELBAND = 40;
 const RELPARENT = 58;
@@ -202,6 +201,24 @@ export let iters: Iter[] = (() => {
   arr.push({ label: "Backlog", short: "Backlog", dates: "Non planifié", sub: "à prioriser", iso: ["", ""] });
   return arr;
 })();
+
+/**
+ * Index de l'itération contenant `today`. À défaut (jour hors sprint, sprints
+ * terminés) la dernière déjà commencée, sinon la première. Les itérations sans
+ * dates (Backlog) sont ignorées.
+ */
+export function currentIter(list: Iter[], today = new Date().toISOString().slice(0, 10)): number {
+  let started = 0;
+  for (let i = 0; i < list.length; i++) {
+    const [s, e] = list[i].iso;
+    if (!s) continue;
+    if (s <= today && today <= e) return i;
+    if (s <= today) started = i;
+  }
+  return started;
+}
+
+export let CURRENT = currentIter(iters);
 
 // [id, level, wit, title, points, effortDays, person, iter, span, state, progress, parent, tags]
 type Def = [string, Level, string, string, number, number, string, number, number, string, number, string | null, string[]];
