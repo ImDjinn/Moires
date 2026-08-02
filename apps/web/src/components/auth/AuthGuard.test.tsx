@@ -16,7 +16,8 @@ describe("AuthGuard", () => {
         <div>contenu protégé</div>
       </AuthGuard>,
     );
-    expect(screen.getByText("Chargement...")).toBeInTheDocument();
+    // role=status : le chargement est annoncé, pas seulement affiché.
+    expect(screen.getByRole("status")).toHaveTextContent("Chargement");
     expect(screen.queryByText("contenu protégé")).not.toBeInTheDocument();
   });
 

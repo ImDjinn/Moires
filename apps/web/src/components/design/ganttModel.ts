@@ -106,6 +106,8 @@ export interface State {
   /** Release : tri des Epics à l'intérieur des groupes de statut —
    * "priority" | "name" | "effort", ou le referenceName d'un champ ADO custom. */
   epicSort: string;
+  /** Release : sens du tri des Epics — n'inverse que le critère, pas le groupement par statut. */
+  epicSortDir: "asc" | "desc";
   containerW: number;
   containerH: number;
   rangeFrom: number;
@@ -169,11 +171,11 @@ export let NITER = 12;
 export let BACKLOG = 12;
 
 export let people: Person[] = [
-  { id: "alice", name: "Alice Beaumont", role: "Backend Lead", teamRole: "Tech Lead", initials: "AB", color: "#5e61f1", cap: [10, 8, 10] },
-  { id: "romain", name: "Romain Duval", role: "Frontend", teamRole: "Développeur", initials: "RD", color: "#0e8376", cap: [10, 10, 8] },
-  { id: "yuki", name: "Yuki Tanaka", role: "Backend", teamRole: "Développeur", initials: "YT", color: "#c35305", cap: [7, 10, 10] },
-  { id: "sofia", name: "Sofia Mendes", role: "QA / Tests", teamRole: "Testeur", initials: "SM", color: "#e0177a", cap: [10, 10, 10] },
-  { id: "marcus", name: "Marcus Wei", role: "DevOps", teamRole: "Développeur", initials: "MW", color: "#0b7caf", cap: [6, 10, 10] },
+  { id: "alice", name: "Alice Beaumont", role: "Backend Lead", teamRole: "Tech Lead", initials: "AB", color: "#0072B2", cap: [10, 8, 10] },
+  { id: "romain", name: "Romain Duval", role: "Frontend", teamRole: "Développeur", initials: "RD", color: "#d85f00", cap: [10, 10, 8] },
+  { id: "yuki", name: "Yuki Tanaka", role: "Backend", teamRole: "Développeur", initials: "YT", color: "#009E73", cap: [7, 10, 10] },
+  { id: "sofia", name: "Sofia Mendes", role: "QA / Tests", teamRole: "Testeur", initials: "SM", color: "#CC79A7", cap: [10, 10, 10] },
+  { id: "marcus", name: "Marcus Wei", role: "DevOps", teamRole: "Développeur", initials: "MW", color: "#E69F00", cap: [6, 10, 10] },
 ];
 
 export const MONTHS_FR = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
@@ -385,7 +387,7 @@ function buildInitialItems(): Item[] {
 
 export function createInitialState(items: Item[] = buildInitialItems()): State {
   return {
-    board: "sprint", level: "story", colorMode: "epic", hideClosed: false, epicFilter: "all", epicSort: "priority", containerW: 1100, containerH: 800,
+    board: "sprint", level: "story", colorMode: "epic", hideClosed: false, epicFilter: "all", epicSort: "priority", epicSortDir: "asc", containerW: 1100, containerH: 800,
     rangeFrom: CURRENT, rangeTo: Math.min(CURRENT + 1, NITER - 1), backlog: true, rangeOpen: false, prefsOpen: false,
     items, hidden: {}, peopleOpen: false, sort: "az",
     expanded: {}, hiddenRows: {}, loadBy: "person", releaseStart: CURRENT,
@@ -474,6 +476,10 @@ export const formatRange = (a: string, b: string) => {
   const A = fmtDate(a), B = fmtDate(b);
   return A && B ? `${A} → ${B}` : A || B;
 };
+/** Palier de charge : 0 = sous la capacité, 1 = zone d'alerte (85-100 %),
+ * 2 = surcharge. Mêmes seuils que capColor — la couleur seule ne suffit pas
+ * à distinguer le palier 1 du palier 0 en deutéranopie. */
+export const loadMark = (pct: number): 0 | 1 | 2 => (pct > 1 ? 2 : pct >= 0.85 ? 1 : 0);
 /** Couleur de jauge (aplat) : pastilles, remplissages. */
 export const capColor = (pct: number) =>
   pct > 1 ? "var(--color-error,#ef4444)" : pct >= 0.85 ? "var(--color-pending,#f5a623)" : "var(--color-synced,#2bbf73)";
@@ -749,15 +755,16 @@ export function buildTree(s: State): TreeNode[] {
     return true;
   });
   // Ordre : statut (en cours > à venir > terminé), puis priorité (ou nom).
-  filtered.sort((a, b) => {
-    if (a.bucket !== b.bucket) return a.bucket - b.bucket;
+  const cmp = (a: TreeNode, b: TreeNode) => {
     if (s.epicSort === "name") return nodeName(a).localeCompare(nodeName(b), "fr");
     if (s.epicSort === "effort") return nodeEffort(b) - nodeEffort(a) || nodeName(a).localeCompare(nodeName(b), "fr");
     if (s.epicSort !== "priority") return cmpCustom(a, b, s.epicSort) || nodeName(a).localeCompare(nodeName(b), "fr");
     const pa = a.epic?.priority ?? 999, pb = b.epic?.priority ?? 999;
     if (pa !== pb) return pa - pb;
     return (a.range?.[0] ?? 99) - (b.range?.[0] ?? 99) || nodeName(a).localeCompare(nodeName(b), "fr");
-  });
+  };
+  const dir = s.epicSortDir === "desc" ? -1 : 1;
+  filtered.sort((a, b) => (a.bucket !== b.bucket ? a.bucket - b.bucket : dir * cmp(a, b)));
   return filtered;
 }
 
@@ -1120,4 +1127,21 @@ export function relLoadBand(s: State, cols: number[], theme: Theme) {
       .sort((a, b) => b.val - a.val);
     return { real, cap, total, segs };
   });
+}
+
+/** Clés présentes dans la bande de charge, triées par effort décroissant.
+ * La bande est un empilement : sans légende, chaque segment n'est identifié
+ * que par sa couleur (et un title, invisible au clavier et au tactile).
+ * Une seule légende pour toutes les colonnes. */
+export function loadBandLegend(s: State, cols: number[], theme: Theme) {
+  if (s.loadBy === "none") return [];
+  const tot = new Map<string, { key: string; label: string; color: string; val: number }>();
+  relLoadBand(s, cols, theme).forEach((b) =>
+    b.segs.forEach((sg) => {
+      const cur = tot.get(sg.key);
+      if (cur) cur.val += sg.val;
+      else tot.set(sg.key, { key: sg.key, label: sg.label, color: sg.color, val: sg.val });
+    }),
+  );
+  return [...tot.values()].sort((a, b) => b.val - a.val);
 }

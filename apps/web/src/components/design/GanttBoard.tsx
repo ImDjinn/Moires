@@ -12,13 +12,25 @@ import { initPresenceListeners, emitPresence } from "../../services/presence.cli
 import { api } from "../../services/rest.client";
 import { buildDataset, UNASSIGNED_ID, initials } from "./adapter";
 import { Brand } from "../Brand";
-import { IconEye, IconEyeOff, IconGear, IconCopy, IconSwap, IconLogout, IconUsers, IconCalendar } from "./icons";
+import { IconEye, IconEyeOff, IconGear, IconCopy, IconSwap, IconLogout, IconUsers, IconCalendar, IconGrid, IconMilestone, IconFlag, IconClose, IconAlert, IconNear } from "./icons";
 import { MyBoard, resolveMyPersonId } from "./MyBoard";
 import * as M from "./ganttModel";
 import type { Drag, Item, Presence, State, Theme } from "./ganttModel";
 import type { OperationField, TicketComment } from "@moires/shared";
 
 const C = css;
+/** Repère de charge : alerte au-delà de 100 %, avertissement dans la zone
+ * 85-100 %. Ce palier n'était signalé que par la couleur ambre, donc invisible
+ * en deutéranopie : une couleur de statut doit toujours porter une icône. */
+function LoadMark({ mark }: { mark: 0 | 1 | 2 }) {
+  if (!mark) return null;
+  const label = mark === 2 ? "Surcharge" : "Proche de la capacité";
+  return (
+    <span role="img" aria-label={label} title={label} style={C("display:inline-flex;vertical-align:-1px;margin-right:3px")}>
+      {mark === 2 ? <IconAlert size={11} /> : <IconNear size={11} />}
+    </span>
+  );
+}
 const mono = "'IBM Plex Mono',monospace";
 const sans = "'IBM Plex Sans',system-ui,sans-serif";
 // Libellé de la touche modificateur selon la plateforme (⌘ sur macOS, Ctrl ailleurs).
@@ -1115,7 +1127,7 @@ export function GanttBoard() {
           const openable = p.id !== UNASSIGNED_ID;
           return {
             id: p.id, name: p.name, role: p.role, initials: p.initials, loadShow: daily && !p.unassigned,
-            loadText: `${lp > 1 ? "⚠ " : ""}${M.fmt(used)}/${M.fmt(cap)}j · ${Math.round(lp * 100)}%`,
+            loadText: `${M.fmt(used)}/${M.fmt(cap)}j · ${Math.round(lp * 100)}%`, loadMark: M.loadMark(lp),
             loadTitle: `Charge ${M.fmt(used)} (${loadLabel}) / capacité ${M.fmt(cap)} jours ouvrés — ${M.iters[M.CURRENT].label}${loadNote}`,
             loadTextStyle: `font-size:10px;font-family:${mono};color:${lp > 1 ? "var(--color-error-text,#c62828)" : "var(--muted,#6b6b75)"}`,
             loadFillStyle: `position:absolute;left:0;top:0;height:100%;width:${Math.min(lp, 1) * 100}%;background:${lc};border-radius:3px`,
@@ -1130,7 +1142,7 @@ export function GanttBoard() {
           };
         });
 
-    const banners: { style: string; fillStyle: string; text: string; textStyle: string; title: string; pct: string; pctStyle: string; editing: boolean; capVal: number; onClick: (e: React.MouseEvent) => void; onCommit: (value: number) => void }[] = [];
+    const banners: { style: string; fillStyle: string; text: string; textStyle: string; title: string; pct: string; pctMark: 0 | 1 | 2; pctStyle: string; editing: boolean; capVal: number; onClick: (e: React.MouseEvent) => void; onCommit: (value: number) => void }[] = [];
     if (!daily && !release)
       layout.rows.forEach((r) => {
         const p = M.people.find((x) => x.id === r.personId)!;
@@ -1146,7 +1158,7 @@ export function GanttBoard() {
             text: `${M.fmt(used)}/${M.fmt(cap)}j`,
             textStyle: `font-size:10px;font-family:${mono};color:var(--muted,#6b6b75);white-space:nowrap;flex:0 0 auto`,
             title: `Charge ${M.fmt(used)} (${loadLabel}) / capacité ${M.fmt(cap)} jours ouvrés${loadNote} — cliquer pour modifier la capacité`,
-            pct: (pct > 1 ? "⚠ " : "") + Math.round(pct * 100) + "%",
+            pct: Math.round(pct * 100) + "%", pctMark: M.loadMark(pct),
             pctStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${pct > 1 ? "var(--color-error-text,#c62828)" : c};flex:0 0 auto`,
             editing: !!capEdit && capEdit.personId === p.id && capEdit.real === real,
             capVal: cap,
@@ -1390,7 +1402,7 @@ export function GanttBoard() {
               key: i, label: it.label, dates: it.dates, current: i === M.CURRENT,
               usedText: `${M.fmt(used)} /`,
               cap,
-              pctText: (pct > 1 ? "⚠ " : "") + Math.round(pct * 100) + "%",
+              pctText: Math.round(pct * 100) + "%", pctMark: M.loadMark(pct),
               pctStyle: `font-size:11px;font-weight:600;font-family:${mono};color:${pct > 1 ? "var(--color-error-text,#c62828)" : M.capTextColor(pct)};width:${pct > 1 ? 52 : 40}px;text-align:right;flex:0 0 auto`,
               // Même convention que les champs du panneau ticket : commit au blur.
               onCommit: (e: React.FocusEvent<HTMLInputElement>) => {
@@ -1421,7 +1433,7 @@ export function GanttBoard() {
                 const used = capUsed[p.id]?.[i] || 0, cap = M.capOf(p, i), pct = cap ? used / cap : used;
                 return {
                   key: i, cap,
-                  subText: `${M.fmt(used)}j · ${(pct > 1 ? "⚠ " : "") + Math.round(pct * 100)}%`,
+                  subText: `${M.fmt(used)}j · ${Math.round(pct * 100)}%`, subMark: M.loadMark(pct),
                   subStyle: `font-size:10px;font-family:${mono};color:${pct > 1 ? "var(--color-error-text,#c62828)" : "var(--faint,#71717c)"}`,
                   title: `${p.name} — ${M.iters[i].label} : charge ${M.fmt(used)} (${loadLabel}) / capacité ${M.fmt(cap)} jours ouvrés${loadNote}`,
                   // Même convention que le panneau personne : commit au blur.
@@ -1457,7 +1469,7 @@ export function GanttBoard() {
               const pct = cap ? used / cap : used;
               return {
                 key: i, text: `${M.fmt(used)} / ${M.fmt(cap)}j`,
-                pctText: (pct > 1 ? "⚠ " : "") + Math.round(pct * 100) + "%",
+                pctText: Math.round(pct * 100) + "%", pctMark: M.loadMark(pct),
                 pctStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${pct > 1 ? "var(--color-error-text,#c62828)" : M.capTextColor(pct)}`,
               };
             }),
@@ -1468,7 +1480,7 @@ export function GanttBoard() {
 
     // release-only
     type TreeRow = Record<string, unknown>;
-    let treeRows: TreeRow[] = [], loadBand: Record<string, unknown>[] = [], milestones: Record<string, unknown>[] = [],
+    let treeRows: TreeRow[] = [], loadBand: Record<string, unknown>[] = [], loadLegend: Record<string, string>[] = [], milestones: Record<string, unknown>[] = [],
       relCards: Record<string, unknown>[] = [], relBands: { style: string }[] = [], relEpics: Record<string, unknown>[] = [], relRowPins: Record<string, unknown>[] = [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let relMetrics: Record<string, any> | null = null, relWaterline: Record<string, string> | null = null;
@@ -1675,6 +1687,12 @@ export function GanttBoard() {
         });
       });
 
+      // Legende de la bande de charge (une seule pour toutes les colonnes).
+      loadLegend = M.loadBandLegend(state, cols, theme).map((k) => ({
+        label: k.label,
+        total: `${M.fmt(k.val)}j`,
+        swatchStyle: `width:10px;height:10px;flex:0 0 auto;border-radius:3px;background:${k.color}`,
+      }));
       loadBand = M.relLoadBand(state, cols, theme).map((b, vi) => {
         const left = M.LEFT + vi * COLW, over = b.total > b.cap;
         const denom = Math.max(b.cap, b.total, 1);
@@ -1697,9 +1715,9 @@ export function GanttBoard() {
           delta: (delta >= 0 ? "+" : "−") + M.fmt(Math.abs(delta)),
           deltaStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${delta < 0 ? "var(--color-error-text,#c62828)" : "var(--color-synced-text,#1f8a54)"};flex:0 0 auto`,
           deltaTitle: `Capacité − effort : ${delta >= 0 ? "+" : "−"}${M.fmt(Math.abs(delta))}j`,
-          pct: (over ? "⚠ " : "") + Math.round((b.total / (b.cap || 1)) * 100) + "%",
+          pct: Math.round((b.total / (b.cap || 1)) * 100) + "%", pctMark: M.loadMark(b.total / (b.cap || 1)),
           pctStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${over ? "var(--color-error-text,#c62828)" : "var(--muted,#6b6b75)"};flex:0 0 auto`,
-          trackStyle: `margin-top:3px;height:6px;border-radius:var(--r-sm,5px);background:var(--line2,#f1f1f5);overflow:hidden;display:flex;gap:1px;${over ? "box-shadow:0 0 0 1px var(--color-error,#ef4444)" : ""}`,
+          trackStyle: `margin-top:3px;height:6px;border-radius:var(--r-sm,5px);background:var(--line2,#f1f1f5);overflow:hidden;display:flex;gap:2px;${over ? "box-shadow:0 0 0 1px var(--color-error,#ef4444)" : ""}`,
           segs,
         };
       });
@@ -1807,7 +1825,7 @@ export function GanttBoard() {
     return {
       rootStyle: { position: "relative" as const, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" as const, fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "var(--canvas)", color: "var(--ink)", overflow: "hidden" },
       totalWidth: TW, totalHeight: TH, columns, personRows, banners, bars, dropGhost, cursors, presence, onlineLabel, emptyAreaStyle,
-      loadWarning: loadFieldDead ? "⚠ charge à 0" : null,
+      loadWarning: loadFieldDead ? "charge à 0" : null,
       loadWarningTitle: `Aucun ticket affiché n'a de valeur « ${loadLabel} » : les jauges de charge affichent 0. Choisissez un autre champ dans le menu Charge ou renseignez les valeurs dans Azure DevOps.`,
       // Fond opaque pleine hauteur sous les cellules du panneau gauche : masque les
       // barres qui défilent dessous (les lignes masquées sont en opacity:.45).
@@ -1853,7 +1871,7 @@ export function GanttBoard() {
       loadByValue: state.loadBy,
       loadByOptions: [{ value: "person", label: "Personne" }, { value: "role", label: "Poste" }, { value: "none", label: "Global" }],
       onLoadBy: (e: React.ChangeEvent<HTMLSelectElement>) => setState({ loadBy: e.target.value as State["loadBy"] }),
-      treeRows, loadBand, milestones, milestoneEditor,
+      treeRows, loadBand, loadLegend, milestones, milestoneEditor,
       relCards, relBands, relEpics, relRowPins, rowPinEditor, relMetrics,
       // Assigné dans le .map des lignes (invisible pour le narrowing TS).
       relWaterline: relWaterline as Record<string, string> | null,
@@ -1861,6 +1879,8 @@ export function GanttBoard() {
       epicSort: state.epicSort,
       epicSortOptions: [{ value: "priority", label: "Priorité" }, { value: "name", label: "Nom" }, { value: "effort", label: "Somme de l'effort" }, ...epicCustomSorts],
       onEpicSort: (e: React.ChangeEvent<HTMLSelectElement>) => setState({ epicSort: e.target.value }),
+      epicSortDir: state.epicSortDir,
+      onEpicSortDir: () => setState((s) => ({ epicSortDir: s.epicSortDir === "asc" ? "desc" : "asc" })),
       epicFilter: state.epicFilter,
       epicFilterOptions: [{ value: "all", label: "Tous les epics" }, { value: "hideDone", label: "Masquer terminés" }, { value: "activeOnly", label: "Actifs seulement" }],
       onEpicFilter: (e: React.ChangeEvent<HTMLSelectElement>) => setState({ epicFilter: e.target.value as State["epicFilter"] }),
@@ -1962,7 +1982,7 @@ export function GanttBoard() {
               </button>
               {v.peopleOpen && peoplePopover}
             </div>
-            <button onClick={v.onCapMatrixToggle} title="Matrice de capacité — tous les membres × itérations" style={C("height:30px;padding:0 11px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;flex:0 0 auto")}>⊞ Capacités</button>
+            <button onClick={v.onCapMatrixToggle} title="Matrice de capacité — tous les membres × itérations" style={C("height:30px;padding:0 11px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;flex:0 0 auto")}><IconGrid size={13} /> Capacités</button>
             <div style={C("width:1px;height:22px;flex:0 0 auto;background:var(--line,#e8e8ee)")} />
           </>
         )}
@@ -2054,11 +2074,11 @@ export function GanttBoard() {
         <select value={v.loadFieldValue} onChange={v.onLoadField} aria-label="Champ de charge" title="Champ utilisé pour les jauges de charge et le tri « Charge »" style={C("height:30px;padding:0 8px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
           {v.loadFieldOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
-        {v.loadWarning && <span title={v.loadWarningTitle} style={C("font-size:11px;font-weight:600;color:var(--color-pending-text,#8a5a00);white-space:nowrap;cursor:help")}>{v.loadWarning}</span>}
+        {v.loadWarning && <span role="img" aria-label={`${v.loadWarning} — ${v.loadWarningTitle}`} title={v.loadWarningTitle} style={C("display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--color-pending-text,#8a5a00);white-space:nowrap;cursor:help")}><IconAlert size={12} />{v.loadWarning}</span>}
         {v.isRelease && (
           <>
             <div style={C("width:1px;height:20px;background:var(--line,#e8e8ee)")} />
-            <button onClick={v.onAddMilestone} style={C("height:30px;padding:0 12px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px")}>◆ Jalon</button>
+            <button onClick={v.onAddMilestone} style={C("height:30px;padding:0 12px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px")}><IconMilestone size={12} /> Jalon</button>
           </>
         )}
         {/* Bouton du popover d'affichage, à droite comme le popover qu'il ouvre. */}
@@ -2154,8 +2174,8 @@ export function GanttBoard() {
         <div onClick={() => { setAnnotAnchor(null); v.rowPinEditor!.onClose(); }} style={C("position:fixed;inset:0;z-index:91")} />
         <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label="Éditer le flag" style={C(annotEditorStyle + ";outline:none")}>
           <div style={C("display:flex;align-items:center;justify-content:space-between;margin-bottom:11px")}>
-            <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c)")}>⚑ Flag</span>
-            <button onClick={v.rowPinEditor.onClose} aria-label="Fermer" style={C("width:24px;height:24px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:14px;line-height:1")}>✕</button>
+            <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c)")}><IconFlag size={11} /> Flag</span>
+            <button onClick={v.rowPinEditor.onClose} aria-label="Fermer" style={C("width:24px;height:24px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:14px;line-height:1")}><IconClose size={13} /></button>
           </div>
           <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>Libellé</div>
           <input value={v.rowPinEditor.title} onChange={v.rowPinEditor.onTitle} style={C(v.inputCss)} />
@@ -2178,8 +2198,8 @@ export function GanttBoard() {
         <div onClick={() => { setAnnotAnchor(null); v.milestoneEditor!.onClose(); }} style={C("position:fixed;inset:0;z-index:91")} />
         <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label="Éditer le jalon" style={C(annotEditorStyle + ";outline:none")}>
           <div style={C("display:flex;align-items:center;justify-content:space-between;margin-bottom:11px")}>
-            <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c)")}>◆ Jalon</span>
-            <button onClick={v.milestoneEditor.onClose} aria-label="Fermer" style={C("width:24px;height:24px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:14px;line-height:1")}>✕</button>
+            <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c)")}><IconMilestone size={11} /> Jalon</span>
+            <button onClick={v.milestoneEditor.onClose} aria-label="Fermer" style={C("width:24px;height:24px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:14px;line-height:1")}><IconClose size={13} /></button>
           </div>
           <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>Titre</div>
           <input value={v.milestoneEditor.title} onChange={v.milestoneEditor.onTitle} style={C(v.inputCss)} />
@@ -2204,6 +2224,21 @@ export function GanttBoard() {
           onSelect={(id) => setState({ selectedId: id })} adoUrl={snapshot?.adoUrl}
           comments={comments}
         />
+      )}
+
+      {/* Légende de la bande de charge Release : la bande est un empilement,
+          sans elle l'identité des segments ne tient qu'à leur couleur. */}
+      {!!v.loadLegend.length && (
+        <div style={C("flex:0 0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:7px 18px;border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff)")}>
+          <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c)")}>Charge par {v.loadByValue === "role" ? "poste" : "personne"}</span>
+          {v.loadLegend.map((k, i) => (
+            <span key={i} style={C("display:flex;align-items:center;gap:6px;min-width:0")}>
+              <span style={C(k.swatchStyle)} />
+              <span style={C("font-size:11px;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{k.label}</span>
+              <span style={C(`font-size:10px;font-family:${mono};color:var(--faint,#71717c);flex:0 0 auto`)}>{k.total}</span>
+            </span>
+          ))}
+        </div>
       )}
 
       {/* Canvas */}
@@ -2269,7 +2304,7 @@ export function GanttBoard() {
                   {row.loadShow && (
                     <div title={row.loadTitle} style={C("display:flex;align-items:center;gap:6px;margin-top:5px")}>
                       <div style={C("width:46px;height:5px;border-radius:3px;background:var(--line2,#f1f1f5);position:relative;overflow:hidden;flex:0 0 auto")}><div style={C(row.loadFillStyle)} /></div>
-                      <span style={C(row.loadTextStyle)}>{row.loadText}</span>
+                      <span style={C(row.loadTextStyle)}><LoadMark mark={row.loadMark} />{row.loadText}</span>
                     </div>
                   )}
                 </div>
@@ -2290,13 +2325,13 @@ export function GanttBoard() {
               </div>
             ))}
             {(v.loadBand as Record<string, any>[]).map((b, i) => (
-              <div key={"lb" + i} title={b.wrapTitle} style={C(b.wrapStyle)}>
+              <div key={"lb" + i} role="img" aria-label={b.wrapTitle} title={b.wrapTitle} style={C(b.wrapStyle)}>
                 <div style={C("display:flex;align-items:baseline;gap:5px;min-width:0")}>
                   <span style={C(b.totalStyle)}>{b.total}</span>
                   <span style={C(b.capStyle)}>{b.cap}</span>
                   <div style={{ flex: 1 }} />
-                  <span title={b.deltaTitle} style={C(b.deltaStyle)}>{b.delta}</span>
-                  <span style={C(b.pctStyle)}>{b.pct}</span>
+                  <span aria-label={b.deltaTitle} title={b.deltaTitle} style={C(b.deltaStyle)}>{b.delta}</span>
+                  <span style={C(b.pctStyle)}><LoadMark mark={b.pctMark} />{b.pct}</span>
                 </div>
                 <div style={C(b.trackStyle)}>
                   {b.segs.map((s: any, j: number) => <div key={j} title={s.title} style={C(s.style)} />)}
@@ -2323,6 +2358,7 @@ export function GanttBoard() {
                   <select value={v.epicSort} onChange={v.onEpicSort} aria-label="Tri des epics" style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
                     {v.epicSortOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
+                  <button onClick={v.onEpicSortDir} aria-label={`Sens du tri : ${v.epicSortDir === "asc" ? "croissant" : "décroissant"}`} title="Inverser le sens du tri" style={C(v.shuffleStyle)}>{v.epicSortDir === "asc" ? "↑" : "↓"}</button>
                 </div>
               )}
             </div>
@@ -2356,7 +2392,7 @@ export function GanttBoard() {
               ) : (
                 <>
                   <span style={C(b.textStyle)}>{b.text}</span>
-                  <span style={C(b.pctStyle)}>{b.pct}</span>
+                  <span style={C(b.pctStyle)}><LoadMark mark={b.pctMark} />{b.pct}</span>
                 </>
               )}
             </div>
@@ -2414,7 +2450,7 @@ export function GanttBoard() {
               <div style={C(p.lineStyle)} />
               <div onClick={p.onClick} role="button" tabIndex={0} aria-label={p.label}
                 onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); p.onClick(); } }}
-                style={C(p.flagStyle)}>⚑ {p.title}</div>
+                style={C(p.flagStyle)}><IconFlag size={10} /> {p.title}</div>
             </div>
           ))}
 
@@ -2423,7 +2459,7 @@ export function GanttBoard() {
               <div style={C(m.lineStyle)} />
               <div onClick={m.onClick} role="button" tabIndex={0} aria-label={m.label}
                 onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); m.onClick(); } }}
-                style={C(m.flagStyle)}>◆ {m.title}</div>
+                style={C(m.flagStyle)}><IconMilestone size={10} /> {m.title}</div>
             </div>
           ))}
 
@@ -2479,7 +2515,7 @@ export function GanttBoard() {
                 <a href={v.insp.adoHref} target="_blank" rel="noreferrer" title="Ouvrir dans Azure DevOps" aria-label="Ouvrir dans Azure DevOps" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;text-decoration:none")}>↗</a>
               )}
               <button onClick={v.insp.onDup} title={`Dupliquer (${modLabel}D)`} aria-label="Dupliquer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center")}><IconCopy size={13} /></button>
-              <button onClick={v.insp.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1")}>✕</button>
+              <button onClick={v.insp.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1")}><IconClose size={13} /></button>
             </div>
             <textarea key={"title" + v.insp.ado + ":" + v.insp.title} aria-label="Titre du ticket" defaultValue={v.insp.title} onBlur={v.insp.onTitle}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); } }}
@@ -2643,7 +2679,7 @@ export function GanttBoard() {
               <div style={C("font-size:14px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{v.personPanel.name}</div>
               {v.personPanel.poste && <div style={C("font-size:11px;color:var(--muted,#6b6b75)")}>{v.personPanel.poste}</div>}
             </div>
-            <button onClick={v.personPanel.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1;flex:0 0 auto")}>✕</button>
+            <button onClick={v.personPanel.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1;flex:0 0 auto")}><IconClose size={13} /></button>
           </div>
           <div style={C("padding:14px 18px;border-bottom:1px solid var(--line2,#f1f1f5);display:flex;flex-direction:column;gap:11px")}>
             <div>
@@ -2673,7 +2709,7 @@ export function GanttBoard() {
                 <input type="text" inputMode="decimal" key={"cap" + r.key + ":" + r.cap} defaultValue={String(r.cap)}
                   onBlur={r.onCommit} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
                   style={C(`width:52px;height:30px;text-align:center;border:1px solid var(--line,#e8e8ee);border-radius:var(--r-md,7px);background:var(--panel2,#fafafc);font-size:13px;font-weight:600;font-family:${mono};color:var(--ink,#1a1a20);outline:none;flex:0 0 auto;box-sizing:border-box`)} />
-                <span style={C(r.pctStyle)}>{r.pctText}</span>
+                <span style={C(r.pctStyle)}><LoadMark mark={r.pctMark} />{r.pctText}</span>
               </div>
             ))}
           </div>
@@ -2689,7 +2725,7 @@ export function GanttBoard() {
               <div style={C("font-size:14px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap")}>Matrice de capacité</div>
               <div style={C("font-size:11px;color:var(--muted,#6b6b75);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>capacité en jours ouvrés par membre et par itération · Tab pour passer à la cellule suivante · collage d'une plage Excel pris en charge</div>
               <div style={{ flex: 1 }} />
-              <button onClick={v.capMatrix.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1;flex:0 0 auto")}>✕</button>
+              <button onClick={v.capMatrix.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1;flex:0 0 auto")}><IconClose size={13} /></button>
             </div>
             <div style={C("overflow:auto;flex:1 1 auto")}>
               <table style={{ borderCollapse: "separate", borderSpacing: 0 }}>
@@ -2722,7 +2758,7 @@ export function GanttBoard() {
                             aria-label={`Capacité de ${r.name} — ${v.capMatrix!.cols.find((c) => c.key === cell.key)?.label}`}
                             onBlur={cell.onCommit} onPaste={cell.onPaste} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} onFocus={(e) => e.target.select()}
                             style={C(`width:52px;height:30px;text-align:center;border:1px solid var(--line,#e8e8ee);border-radius:var(--r-md,7px);background:var(--panel2,#fafafc);font-size:13px;font-weight:600;font-family:${mono};color:var(--ink,#1a1a20);outline:none;box-sizing:border-box`)} />
-                          <div style={C(cell.subStyle)}>{cell.subText}</div>
+                          <div style={C(cell.subStyle)}><LoadMark mark={cell.subMark} />{cell.subText}</div>
                         </td>
                       ))}
                     </tr>
@@ -2732,7 +2768,7 @@ export function GanttBoard() {
                     {v.capMatrix.totals.map((t) => (
                       <td key={t.key} style={C("position:sticky;bottom:0;background:var(--panel,#fff);border-top:1px solid var(--line,#e8e8ee);padding:9px 12px;text-align:center")}>
                         <div style={C(`font-size:11px;font-family:${mono};color:var(--ink,#1a1a20);white-space:nowrap`)}>{t.text}</div>
-                        <div style={C(t.pctStyle)}>{t.pctText}</div>
+                        <div style={C(t.pctStyle)}><LoadMark mark={t.pctMark} />{t.pctText}</div>
                       </td>
                     ))}
                   </tr>

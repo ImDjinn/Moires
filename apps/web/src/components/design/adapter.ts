@@ -2,10 +2,18 @@ import type { Capacity, MemberMeta, SessionSnapshot } from "@moires/shared";
 import type { Dataset, Item, Iter, Level, Person } from "./ganttModel";
 import { MONTHS_FR, currentIter, stateProgress } from "./ganttModel";
 
-// Teintes conservées, luminosité abaissée jusqu'à ≥ 4,5:1 avec des initiales
-// blanches (les valeurs d'origine tombaient entre 1,9:1 et 4,5:1).
-const PEOPLE_PALETTE = ["#5e61f1", "#0e8376", "#c35305", "#e0177a", "#0b7caf", "#8452f5", "#178640", "#e71414", "#916f05", "#047f94"];
-const EPIC_PALETTE = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9", "#8b5cf6"];
+// Palette catégorielle unique — personnes ET epics tirent dedans, dans cet ordre
+// fixe (jamais recyclé). Base Okabe-Ito, sûre en deutéranopie/protanopie parce
+// que sa luminosité varie d'une teinte à l'autre : à luminosité constante, le
+// cercle des teintes s'effondre en deutan et des couleurs équi-espacées
+// deviennent indiscernables. Deux valeurs sont décalées de moins de 2 % de
+// lightness (#D55E00 → #d85f00, #8b5cf6 → #8452f5) pour que les initiales
+// posées dessus passent l'AA. Vérifiée par contrastCheck.test.ts.
+export const CATEGORICAL = ["#0072B2", "#d85f00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9", "#8452f5"];
+// Au-delà de 7, la couleur n'ajoute plus rien : aucune palette ne garde des
+// paires distinctes en CVD au-delà de ~7-8 teintes. Les membres suivants
+// prennent un gris neutre et restent identifiés par leurs initiales.
+export const NEUTRAL_PERSON = "#627793";
 export const UNASSIGNED_ID = "__unassigned__";
 
 /** Initiales (2 max) d'un nom, pour les avatars. "?" si vide. */
@@ -78,7 +86,7 @@ export function buildDataset(
     role: metaById.get(m.id)?.poste ?? "", // "poste" = champ de couleur/regroupement
     teamRole: metaById.get(m.id)?.role ?? "",
     initials: initials(m.displayName),
-    color: PEOPLE_PALETTE[i % PEOPLE_PALETTE.length],
+    color: i < CATEGORICAL.length ? CATEGORICAL[i] : NEUTRAL_PERSON,
     cap: capFor(m.id),
   }));
 
@@ -87,7 +95,7 @@ export function buildDataset(
   const epics: Record<string, { label: string; short: string; color: string }> = {};
   let epicIdx = 0;
   const registerEpic = (id: string, label: string) => {
-    if (!epics[id]) epics[id] = { label, short: label.length > 16 ? label.slice(0, 15) + "…" : label, color: EPIC_PALETTE[epicIdx++ % EPIC_PALETTE.length] };
+    if (!epics[id]) epics[id] = { label, short: label.length > 16 ? label.slice(0, 15) + "…" : label, color: CATEGORICAL[epicIdx++ % CATEGORICAL.length] };
     else if (label && epics[id].label !== label) epics[id].label = label; // titre autoritatif
   };
   for (const t of snapshot.tickets) if (t.workItemType === "Epic") registerEpic(t.id, t.title);
@@ -137,7 +145,7 @@ export function buildDataset(
   });
 
   if (hasUnassigned) {
-    people.push({ id: UNASSIGNED_ID, name: "Non assigné", role: "", initials: "?", color: "#627793", cap: new Array(niter).fill(0), unassigned: true });
+    people.push({ id: UNASSIGNED_ID, name: "Non assigné", role: "", initials: "?", color: NEUTRAL_PERSON, cap: new Array(niter).fill(0), unassigned: true });
   }
 
   const storyToFeature: Record<string, string> = {};

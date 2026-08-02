@@ -54,6 +54,12 @@ describe("buildTree — groupement par Epic + statut/priorité + filtre", () => 
     expect(tree.map((n) => n.epic!.id)).toEqual(["EA", "ED", "EB"]);
   });
 
+  it("epicSortDir 'desc' inverse le critère mais garde le groupement par statut", () => {
+    const tree = M.buildTree(stateWith({ epicSort: "priority", epicSortDir: "desc" }));
+    // EA (prio 2) avant ED (prio 1) ; EB (à venir) reste après les « en cours ».
+    expect(tree.map((n) => n.epic!.id)).toEqual(["EA", "ED", "EB"]);
+  });
+
   it("filtre 'activeOnly' ne garde que les epics en cours", () => {
     const tree = M.buildTree(stateWith({ epicFilter: "activeOnly" }));
     expect(tree.map((n) => n.epic!.id).sort()).toEqual(["EA", "ED"]);
