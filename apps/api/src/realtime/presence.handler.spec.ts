@@ -3,16 +3,30 @@ import type { PresenceState } from "@moires/shared";
 
 function makeClient(data: any) {
   const emit = jest.fn();
-  return { client: { data, to: jest.fn().mockReturnValue({ emit }) }, emit };
+  return { client: { data, emit: jest.fn(), to: jest.fn().mockReturnValue({ emit }) }, emit };
 }
 
-function makeRedis() {
+// Sockets réellement dans la room (source de vérité de « qui est connecté »).
+function makeServer(userIds: string[] = []) {
+  return {
+    in: jest.fn().mockReturnValue({
+      fetchSockets: jest.fn().mockResolvedValue(userIds.map((userId) => ({ data: { userId } }))),
+    }),
+  };
+}
+
+function makeRedis(presences: PresenceState[] = []) {
   return {
     setPresence: jest.fn().mockResolvedValue(undefined),
     addParticipant: jest.fn().mockResolvedValue(undefined),
     removePresence: jest.fn().mockResolvedValue(undefined),
     removeParticipant: jest.fn().mockResolvedValue(undefined),
+    getPresences: jest.fn().mockResolvedValue(presences),
   };
+}
+
+function presence(userId: string): PresenceState {
+  return { userId, displayName: userId, color: "#FF6B6B", action: "idle", targetTicketId: null };
 }
 
 describe("PresenceHandler", () => {
@@ -21,7 +35,7 @@ describe("PresenceHandler", () => {
     const handler = new PresenceHandler(redis as any);
     const { client, emit } = makeClient({ sessionId: "s1", userId: "u1", displayName: "Alice" });
 
-    await handler.handleJoin({} as any, client as any);
+    await handler.handleJoin(makeServer(["u1"]) as any, client as any);
 
     expect(redis.setPresence).toHaveBeenCalled();
     expect(redis.addParticipant).toHaveBeenCalledWith("s1", "u1");
@@ -30,6 +44,20 @@ describe("PresenceHandler", () => {
       "presence:user-joined",
       expect.objectContaining({ userId: "u1", displayName: "Alice" }),
     );
+  });
+
+  it("handleJoin renvoie à l'arrivant les présences des sockets connectées, sans les fantômes Redis", async () => {
+    // u2 est connecté ; u3 a laissé une présence dans Redis (arrêt brutal de l'API).
+    const redis = makeRedis([presence("u1"), presence("u2"), presence("u3")]);
+    const handler = new PresenceHandler(redis as any);
+    const { client } = makeClient({ sessionId: "s1", userId: "u1", displayName: "Alice" });
+
+    await handler.handleJoin(makeServer(["u1", "u2"]) as any, client as any);
+
+    expect(client.emit).toHaveBeenCalledWith("presence:sync", [
+      expect.objectContaining({ userId: "u1" }),
+      expect.objectContaining({ userId: "u2" }),
+    ]);
   });
 
   it("handleUpdate persiste et diffuse presence:broadcast, en imposant l'identité de la socket", async () => {

@@ -7,7 +7,7 @@ import { RedisService } from "../database/redis.service";
 const COLORS = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD", "#98D8C8", "#F7DC6F"];
 let colorIdx = 0;
 
-const ACTIONS = new Set(["idle", "dragging", "resizing"]);
+const ACTIONS = new Set(["idle", "dragging", "resizing", "away"]);
 
 // Le payload WS arrive non typé : on reconstruit un PresenceState propre au lieu
 // de stocker/rebroadcaster l'objet reçu (champs arbitraires, chaînes énormes).
@@ -44,6 +44,17 @@ export class PresenceHandler {
     };
     await this.redis.setPresence(sessionId, presence);
     await this.redis.addParticipant(sessionId, userId);
+
+    // État courant renvoyé à l'arrivant : couvre la reconnexion (les user-left
+    // émis pendant la coupure sont perdus, le pair resterait compté à vie) et
+    // le snapshot REST, obtenu avant l'entrée dans la room. Les sockets
+    // réellement présentes font foi : un arrêt brutal de l'API laisse des
+    // présences fantômes dans Redis (aucun handleLeave ne s'exécute).
+    const sockets = await server.in(ROOM(sessionId)).fetchSockets();
+    const live = new Set(sockets.map((s) => s.data.userId));
+    const peers = (await this.redis.getPresences(sessionId)).filter((p) => live.has(p.userId));
+    client.emit("presence:sync", peers);
+
     client.to(ROOM(sessionId)).emit("presence:user-joined", {
       userId,
       displayName: presence.displayName,

@@ -8,7 +8,7 @@ import { useCapacitiesStore } from "../../stores/capacities.store";
 import { useMemberMetaStore } from "../../stores/memberMeta.store";
 import { usePresenceStore } from "../../stores/presence.store";
 import { connectSocket, submitOperation, setRejectionHandler, disconnectSocket } from "../../services/operations.client";
-import { initPresenceListeners, emitPresence } from "../../services/presence.client";
+import { initPresenceListeners, emitPresence, trackAway } from "../../services/presence.client";
 import { api } from "../../services/rest.client";
 import { buildDataset, UNASSIGNED_ID, initials } from "./adapter";
 import { Brand } from "../Brand";
@@ -1031,6 +1031,18 @@ export function GanttBoard() {
       .catch(() => {});
   }, [realSession, snapshot, user, setState]);
 
+  // Onglet masqué depuis un moment => grisé chez les autres, retour => actif.
+  useEffect(() => {
+    if (!realSession || !user) return;
+    return trackAway({
+      userId: user.id,
+      displayName: user.displayName,
+      color: myColor,
+      action: "idle",
+      targetTicketId: null,
+    });
+  }, [realSession, user, myColor]);
+
   // Écritures refusées (serveur ou ADO) : toast au lieu d'un échec silencieux.
   useEffect(() => {
     if (!realSession) return;
@@ -1260,13 +1272,22 @@ export function GanttBoard() {
     }));
     const presenceSrc = realSession
       ? [
-          { initials: initials(user!.displayName), name: `${user!.displayName} (vous)`, color: myColor },
-          ...peers.map((p) => ({ initials: initials(p.displayName), name: p.displayName, color: p.color })),
+          { initials: initials(user!.displayName), name: `${user!.displayName} (vous)`, color: myColor, away: false },
+          ...peers.map((p) => {
+            const away = p.action === "away";
+            return {
+              initials: initials(p.displayName),
+              name: away ? `${p.displayName} (inactif)` : p.displayName,
+              color: p.color,
+              away,
+            };
+          }),
         ]
-      : M.presenceList;
+      : M.presenceList.map((p) => ({ ...p, away: false }));
     const presence = presenceSrc.map((p, i) => ({
       initials: p.initials, name: p.name,
-      style: `width:26px;height:26px;border-radius:50%;background:${p.color};color:${M.onColor(p.color)};font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;border:2px solid var(--panel,#fff);margin-left:${i ? -7 : 0}px`,
+      style: `width:26px;height:26px;border-radius:50%;background:${p.color};color:${M.onColor(p.color)};font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;border:2px solid var(--panel,#fff);margin-left:${i ? -7 : 0}px` +
+        (p.away ? ";opacity:.4;filter:grayscale(1)" : ""),
     }));
     const onlineLabel = realSession ? `${peers.length + 1} en ligne` : "3 en ligne";
 

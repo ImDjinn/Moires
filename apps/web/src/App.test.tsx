@@ -27,6 +27,7 @@ vi.mock("./services/operations.client", () => ({
 vi.mock("./services/presence.client", () => ({
   initPresenceListeners: vi.fn(),
   emitPresence: vi.fn(),
+  trackAway: vi.fn(() => () => {}),
 }));
 
 function mockAuthMe(response: { ok: boolean; body?: unknown }) {

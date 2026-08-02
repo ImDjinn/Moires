@@ -12,6 +12,7 @@ export interface ServerToClient {
   "operation:applied": (op: Operation & { serverTimestamp: number }) => void;
   "operation:rejected": (payload: { op: Operation; reason: string }) => void;
   "presence:broadcast": (p: PresenceState) => void;
+  "presence:sync": (peers: PresenceState[]) => void;
   "presence:user-joined": (p: Pick<PresenceState, "userId" | "displayName" | "color">) => void;
   "presence:user-left": (payload: { userId: string }) => void;
   "ticket:sync-status": (payload: { ticketId: string; syncStatus: "synced" | "error"; adoRev?: number }) => void;

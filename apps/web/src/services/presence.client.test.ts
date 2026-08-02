@@ -12,7 +12,7 @@ const fakeSocket = {
 
 vi.mock("./operations.client", () => ({ getSocket: () => fakeSocket }));
 
-import { initPresenceListeners, emitPresence } from "./presence.client";
+import { initPresenceListeners, emitPresence, trackAway, AWAY_MS } from "./presence.client";
 
 function peer(partial: Partial<PresenceState>): PresenceState {
   return {
@@ -45,6 +45,77 @@ describe("presence.client — écouteurs", () => {
 
     handlers["presence:user-left"]({ userId: "u2" });
     expect(usePresenceStore.getState().peers).toHaveLength(0);
+  });
+
+  it("presence:sync remplace la liste (resynchronisation après reconnexion)", () => {
+    initPresenceListeners();
+
+    handlers["presence:user-joined"]({ userId: "ghost", displayName: "Parti", color: "#000" });
+    handlers["presence:sync"]([peer({ userId: "u2", displayName: "Bob" })]);
+
+    expect(usePresenceStore.getState().peers).toEqual([expect.objectContaining({ userId: "u2" })]);
+  });
+});
+
+describe("presence.client — inactivité d'onglet", () => {
+  function setHidden(hidden: boolean) {
+    Object.defineProperty(document, "hidden", { value: hidden, configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }
+
+  it("passe away après AWAY_MS d'onglet masqué, redevient idle au retour", () => {
+    vi.useFakeTimers();
+    setHidden(false);
+    const stop = trackAway(peer({ userId: "me" }));
+    fakeSocket.emit.mockClear(); // émission initiale (onglet visible au montage)
+
+    setHidden(true);
+    vi.advanceTimersByTime(AWAY_MS - 1);
+    expect(fakeSocket.emit).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(fakeSocket.emit).toHaveBeenCalledWith(
+      "presence:update",
+      expect.objectContaining({ userId: "me", action: "away", cursor: undefined }),
+    );
+
+    setHidden(false);
+    expect(fakeSocket.emit).toHaveBeenLastCalledWith(
+      "presence:update",
+      expect.objectContaining({ action: "idle" }),
+    );
+
+    stop();
+    vi.useRealTimers();
+  });
+
+  it("un aller-retour rapide sur l'onglet ne déclenche pas away", () => {
+    vi.useFakeTimers();
+    setHidden(false);
+    const stop = trackAway(peer({ userId: "me" }));
+
+    setHidden(true);
+    vi.advanceTimersByTime(AWAY_MS / 2);
+    setHidden(false);
+    fakeSocket.emit.mockClear();
+    vi.advanceTimersByTime(AWAY_MS);
+
+    expect(fakeSocket.emit).not.toHaveBeenCalled();
+    stop();
+    vi.useRealTimers();
+  });
+
+  it("le désabonnement annule le minuteur en cours", () => {
+    vi.useFakeTimers();
+    setHidden(false);
+    const stop = trackAway(peer({ userId: "me" }));
+    setHidden(true);
+    stop();
+    fakeSocket.emit.mockClear();
+    vi.advanceTimersByTime(AWAY_MS * 2);
+
+    expect(fakeSocket.emit).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });
 
