@@ -140,6 +140,31 @@ const STATUS_TAGS: [string, string | null][] = [
   ["terminé", "#009E73"],
 ];
 
+// Tri des personnes : axe (select) + sens (bouton), comme le tri des epics en
+// Release. state.sort reste une valeur unique côté modèle (az/za/loadAsc/…).
+const SORT_AXES = [
+  { value: "name", label: "Nom", asc: "az", desc: "za" },
+  { value: "load", label: "Charge", asc: "loadAsc", desc: "loadDesc" },
+  { value: "gap", label: "Écart charge/capa", asc: "gapAsc", desc: "gapDesc" },
+  { value: "random", label: "Aléatoire", asc: "random", desc: "random" },
+];
+
+// Axe et sens du tri (personnes et epics) — persistés entre les sessions.
+export const SORT_KEY = "moires.sort";
+export function loadSort(): Partial<State> | undefined {
+  try {
+    const v = JSON.parse(localStorage.getItem(SORT_KEY) || "null");
+    if (!v || typeof v !== "object") return undefined;
+    const out: Partial<State> = {};
+    if (SORT_AXES.some((a) => a.asc === v.sort || a.desc === v.sort)) out.sort = v.sort;
+    if (typeof v.epicSort === "string") out.epicSort = v.epicSort;
+    if (v.epicSortDir === "asc" || v.epicSortDir === "desc") out.epicSortDir = v.epicSortDir;
+    return out;
+  } catch {
+    return undefined;
+  }
+}
+
 interface ScriptAction {
   id: string;
   by: Presence;
@@ -178,7 +203,7 @@ export function GanttBoard() {
   // Personne du board correspondant au compte connecté (vue @me).
   const myPersonId = user ? resolveMyPersonId(user, M.people) : null;
 
-  const [state, setSt] = useState<State>(() => ({ ...M.createInitialState(dataset ? dataset.items : undefined), hidden: loadHidden(), ...loadBoard() }));
+  const [state, setSt] = useState<State>(() => ({ ...M.createInitialState(dataset ? dataset.items : undefined), hidden: loadHidden(), ...loadBoard(), ...loadSort() }));
   const stateRef = useRef(state);
   stateRef.current = state;
   // Persiste la sélection des utilisateurs (personnes masquées) entre les sessions.
@@ -187,6 +212,11 @@ export function GanttBoard() {
   useEffect(() => {
     try { localStorage.setItem(BOARD_KEY, state.board); } catch { /* stockage indisponible */ }
   }, [state.board]);
+  // Persiste l'axe et le sens du tri (personnes et epics).
+  useEffect(() => {
+    const v = { sort: state.sort, epicSort: state.epicSort, epicSortDir: state.epicSortDir };
+    try { localStorage.setItem(SORT_KEY, JSON.stringify(v)); } catch { /* stockage indisponible */ }
+  }, [state.sort, state.epicSort, state.epicSortDir]);
   // Inactifs masqués par défaut, une seule fois : un id déjà présent dans `hidden`
   // (true ou false) est un choix explicite de l'utilisateur, jamais réécrit.
   useEffect(() => {
@@ -1480,7 +1510,7 @@ export function GanttBoard() {
 
     // release-only
     type TreeRow = Record<string, unknown>;
-    let treeRows: TreeRow[] = [], loadBand: Record<string, unknown>[] = [], loadLegend: Record<string, string>[] = [], milestones: Record<string, unknown>[] = [],
+    let treeRows: TreeRow[] = [], loadBand: Record<string, unknown>[] = [], milestones: Record<string, unknown>[] = [],
       relCards: Record<string, unknown>[] = [], relBands: { style: string }[] = [], relEpics: Record<string, unknown>[] = [], relRowPins: Record<string, unknown>[] = [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let relMetrics: Record<string, any> | null = null, relWaterline: Record<string, string> | null = null;
@@ -1557,7 +1587,7 @@ export function GanttBoard() {
           sub, subTitle, dotColor: r.accent,
           onDoubleClick: () => addFlag(r.key!, flagIter),
           ado: "", badge: "", title: "", adoStyle: "display:none", badgeStyle: "display:none",
-          chevStyle: `font-size:12px;color:var(--ink,#1a1a20);width:14px;flex:0 0 auto;cursor:${r.hasChildren ? "pointer" : "default"};text-align:center`,
+          chevStyle: `font-size:17px;color:var(--ink,#1a1a20);width:18px;flex:0 0 auto;cursor:${r.hasChildren ? "pointer" : "default"};text-align:center`,
           leftStyle: `position:absolute;left:0;top:${r.top}px;width:${M.LEFT}px;height:${r.height}px;background:${sel && r.item && sel === r.item.id ? "var(--accentsoft,#ececfb)" : isFeat ? "var(--panel,#fff)" : "var(--panel2,#fafafc)"};border-right:1px solid var(--line,#e8e8ee);border-bottom:1px solid var(--line2,#f1f1f5);padding:0 12px 0 ${indent}px;z-index:32;box-sizing:border-box;display:flex;align-items:center;gap:8px${hidden ? ";opacity:.45;filter:grayscale(1)" : ""}`,
           sepStyle: `position:absolute;left:0;top:${r.top + r.height}px;width:${TW}px;height:1px;background:var(--gridline,#ececf1);z-index:5`,
           // Ligne adossée à un work item ADO → ouvre son panneau (le chevron reste
@@ -1687,12 +1717,6 @@ export function GanttBoard() {
         });
       });
 
-      // Legende de la bande de charge (une seule pour toutes les colonnes).
-      loadLegend = M.loadBandLegend(state, cols, theme).map((k) => ({
-        label: k.label,
-        total: `${M.fmt(k.val)}j`,
-        swatchStyle: `width:10px;height:10px;flex:0 0 auto;border-radius:3px;background:${k.color}`,
-      }));
       loadBand = M.relLoadBand(state, cols, theme).map((b, vi) => {
         const left = M.LEFT + vi * COLW, over = b.total > b.cap;
         const denom = Math.max(b.cap, b.total, 1);
@@ -1809,6 +1833,9 @@ export function GanttBoard() {
       return [...seen].map(([value, label]) => ({ value, label }));
     })();
 
+    const sortAxis = SORT_AXES.find((a) => a.asc === state.sort || a.desc === state.sort) || SORT_AXES[0];
+    const sortAsc = state.sort !== sortAxis.desc;
+
     // « Non assigné » est une ligne du board, pas un membre : exclu des compteurs.
     const members = M.people.filter((p) => !p.unassigned);
     const visiblePeople = members.filter((p) => !state.hidden[p.id]).length;
@@ -1834,9 +1861,16 @@ export function GanttBoard() {
       currentLabel: M.iters[M.CURRENT].label, currentDates: M.iters[M.CURRENT].dates,
       levels,
       isDaily: daily,
-      sortValue: state.sort,
-      sortOptions: [{ value: "az", label: "Nom A→Z" }, { value: "za", label: "Nom Z→A" }, { value: "loadDesc", label: "Charge ↓" }, { value: "loadAsc", label: "Charge ↑" }, { value: "gapDesc", label: "Écart charge/capa ↓" }, { value: "gapAsc", label: "Écart charge/capa ↑" }, { value: "random", label: "Aléatoire" }],
-      onSort: (e: React.ChangeEvent<HTMLSelectElement>) => { const val = e.target.value; if (val === "random") M.resetRandOrder(); setState({ sort: val }); },
+      sortValue: sortAxis.value,
+      sortOptions: SORT_AXES.map(({ value, label }) => ({ value, label })),
+      onSort: (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const ax = SORT_AXES.find((a) => a.value === e.target.value)!;
+        if (ax.value === "random") M.resetRandOrder();
+        setState({ sort: sortAsc ? ax.asc : ax.desc });
+      },
+      sortAsc,
+      showSortDir: sortAxis.value !== "random",
+      onSortDir: () => setState({ sort: sortAsc ? sortAxis.desc : sortAxis.asc }),
       onShuffle: () => { M.resetRandOrder(); setState({ sort: "random" }); },
       shuffleStyle: `width:28px;height:28px;flex:0 0 auto;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center`,
       peopleOpen: state.peopleOpen,
@@ -1871,7 +1905,7 @@ export function GanttBoard() {
       loadByValue: state.loadBy,
       loadByOptions: [{ value: "person", label: "Personne" }, { value: "role", label: "Poste" }, { value: "none", label: "Global" }],
       onLoadBy: (e: React.ChangeEvent<HTMLSelectElement>) => setState({ loadBy: e.target.value as State["loadBy"] }),
-      treeRows, loadBand, loadLegend, milestones, milestoneEditor,
+      treeRows, loadBand, milestones, milestoneEditor,
       relCards, relBands, relEpics, relRowPins, rowPinEditor, relMetrics,
       // Assigné dans le .map des lignes (invisible pour le narrowing TS).
       relWaterline: relWaterline as Record<string, string> | null,
@@ -2226,21 +2260,6 @@ export function GanttBoard() {
         />
       )}
 
-      {/* Légende de la bande de charge Release : la bande est un empilement,
-          sans elle l'identité des segments ne tient qu'à leur couleur. */}
-      {!!v.loadLegend.length && (
-        <div style={C("flex:0 0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:7px 18px;border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff)")}>
-          <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c)")}>Charge par {v.loadByValue === "role" ? "poste" : "personne"}</span>
-          {v.loadLegend.map((k, i) => (
-            <span key={i} style={C("display:flex;align-items:center;gap:6px;min-width:0")}>
-              <span style={C(k.swatchStyle)} />
-              <span style={C("font-size:11px;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{k.label}</span>
-              <span style={C(`font-size:10px;font-family:${mono};color:var(--faint,#71717c);flex:0 0 auto`)}>{k.total}</span>
-            </span>
-          ))}
-        </div>
-      )}
-
       {/* Canvas */}
       {!v.isMe && (
       <div ref={v.onScrollRef} onPointerDown={onPanDown} onPointerMove={onPanMove} onPointerUp={onPanEnd} onPointerCancel={onPanEnd} onClickCapture={onPanClickCapture} style={C("flex:1;position:relative;overflow:auto;background:var(--canvas,#f4f4f7);cursor:grab")}>
@@ -2349,6 +2368,9 @@ export function GanttBoard() {
                   <select value={v.sortValue} onChange={v.onSort} aria-label="Tri des personnes" style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
                     {v.sortOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
+                  {v.showSortDir && (
+                    <button onClick={v.onSortDir} aria-label={`Sens du tri : ${v.sortAsc ? "croissant" : "décroissant"}`} title="Inverser le sens du tri" style={C(v.shuffleStyle)}>{v.sortAsc ? "↑" : "↓"}</button>
+                  )}
                   <button onClick={v.onShuffle} aria-label="Tri aléatoire" title="Tri aléatoire (relance à chaque clic)" style={C(v.shuffleStyle)}>↻</button>
                 </div>
               )}

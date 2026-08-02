@@ -925,8 +925,8 @@ function releaseLayout(s: State, COLW: number): Layout {
     const eColor = (node.epic ? epics[node.epic.id]?.color : null) || "#64748b";
     const hasChildren = node.features.length > 0 || node.stories.length > 0;
     // Le nom occupe la colonne de gauche : la ligne s'agrandit s'il dépasse
-    // 2 lignes (63/79 = indentation + chevron + pastille + paddings).
-    const eh = cardHeight(nodeName(node), LEFT - 63, RELPARENT, 2);
+    // 2 lignes (67/83 = indentation + chevron + pastille + paddings).
+    const eh = cardHeight(nodeName(node), LEFT - 67, RELPARENT, 2);
     rows.push({ kind: "epic", depth: 0, key: ekey, item: node.epic ?? undefined, epicName: nodeName(node), hasChildren, open: eopen, count: node.features.length, us: epicUS, accent: eColor, range: node.range, top: y, height: eh });
     y += eh;
     if (!eopen) return;
@@ -940,7 +940,7 @@ function releaseLayout(s: State, COLW: number): Layout {
       // intervalle vide (donc aucune barre) dès que la feature sortait des dates
       // de l'epic : l'écart est justement l'information à voir.
       const fr = featRange(s, f.item);
-      const fh = cardHeight(f.item.ado + "  " + f.item.title, LEFT - 79, RELPARENT, 2);
+      const fh = cardHeight(f.item.ado + "  " + f.item.title, LEFT - 83, RELPARENT, 2);
       rows.push({ kind: "feature", depth: 1, key: f.item.id, item: f.item, hasChildren: f.stories.length > 0, open: fopen, us: fUS, accent: ep.color || "#0072B2", epicShort: ep.short || "", range: fr, top: y, height: fh });
       y += fh;
       if (!fopen) return;
