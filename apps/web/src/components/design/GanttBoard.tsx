@@ -697,9 +697,11 @@ export function GanttBoard() {
           s0 = Math.max(first, Math.min(last - span, d.os + delta));
           en = s0 + span;
         }
-        setState({ drag: null });
-        // Simple clic (sans déplacement) → pas de writeback inutile.
-        if (s0 !== d.os || en !== d.oe) setFeatRange(d.id, s0, en);
+        // Simple clic (sans déplacement) → pas de writeback inutile, on ouvre
+        // le panneau de l'epic/feature (comme un clic sur une carte).
+        const moved = s0 !== d.os || en !== d.oe;
+        setState(moved ? { drag: null } : { drag: null, selectedId: d.id });
+        if (moved) setFeatRange(d.id, s0, en);
         return;
       }
       // Simple clic (pas de déplacement) → sélectionne le ticket. La sélection
@@ -1234,6 +1236,20 @@ export function GanttBoard() {
     const item = state.items.find((x) => x.id === sel);
     function buildInsp(item: Item) {
       const cm = M.colorMap(item.type, theme);
+      // Chaîne des parents, du plus haut au plus proche (Epic › Feature › US) :
+      // remontée par `parent`, complétée par `epicId` quand la Feature parente
+      // est hors du périmètre synchronisé.
+      const byId = new Map(state.items.map((x) => [x.id, x]));
+      const ancestors: Item[] = [];
+      const seen = new Set<string>([item.id]);
+      let cur: Item | undefined = item;
+      while (cur) {
+        const up: Item | undefined = (cur.parent ? byId.get(cur.parent) : undefined) || (cur.level !== "epic" && cur.epicId ? byId.get(cur.epicId) : undefined);
+        if (!up || seen.has(up.id)) break;
+        seen.add(up.id);
+        ancestors.unshift(up);
+        cur = up;
+      }
       const isTask = item.level === "task";
       const wit = witOf(item);
       const tp = typePrefsOf(prefs, wit);
@@ -1247,7 +1263,10 @@ export function GanttBoard() {
         badgeStyle: `font-size:10px;font-weight:600;padding:2px 7px;border-radius:6px;background:${cm.border};color:${cm.text}`,
         // Commit au blur (pas à chaque frappe) : évite un write-back ADO par caractère.
         title: item.title, onTitle: (e: React.FocusEvent<HTMLTextAreaElement>) => { const val = e.target.value.trim(); if (!val) { e.target.value = item.title; return; } if (val !== item.title) setField(item.id, "title", val); },
-        hasParent: !!item.parent, parentLabel: item.parent ? `${item.parent} · ${M.titleOf[item.parent] || ""}` : "",
+        parents: ancestors.map((p, i) => ({
+          id: p.id, label: `${p.ado} · ${p.title}`, typeLabel: M.typeLabels[p.type] || p.type, indent: i * 11,
+          onClick: (e: React.MouseEvent) => { e.stopPropagation(); setState({ selectedId: p.id }); },
+        })),
         states: M.dailyStates(item.level).map((k) => {
           const active = item.state === k, col = M.stateColors[k];
           return { label: k, onClick: () => setField(item.id, "state", k), style: `padding:7px 9px;border-radius:7px;border:1px solid ${active ? col : "var(--line,#e8e8ee)"};background:${active ? col : "var(--panel2,#fafafc)"};color:${active ? "#fff" : "var(--muted,#86868f)"};font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis` };
@@ -1486,15 +1505,17 @@ export function GanttBoard() {
           isArea: true, isFeat, key: r.key, hasChildren: r.hasChildren, open: r.open, statusTag, statusStyle, statusTitle, prio, stat, statTitle,
           hidden, hideTitle: hidden ? "Réafficher (compter dans la charge)" : "Masquer (exclure de la charge)",
           onToggleHidden: (e: React.MouseEvent) => { e.stopPropagation(); toggleRowHidden(r.key!); },
-          chevron: r.open ? "▾" : r.hasChildren ? "▸" : "", onToggle: () => { if (r.hasChildren) toggleNode(r.key!); },
+          chevron: r.open ? "▾" : r.hasChildren ? "▸" : "", onToggle: (e: React.MouseEvent) => { e.stopPropagation(); if (r.hasChildren) toggleNode(r.key!); },
           name: isFeat ? r.item!.ado + "  " + r.item!.title : r.epicName || "(Sans epic)",
           sub, subTitle, dotColor: r.accent,
           onDoubleClick: () => addFlag(r.key!, flagIter),
           ado: "", badge: "", title: "", adoStyle: "display:none", badgeStyle: "display:none",
-          chevStyle: `font-size:9px;color:var(--muted,#86868f);width:14px;flex:0 0 auto;cursor:${r.hasChildren ? "pointer" : "default"};text-align:center`,
-          leftStyle: `position:absolute;left:0;top:${r.top}px;width:${M.LEFT}px;height:${r.height}px;background:${isFeat ? "var(--panel,#fff)" : "var(--panel2,#fafafc)"};border-right:1px solid var(--line,#e8e8ee);border-bottom:1px solid var(--line2,#f0f0f4);padding:0 12px 0 ${indent}px;z-index:32;box-sizing:border-box;display:flex;align-items:center;gap:8px${hidden ? ";opacity:.45;filter:grayscale(1)" : ""}`,
+          chevStyle: `font-size:12px;color:var(--ink,#1a1a20);width:14px;flex:0 0 auto;cursor:${r.hasChildren ? "pointer" : "default"};text-align:center`,
+          leftStyle: `position:absolute;left:0;top:${r.top}px;width:${M.LEFT}px;height:${r.height}px;background:${sel && r.item && sel === r.item.id ? "var(--accentsoft,#ececfb)" : isFeat ? "var(--panel,#fff)" : "var(--panel2,#fafafc)"};border-right:1px solid var(--line,#e8e8ee);border-bottom:1px solid var(--line2,#f0f0f4);padding:0 12px 0 ${indent}px;z-index:32;box-sizing:border-box;display:flex;align-items:center;gap:8px${hidden ? ";opacity:.45;filter:grayscale(1)" : ""}`,
           sepStyle: `position:absolute;left:0;top:${r.top + r.height}px;width:${TW}px;height:1px;background:var(--gridline,#ececf1);z-index:5`,
-          onClick: () => { if (r.hasChildren) toggleNode(r.key!); },
+          // Ligne adossée à un work item ADO → ouvre son panneau (le chevron reste
+          // dédié au pli/dépli). Nœud « (Sans epic) » : pas d'item, on plie.
+          onClick: () => { if (r.item) setState({ selectedId: r.item.id }); else if (r.hasChildren) toggleNode(r.key!); },
         };
       });
 
@@ -1710,6 +1731,18 @@ export function GanttBoard() {
       return [...seen].map(([value, label]) => ({ value, label }));
     })();
 
+    // Champs ADO custom portés par les Epics — proposés comme axes de tri Release.
+    const epicCustomSorts = (() => {
+      const seen = new Map<string, string>();
+      state.items.forEach((it) => {
+        if (it.level !== "epic") return;
+        Object.entries(it.custom || {}).forEach(([k, val]) => {
+          if (val !== null && val !== "" && !seen.has(k)) seen.set(k, k.split(".").pop() || k);
+        });
+      });
+      return [...seen].map(([value, label]) => ({ value, label }));
+    })();
+
     // « Non assigné » est une ligne du board, pas un membre : exclu des compteurs.
     const members = M.people.filter((p) => !p.unassigned);
     const visiblePeople = members.filter((p) => !state.hidden[p.id]).length;
@@ -1778,8 +1811,8 @@ export function GanttBoard() {
       relWaterline: relWaterline as Record<string, string> | null,
       onAddMilestone: () => addMilestone(),
       epicSort: state.epicSort,
-      epicSortOptions: [{ value: "priority", label: "Priorité" }, { value: "name", label: "Nom" }, { value: "effort", label: "Somme de l'effort" }],
-      onEpicSort: (e: React.ChangeEvent<HTMLSelectElement>) => setState({ epicSort: e.target.value as State["epicSort"] }),
+      epicSortOptions: [{ value: "priority", label: "Priorité" }, { value: "name", label: "Nom" }, { value: "effort", label: "Somme de l'effort" }, ...epicCustomSorts],
+      onEpicSort: (e: React.ChangeEvent<HTMLSelectElement>) => setState({ epicSort: e.target.value }),
       epicFilter: state.epicFilter,
       epicFilterOptions: [{ value: "all", label: "Tous les epics" }, { value: "hideDone", label: "Masquer terminés" }, { value: "activeOnly", label: "Actifs seulement" }],
       onEpicFilter: (e: React.ChangeEvent<HTMLSelectElement>) => setState({ epicFilter: e.target.value as State["epicFilter"] }),
@@ -2141,10 +2174,10 @@ export function GanttBoard() {
             <div style={C(v.leftPanelStyle)} />
             {(v.treeRows as Record<string, any>[]).map((row, i) => (
               <div key={"tr" + i} onClick={row.onClick} onDoubleClick={row.onDoubleClick}
-                role={row.hasChildren ? "button" : undefined} tabIndex={row.hasChildren ? 0 : undefined}
+                role={row.onClick ? "button" : undefined} tabIndex={row.onClick ? 0 : undefined}
                 aria-expanded={row.hasChildren ? row.open : undefined}
-                onKeyDown={row.hasChildren ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); row.onClick(); } } : undefined}
-                title={row.onDoubleClick ? "Double-cliquer pour poser un flag" : undefined} style={C(row.leftStyle)}>
+                onKeyDown={row.onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); row.onClick(); } } : undefined}
+                title={row.onDoubleClick ? "Cliquer pour ouvrir le panneau · double-clic pour poser un flag" : undefined} style={C(row.leftStyle)}>
                 <span onClick={row.onToggle} style={C(row.chevStyle)}>{row.chevron}</span>
                 {row.isArea && (
                   <>
@@ -2397,7 +2430,17 @@ export function GanttBoard() {
             <textarea key={"title" + v.insp.ado + ":" + v.insp.title} aria-label="Titre du ticket" defaultValue={v.insp.title} onBlur={v.insp.onTitle}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); } }}
               rows={2} style={C("margin-top:11px;width:100%;border:none;background:transparent;resize:none;font-size:16px;font-weight:600;line-height:1.3;color:var(--ink,#1a1a20);outline:none;padding:0")} />
-            {v.insp.hasParent && <div style={C("margin-top:6px;font-size:11px;color:var(--muted,#86868f);display:flex;align-items:center;gap:5px")}>↳ {v.insp.parentLabel}</div>}
+            {v.insp.parents.length > 0 && (
+              <div style={C("margin-top:6px;display:flex;flex-direction:column;gap:2px")}>
+                {v.insp.parents.map((p) => (
+                  <button key={p.id} onClick={p.onClick} title={`${p.typeLabel} — ouvrir son panneau`}
+                    style={C(`margin-left:${p.indent}px;border:none;background:transparent;padding:0;text-align:left;font-size:11px;color:var(--muted,#86868f);cursor:pointer;display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis`)}>
+                    <span style={C("flex:0 0 auto")}>↳</span>
+                    <span style={C("overflow:hidden;text-overflow:ellipsis")}>{p.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           {/* Popover personnalisation des champs — réglage par type de work item */}
           {v.insp.prefsOpen && (

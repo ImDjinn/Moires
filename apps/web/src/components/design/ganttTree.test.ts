@@ -21,8 +21,8 @@ const snapshot: SessionSnapshot = {
     { id: "3", name: "S3", path: "P\\3", startDate: "2020-03-01", finishDate: "2020-03-14" },
   ],
   tickets: [
-    t({ id: "EA", title: "En cours 2", startDate: "2020-01-05", targetDate: "2020-02-10", priority: 2 }), // [0,1] en cours
-    t({ id: "ED", title: "En cours 1", startDate: "2020-01-05", targetDate: "2020-01-10", priority: 1 }), // [0,0] en cours
+    t({ id: "EA", title: "En cours 2", startDate: "2020-01-05", targetDate: "2020-02-10", priority: 2, customFields: { "Custom.Valeur": 8 } }), // [0,1] en cours
+    t({ id: "ED", title: "En cours 1", startDate: "2020-01-05", targetDate: "2020-01-10", priority: 1, customFields: { "Custom.Valeur": 3 } }), // [0,0] en cours
     t({ id: "EB", title: "À venir", startDate: "2020-02-05", targetDate: "2020-03-10", priority: 1 }),     // [1,2] à venir
   ],
 };
@@ -44,6 +44,12 @@ describe("buildTree — groupement par Epic + statut/priorité + filtre", () => 
     // ED (en cours, prio 1) < EA (en cours, prio 2) < EB (à venir)
     expect(tree.map((n) => n.epic!.id)).toEqual(["ED", "EA", "EB"]);
     expect(tree.map((n) => n.bucket)).toEqual([0, 0, 2]); // cf. M.statusBucket
+  });
+
+  it("tri sur un champ custom de l'Epic : numérique décroissant, absents en dernier", () => {
+    const tree = M.buildTree(stateWith({ epicSort: "Custom.Valeur" }));
+    // EA (8) < ED (3) dans le bucket « en cours » ; EB (sans valeur) reste à venir.
+    expect(tree.map((n) => n.epic!.id)).toEqual(["EA", "ED", "EB"]);
   });
 
   it("filtre 'activeOnly' ne garde que les epics en cours", () => {

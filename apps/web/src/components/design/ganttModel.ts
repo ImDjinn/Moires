@@ -103,8 +103,9 @@ export interface State {
   hideClosed: boolean;
   /** Release : filtre sur les Epics. */
   epicFilter: "all" | "hideDone" | "activeOnly";
-  /** Release : tri des Epics à l'intérieur des groupes de statut. */
-  epicSort: "priority" | "name" | "effort";
+  /** Release : tri des Epics à l'intérieur des groupes de statut —
+   * "priority" | "name" | "effort", ou le referenceName d'un champ ADO custom. */
+  epicSort: string;
   containerW: number;
   containerH: number;
   rangeFrom: number;
@@ -601,6 +602,18 @@ const nodeName = (n: TreeNode) => (n.epic ? n.epic.title : "(Sans epic)");
 const nodeEffort = (n: TreeNode) => nodeStories(n).reduce((s, it) => s + effortOf(it), 0);
 
 /**
+ * Tri sur un champ ADO custom de l'Epic : nombres décroissants (comme l'effort),
+ * textes alphabétiques, valeurs absentes en dernier.
+ */
+function cmpCustom(a: TreeNode, b: TreeNode, ref: string): number {
+  const va = a.epic?.custom?.[ref], vb = b.epic?.custom?.[ref];
+  const ea = va == null || va === "", eb = vb == null || vb === "";
+  if (ea || eb) return ea && eb ? 0 : ea ? 1 : -1;
+  if (typeof va === "number" && typeof vb === "number") return vb - va;
+  return String(va).localeCompare(String(vb), "fr");
+}
+
+/**
  * Statut d'un parent (epic/feature) — sert au tri, au filtre et au tag.
  * 0 = en cours, 1 = semi-actif, 2 = à venir, 3 = terminé, 4 = sans date.
  *
@@ -672,6 +685,7 @@ export function buildTree(s: State): TreeNode[] {
     if (a.bucket !== b.bucket) return a.bucket - b.bucket;
     if (s.epicSort === "name") return nodeName(a).localeCompare(nodeName(b), "fr");
     if (s.epicSort === "effort") return nodeEffort(b) - nodeEffort(a) || nodeName(a).localeCompare(nodeName(b), "fr");
+    if (s.epicSort !== "priority") return cmpCustom(a, b, s.epicSort) || nodeName(a).localeCompare(nodeName(b), "fr");
     const pa = a.epic?.priority ?? 999, pb = b.epic?.priority ?? 999;
     if (pa !== pb) return pa - pb;
     return (a.range?.[0] ?? 99) - (b.range?.[0] ?? 99) || nodeName(a).localeCompare(nodeName(b), "fr");
