@@ -8,7 +8,7 @@ import { useCapacitiesStore } from "../../stores/capacities.store";
 import { useMemberMetaStore } from "../../stores/memberMeta.store";
 import { usePresenceStore } from "../../stores/presence.store";
 import { connectSocket, submitOperation, setRejectionHandler, disconnectSocket } from "../../services/operations.client";
-import { initPresenceListeners, emitPresence, trackAway } from "../../services/presence.client";
+import { initPresenceListeners, trackAway } from "../../services/presence.client";
 import { api } from "../../services/rest.client";
 import { buildDataset, UNASSIGNED_ID, initials } from "./adapter";
 import { Brand } from "../Brand";
@@ -485,24 +485,6 @@ export function GanttBoard() {
       sync("Profil mis à jour");
     },
     [setState, sync],
-  );
-
-  // Émet la position du curseur aux autres participants (throttlé côté client).
-  const emitCursor = useCallback(
-    (e: React.PointerEvent) => {
-      if (!realSessionRef.current || !user) return;
-      const rect = canvasRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      emitPresence({
-        userId: user.id,
-        displayName: user.displayName,
-        color: myColor,
-        action: stateRef.current.drag ? "dragging" : "idle",
-        targetTicketId: stateRef.current.selectedId,
-        cursor: { x: e.clientX - rect.left, y: e.clientY - rect.top },
-      });
-    },
-    [user, myColor],
   );
 
   // ---- mutations ----
@@ -2230,7 +2212,7 @@ export function GanttBoard() {
         <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label="Éditer le flag" style={C(annotEditorStyle + ";outline:none")}>
           <div style={C("display:flex;align-items:center;justify-content:space-between;margin-bottom:11px")}>
             <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c)")}><IconFlag size={11} /> Flag</span>
-            <button onClick={v.rowPinEditor.onClose} aria-label="Fermer" style={C("width:24px;height:24px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:14px;line-height:1")}><IconClose size={13} /></button>
+            <button onClick={v.rowPinEditor.onClose} aria-label="Fermer" style={C("width:24px;height:24px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center")}><IconClose size={13} /></button>
           </div>
           <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>Libellé</div>
           <input value={v.rowPinEditor.title} onChange={v.rowPinEditor.onTitle} style={C(v.inputCss)} />
@@ -2254,7 +2236,7 @@ export function GanttBoard() {
         <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label="Éditer le jalon" style={C(annotEditorStyle + ";outline:none")}>
           <div style={C("display:flex;align-items:center;justify-content:space-between;margin-bottom:11px")}>
             <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c)")}><IconMilestone size={11} /> Jalon</span>
-            <button onClick={v.milestoneEditor.onClose} aria-label="Fermer" style={C("width:24px;height:24px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:14px;line-height:1")}><IconClose size={13} /></button>
+            <button onClick={v.milestoneEditor.onClose} aria-label="Fermer" style={C("width:24px;height:24px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center")}><IconClose size={13} /></button>
           </div>
           <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>Titre</div>
           <input value={v.milestoneEditor.title} onChange={v.milestoneEditor.onTitle} style={C(v.inputCss)} />
@@ -2284,7 +2266,7 @@ export function GanttBoard() {
       {/* Canvas */}
       {!v.isMe && (
       <div ref={v.onScrollRef} onPointerDown={onPanDown} onPointerMove={onPanMove} onPointerUp={onPanEnd} onPointerCancel={onPanEnd} onClickCapture={onPanClickCapture} style={C("flex:1;position:relative;overflow:auto;background:var(--canvas,#f4f4f7);cursor:grab")}>
-        <div ref={v.onCanvasRef} onClick={v.onBgClick} onPointerMove={emitCursor} style={C(`position:relative;width:${v.totalWidth}px;height:${v.totalHeight}px;min-height:100%`)}>
+        <div ref={v.onCanvasRef} onClick={v.onBgClick} style={C(`position:relative;width:${v.totalWidth}px;height:${v.totalHeight}px;min-height:100%`)}>
           {v.columns.map((col, i) => <div key={"bg" + i} style={C(col.bgStyle)} />)}
           {v.emptyAreaStyle && <div style={C(v.emptyAreaStyle)} />}
 
@@ -2459,7 +2441,7 @@ export function GanttBoard() {
                   <div style={C(bar.epicDotStyle)} />
                   <span title={bar.epicName} style={C(bar.epicLabelStyle)}>{bar.epicName}</span>
                   <div style={C("flex:1;min-width:6px")} />
-                  <span title={bar.area} style={C("font-size:10px;color:var(--muted,#6b6b75);font-family:'IBM Plex Mono',monospace;flex:0 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:3px")}><span style={C("opacity:.7")}>▤</span>{bar.areaLeaf}</span>
+                  <span title={bar.area} style={C("font-size:10px;color:var(--muted,#6b6b75);font-family:'IBM Plex Mono',monospace;flex:0 0 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:3px")}><span style={C("opacity:.7")}>▤</span>{bar.areaLeaf}</span>
                 </div>
               )}
               <div style={C("position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--line2,#f1f1f5)")}>
@@ -2532,15 +2514,6 @@ export function GanttBoard() {
               <div style={C(cur.labelStyle)}>{cur.name}</div>
             </div>
           ))}
-          {/* Curseurs réels des participants (présence temps réel) */}
-          {realSession && peers.filter((p) => p.cursor).map((p) => (
-            <div key={"peer" + p.userId} style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none", zIndex: 55, transform: `translate(${p.cursor!.x}px,${p.cursor!.y}px)` }}>
-              <svg width="20" height="22" viewBox="0 0 20 22" fill="none" style={{ display: "block", filter: "drop-shadow(0 1px 2px rgba(0,0,0,.25))" }}>
-                <path d="M2 2 L2 16 L6 12.5 L9 19 L12 17.7 L9 11.3 L14.5 11 Z" fill={p.color} stroke="#fff" strokeWidth="1.3" strokeLinejoin="round" />
-              </svg>
-              <div style={C(`margin:-3px 0 0 13px;background:${p.color};color:${M.onColor(p.color)};font-size:11px;font-weight:600;padding:2px 7px;border-radius:var(--r-lg,9px);white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.25)`)}>{p.displayName}</div>
-            </div>
-          ))}
         </div>
       </div>
       )}
@@ -2558,7 +2531,7 @@ export function GanttBoard() {
                 <a href={v.insp.adoHref} target="_blank" rel="noreferrer" title="Ouvrir dans Azure DevOps" aria-label="Ouvrir dans Azure DevOps" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;text-decoration:none")}>↗</a>
               )}
               <button onClick={v.insp.onDup} title={`Dupliquer (${modLabel}D)`} aria-label="Dupliquer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center")}><IconCopy size={13} /></button>
-              <button onClick={v.insp.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1")}><IconClose size={13} /></button>
+              <button onClick={v.insp.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center")}><IconClose size={13} /></button>
             </div>
             <textarea key={"title" + v.insp.ado + ":" + v.insp.title} aria-label="Titre du ticket" defaultValue={v.insp.title} onBlur={v.insp.onTitle}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); } }}
@@ -2722,7 +2695,7 @@ export function GanttBoard() {
               <div style={C("font-size:14px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{v.personPanel.name}</div>
               {v.personPanel.poste && <div style={C("font-size:11px;color:var(--muted,#6b6b75)")}>{v.personPanel.poste}</div>}
             </div>
-            <button onClick={v.personPanel.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1;flex:0 0 auto")}><IconClose size={13} /></button>
+            <button onClick={v.personPanel.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;flex:0 0 auto")}><IconClose size={13} /></button>
           </div>
           <div style={C("padding:14px 18px;border-bottom:1px solid var(--line2,#f1f1f5);display:flex;flex-direction:column;gap:11px")}>
             <div>
@@ -2768,7 +2741,7 @@ export function GanttBoard() {
               <div style={C("font-size:14px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap")}>Matrice de capacité</div>
               <div style={C("font-size:11px;color:var(--muted,#6b6b75);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>capacité en jours ouvrés par membre et par itération · Tab pour passer à la cellule suivante · collage d'une plage Excel pris en charge</div>
               <div style={{ flex: 1 }} />
-              <button onClick={v.capMatrix.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1;flex:0 0 auto")}><IconClose size={13} /></button>
+              <button onClick={v.capMatrix.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;flex:0 0 auto")}><IconClose size={13} /></button>
             </div>
             <div style={C("overflow:auto;flex:1 1 auto")}>
               <table style={{ borderCollapse: "separate", borderSpacing: 0 }}>

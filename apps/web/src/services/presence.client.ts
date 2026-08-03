@@ -47,8 +47,7 @@ export const AWAY_MS = 2 * 60 * 1000;
 export function trackAway(me: PresenceState): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
   // Ces transitions sont rares et ne doivent jamais être avalées : on émet sans
-  // passer par le throttle, qui n'existe que pour le flux de curseur.
-  // Sans `cursor`, le curseur distant de l'absent disparaît aussi.
+  // passer par le throttle.
   const send = (action: PresenceState["action"]) =>
     getSocket()?.emit("presence:update", { ...me, action, targetTicketId: null, cursor: undefined });
   const onVisibility = () => {
