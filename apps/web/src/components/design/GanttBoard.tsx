@@ -2751,7 +2751,7 @@ export function GanttBoard() {
       {v.capMatrix && (
         <>
           <div onClick={v.capMatrix.onClose} style={C("position:absolute;inset:0;z-index:84;background:rgba(20,20,40,.25)")} />
-          <div onClick={v.stop} ref={focusPopover} tabIndex={-1} style={C("position:absolute;left:50%;top:76px;transform:translateX(-50%);max-width:calc(100% - 56px);max-height:calc(100% - 132px);background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px);box-shadow:0 18px 50px rgba(20,20,40,.22);z-index:85;display:flex;flex-direction:column;animation:ggpop .16s ease;outline:none")}>
+          <div onClick={v.stop} ref={focusPopover} tabIndex={-1} style={C("position:absolute;left:50%;top:76px;transform:translateX(-50%);max-width:calc(100% - 56px);max-height:calc(100% - 132px);background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px);box-shadow:0 18px 50px rgba(20,20,40,.22);z-index:85;display:flex;flex-direction:column;animation:ggtoast .16s ease;outline:none")}>
             <div style={C("padding:14px 18px 12px;border-bottom:1px solid var(--line2,#f1f1f5);display:flex;align-items:center;gap:12px;flex:0 0 auto")}>
               <div style={C("font-size:14px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap")}>{t("Matrice de capacité")}</div>
               <div style={C("font-size:11px;color:var(--muted,#6b6b75);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{t("capacité en jours ouvrés par membre et par itération · Tab pour passer à la cellule suivante · collage d'une plage Excel pris en charge")}</div>

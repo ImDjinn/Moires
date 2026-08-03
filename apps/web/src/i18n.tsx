@@ -51,7 +51,30 @@ const MONTHS: Record<Lang, string[]> = {
 };
 export const months = () => MONTHS[lang()];
 
-/** Bouton FR/EN — affiche la langue vers laquelle on bascule (comme le bouton de thème). */
+// ponytail: drapeaux en SVG inline — les emojis 🇫🇷/🇬🇧 ne s'affichent pas sous
+// Windows (rendus « FR »/« GB »). Union Jack sans contre-échange des diagonales :
+// invisible à 20px.
+const FLAG = { width: 20, height: 14, display: "block" } as const;
+const Flags = {
+  fr: (
+    <svg viewBox="0 0 3 2" {...FLAG} aria-hidden="true">
+      <rect width="3" height="2" fill="#ED2939" />
+      <rect width="2" height="2" fill="#fff" />
+      <rect width="1" height="2" fill="#002395" />
+    </svg>
+  ),
+  en: (
+    <svg viewBox="0 0 60 30" preserveAspectRatio="none" {...FLAG} aria-hidden="true">
+      <rect width="60" height="30" fill="#012169" />
+      <path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" strokeWidth="6" />
+      <path d="M0,0 L60,30 M60,0 L0,30" stroke="#C8102E" strokeWidth="4" />
+      <path d="M30,0 v30 M0,15 h60" stroke="#fff" strokeWidth="10" />
+      <path d="M30,0 v30 M0,15 h60" stroke="#C8102E" strokeWidth="6" />
+    </svg>
+  ),
+};
+
+/** Bouton FR/EN — affiche le drapeau de la langue vers laquelle on bascule. */
 export function LangToggle() {
   const cur = useLang();
   const toggle = useLangStore((s) => s.toggle);
@@ -62,14 +85,13 @@ export function LangToggle() {
       title={title}
       aria-label={title}
       style={{
-        height: 30, padding: "0 9px", flex: "0 0 auto",
+        height: 30, padding: "0 7px", flex: "0 0 auto",
         borderRadius: "var(--r-md,7px)", border: "1px solid var(--line,#e8e8ee)",
-        background: "var(--panel2,#fafafc)", color: "var(--ink,#1a1a20)",
-        fontSize: 11, fontWeight: 600, letterSpacing: ".04em", cursor: "pointer",
+        background: "var(--panel2,#fafafc)", cursor: "pointer",
         display: "flex", alignItems: "center", justifyContent: "center",
       }}
     >
-      {cur === "fr" ? "EN" : "FR"}
+      {cur === "fr" ? Flags.en : Flags.fr}
     </button>
   );
 }
