@@ -1,6 +1,7 @@
 import type { Capacity, MemberMeta, SessionSnapshot } from "@moires/shared";
 import type { Dataset, Item, Iter, Level, Person } from "./ganttModel";
-import { MONTHS_FR, currentIter, stateProgress } from "./ganttModel";
+import { currentIter, stateProgress } from "./ganttModel";
+import { t, months } from "../../i18n";
 
 // Palette catégorielle unique — personnes ET epics tirent dedans, dans cet ordre
 // fixe (jamais recyclé). Base Okabe-Ito, sûre en deutéranopie/protanopie parce
@@ -27,7 +28,7 @@ function shortIter(name: string): string {
 
 function fmtDay(iso: string): string {
   const [, m, dd] = iso.slice(0, 10).split("-").map(Number);
-  return `${dd} ${MONTHS_FR[m - 1]}`;
+  return `${dd} ${months()[m - 1]}`;
 }
 function fmtRange(a: string, b: string): string {
   return a && b ? `${fmtDay(a)} – ${fmtDay(b)}` : "";
@@ -69,7 +70,7 @@ export function buildDataset(
     iso: [it.startDate.slice(0, 10), it.finishDate.slice(0, 10)] as [string, string],
     path: it.path,
   }));
-  iters.push({ label: "Backlog", short: "Backlog", dates: "Non planifié", sub: "à prioriser", iso: ["", ""] });
+  iters.push({ label: "Backlog", short: "Backlog", dates: t("Non planifié"), sub: t("à prioriser"), iso: ["", ""] });
 
   const pathToIndex = new Map(src.map((it, i) => [it.path, i]));
 
@@ -145,7 +146,7 @@ export function buildDataset(
   });
 
   if (hasUnassigned) {
-    people.push({ id: UNASSIGNED_ID, name: "Non assigné", role: "", initials: "?", color: NEUTRAL_PERSON, cap: new Array(niter).fill(0), unassigned: true });
+    people.push({ id: UNASSIGNED_ID, name: t("Non assigné"), role: "", initials: "?", color: NEUTRAL_PERSON, cap: new Array(niter).fill(0), unassigned: true });
   }
 
   const storyToFeature: Record<string, string> = {};

@@ -2,6 +2,7 @@
 // "Gantt Sprint Collaboratif". Aucune dépendance React : tout est pur.
 
 import { workingDays } from "../../utils/dates";
+import { t, months, locale } from "../../i18n";
 
 export type Theme = "light" | "dark";
 export type Level = "epic" | "feature" | "story" | "task";
@@ -178,10 +179,8 @@ export let people: Person[] = [
   { id: "marcus", name: "Marcus Wei", role: "DevOps", teamRole: "Développeur", initials: "MW", color: "#E69F00", cap: [6, 10, 10] },
 ];
 
-export const MONTHS_FR = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
-
 export let iters: Iter[] = (() => {
-  const M = MONTHS_FR;
+  const M = months();
   const pad = (n: number) => String(n).padStart(2, "0");
   const arr: Iter[] = [];
   const start = new Date(Date.UTC(2026, 5, 15));
@@ -193,14 +192,14 @@ export let iters: Iter[] = (() => {
     const isoS = `${s.getUTCFullYear()}-${pad(s.getUTCMonth() + 1)}-${pad(s.getUTCDate())}`;
     const isoE = `${e.getUTCFullYear()}-${pad(e.getUTCMonth() + 1)}-${pad(e.getUTCDate())}`;
     arr.push({
-      label: "Itération " + (i + 1),
+      label: t("Itération {n}", { n: i + 1 }),
       short: "It." + (i + 1),
       dates: `${s.getUTCDate()} ${M[s.getUTCMonth()]} – ${e.getUTCDate()} ${M[e.getUTCMonth()]}`,
-      sub: `${workingDays(isoS, isoE)}j ouvrés / pers.`,
+      sub: t("{n}j ouvrés / pers.", { n: workingDays(isoS, isoE) }),
       iso: [isoS, isoE],
     });
   }
-  arr.push({ label: "Backlog", short: "Backlog", dates: "Non planifié", sub: "à prioriser", iso: ["", ""] });
+  arr.push({ label: "Backlog", short: "Backlog", dates: t("Non planifié"), sub: t("à prioriser"), iso: ["", ""] });
   return arr;
 })();
 
@@ -287,7 +286,9 @@ const defs: Def[] = [
   ["ADO-1292", "story", "story", "Zero-downtime deploys", 5, 0, "marcus", 7, 1, "New", 0, "ADO-1209", ["infra", "ci"]],
 ];
 
-export const typeLabels: Record<string, string> = { epic: "Epic", feature: "Feature", story: "User Story", bug: "Bug", spike: "Spike", task: "Tâche" };
+// `task` en getter : lu à chaque rendu, il suit la langue courante sans que les
+// ~8 sites d'appel (`M.typeLabels[it.type]`) aient à changer de forme.
+export const typeLabels: Record<string, string> = { epic: "Epic", feature: "Feature", story: "User Story", bug: "Bug", spike: "Spike", get task() { return t("Tâche"); } };
 export let stateColors: Record<string, string> = { New: "#8a8f98", Active: "#0072B2", Resolved: "#CC79A7", Closed: "#009E73" };
 /** Catégorie ADO par état (Proposed/InProgress/Resolved/Completed/Removed) — pour la progression. */
 export let stateCat: Record<string, string> = {};
@@ -472,7 +473,7 @@ export const stateProgress = (s: string) => {
 const fmtDate = (iso: string) => {
   if (!iso) return "";
   const [, m, dd] = iso.split("-").map(Number);
-  return dd + " " + MONTHS_FR[m - 1];
+  return dd + " " + months()[m - 1];
 };
 export const formatRange = (a: string, b: string) => {
   if (!a && !b) return "—";
@@ -687,7 +688,7 @@ function cmpCustom(a: TreeNode, b: TreeNode, ref: string): number {
   const ea = va == null || va === "", eb = vb == null || vb === "";
   if (ea || eb) return ea && eb ? 0 : ea ? 1 : -1;
   if (typeof va === "number" && typeof vb === "number") return vb - va;
-  return String(va).localeCompare(String(vb), "fr");
+  return String(va).localeCompare(String(vb), locale());
 }
 
 /**
@@ -759,12 +760,12 @@ export function buildTree(s: State): TreeNode[] {
   });
   // Ordre : statut (en cours > à venir > terminé), puis priorité (ou nom).
   const cmp = (a: TreeNode, b: TreeNode) => {
-    if (s.epicSort === "name") return nodeName(a).localeCompare(nodeName(b), "fr");
-    if (s.epicSort === "effort") return nodeEffort(b) - nodeEffort(a) || nodeName(a).localeCompare(nodeName(b), "fr");
-    if (s.epicSort !== "priority") return cmpCustom(a, b, s.epicSort) || nodeName(a).localeCompare(nodeName(b), "fr");
+    if (s.epicSort === "name") return nodeName(a).localeCompare(nodeName(b), locale());
+    if (s.epicSort === "effort") return nodeEffort(b) - nodeEffort(a) || nodeName(a).localeCompare(nodeName(b), locale());
+    if (s.epicSort !== "priority") return cmpCustom(a, b, s.epicSort) || nodeName(a).localeCompare(nodeName(b), locale());
     const pa = a.epic?.priority ?? 999, pb = b.epic?.priority ?? 999;
     if (pa !== pb) return pa - pb;
-    return (a.range?.[0] ?? 99) - (b.range?.[0] ?? 99) || nodeName(a).localeCompare(nodeName(b), "fr");
+    return (a.range?.[0] ?? 99) - (b.range?.[0] ?? 99) || nodeName(a).localeCompare(nodeName(b), locale());
   };
   const dir = s.epicSortDir === "desc" ? -1 : 1;
   filtered.sort((a, b) => (a.bucket !== b.bucket ? a.bucket - b.bucket : dir * cmp(a, b)));
@@ -826,7 +827,7 @@ function sortedPeople(s: State, list: Person[]): Person[] {
   const sort = s.sort;
   const a = list.slice();
   if (sort === "az" || sort === "za") {
-    a.sort((x, y) => x.name.localeCompare(y.name, "fr"));
+    a.sort((x, y) => x.name.localeCompare(y.name, locale()));
     if (sort === "za") a.reverse();
   } else if (sort === "loadAsc" || sort === "loadDesc") {
     const L = personLoad(s);

@@ -17,6 +17,7 @@ import { MyBoard, resolveMyPersonId } from "./MyBoard";
 import * as M from "./ganttModel";
 import type { Drag, Item, Presence, State, Theme } from "./ganttModel";
 import type { OperationField, TicketComment } from "@moires/shared";
+import { t, useLang, LangToggle } from "../../i18n";
 
 const C = css;
 /** Repère de charge : alerte au-delà de 100 %, avertissement dans la zone
@@ -24,7 +25,7 @@ const C = css;
  * en deutéranopie : une couleur de statut doit toujours porter une icône. */
 function LoadMark({ mark }: { mark: 0 | 1 | 2 }) {
   if (!mark) return null;
-  const label = mark === 2 ? "Surcharge" : "Proche de la capacité";
+  const label = mark === 2 ? t("Surcharge") : t("Proche de la capacité");
   return (
     <span role="img" aria-label={label} title={label} style={C("display:inline-flex;vertical-align:-1px;margin-right:3px")}>
       {mark === 2 ? <IconAlert size={11} /> : <IconNear size={11} />}
@@ -173,6 +174,7 @@ interface ScriptAction {
 }
 
 export function GanttBoard() {
+  const lang = useLang();
   const theme = useThemeStore((s) => s.theme) as Theme;
   const toggleTheme = useThemeStore((s) => s.toggle);
 
@@ -180,9 +182,11 @@ export function GanttBoard() {
   const snapshot = useSessionStore((s) => s.snapshot);
   const capacities = useCapacitiesStore((s) => s.capacities);
   const memberMeta = useMemberMetaStore((s) => s.memberMeta);
+  // `lang` en dépendance : le dataset porte des libellés traduits (« Non
+  // assigné », « Non planifié ») qui doivent suivre le changement de langue.
   const dataset = useMemo(
     () => (snapshot && snapshot.tickets.length ? buildDataset(snapshot, capacities, memberMeta) : null),
-    [snapshot, capacities, memberMeta],
+    [snapshot, capacities, memberMeta, lang],
   );
   if (dataset) M.applyDataset(dataset);
 
@@ -378,8 +382,8 @@ export function GanttBoard() {
     setUserMenuOpen(false);
     navigator.clipboard
       .writeText(`${window.location.origin}/?session=${sid}`)
-      .then(() => toast("Lien d'invitation copié — valable pour votre organisation ADO"))
-      .catch(() => toast("Impossible de copier le lien"));
+      .then(() => toast(t("Lien d'invitation copié — valable pour votre organisation ADO")))
+      .catch(() => toast(t("Impossible de copier le lien")));
   }, [toast]);
   const sync = useCallback(
     (msg?: string) => {
@@ -460,7 +464,7 @@ export function GanttBoard() {
         p.cap[real] = value;
         setState({});
       }
-      sync("Capacité mise à jour");
+      sync(t("Capacité mise à jour"));
     },
     [setState, sync],
   );
@@ -482,7 +486,7 @@ export function GanttBoard() {
         p.teamRole = teamRole;
         setState({});
       }
-      sync("Profil mis à jour");
+      sync(t("Profil mis à jour"));
     },
     [setState, sync],
   );
@@ -501,10 +505,10 @@ export function GanttBoard() {
       setState({ items });
       emitOp(id, field as string, value);
       const labels: Record<string, string> = {
-        title: "Titre", state: "État", person: "Assignation", iter: "Itération",
-        points: "Story points", effortDays: "Estimation", tags: "Tags", area: "Area Path", priority: "Priorité",
+        title: t("Titre"), state: t("État"), person: t("Assignation"), iter: t("Itération"),
+        points: t("Story points"), effortDays: t("Estimation"), tags: t("Tags"), area: t("Area Path"), priority: t("Priorité"),
       };
-      sync(`${labels[field as string] || "Champ"} enregistré dans Azure DevOps`);
+      sync(t("{field} enregistré dans Azure DevOps", { field: labels[field as string] || t("Champ") }));
     },
     [setState, sync, emitOp],
   );
@@ -528,7 +532,7 @@ export function GanttBoard() {
       });
       setState({ items });
       emitOp(id, `custom:${ref}`, value);
-      sync(`${ref.split(".").pop() || ref} enregistré dans Azure DevOps`);
+      sync(t("{field} enregistré dans Azure DevOps", { field: ref.split(".").pop() || ref }));
     },
     [setState, sync, emitOp],
   );
@@ -539,21 +543,22 @@ export function GanttBoard() {
       if (realSessionRef.current && sid) {
         // Session réelle : le serveur crée le work item copié dans ADO et renvoie le ticket.
         api.duplicateTicket(sid, src.id)
-          .then((t) => {
-            const st = t.boardColumn || M.columnForState(src.level, t.state) || t.state || "New";
-            const copy: Item = { ...src, id: t.id, ado: `#${t.id}`, title: t.title, state: st, progress: M.stateProgress(st), tags: t.tags.slice() };
-            setState((s) => ({ items: [...s.items, copy], selectedId: t.id, level: src.level }));
+          // `ticket` (et non `t`) : `t` est la fonction de traduction.
+          .then((ticket) => {
+            const st = ticket.boardColumn || M.columnForState(src.level, ticket.state) || ticket.state || "New";
+            const copy: Item = { ...src, id: ticket.id, ado: `#${ticket.id}`, title: ticket.title, state: st, progress: M.stateProgress(st), tags: ticket.tags.slice() };
+            setState((s) => ({ items: [...s.items, copy], selectedId: ticket.id, level: src.level }));
             const store = useTicketsStore.getState();
-            store.setTickets([...store.tickets, t]);
-            sync(`Copie créée dans Azure DevOps : #${t.id}`);
+            store.setTickets([...store.tickets, ticket]);
+            sync(t("Copie créée dans Azure DevOps : #{id}", { id: ticket.id }));
           })
-          .catch(() => toast("Impossible de créer la copie dans Azure DevOps"));
+          .catch(() => toast(t("Impossible de créer la copie dans Azure DevOps")));
         return;
       }
       const id = "ADO-" + idc.current++;
       const copy: Item = { ...src, id, ado: id, title: src.title + " - Copy", state: "New", progress: 0, tags: src.tags.slice() };
       setState((s) => ({ items: [...s.items, copy], selectedId: id, level: src.level }));
-      sync(`Copie créée : ${id}`);
+      sync(t("Copie créée : {id}", { id }));
     },
     [setState, sync, toast],
   );
@@ -579,31 +584,31 @@ export function GanttBoard() {
   // optimiste et n'est rechargé qu'à l'ouverture de session — on le dit, plutôt
   // que d'afficher « enregistré » sur une modification perdue.
   const annotFailed = useCallback(
-    (what: string) => toast(`${what} non enregistré côté serveur — rechargez la page`),
+    (what: string) => toast(t("{what} non enregistré côté serveur — rechargez la page", { what })),
     [toast],
   );
 
   const addMilestone = useCallback(() => {
     const st = stateRef.current;
     const sid = sessionIdRef.current;
-    const draft = { title: "Nouveau jalon", iter: st.releaseStart, color: "#0072B2" };
+    const draft = { title: t("Nouveau jalon"), iter: st.releaseStart, color: "#0072B2" };
     if (realSessionRef.current && sid) {
       // Persistance : le serveur attribue l'id.
       api.createMilestone(sid, draft)
         .then((m) => setState((s) => ({ milestones: [...s.milestones, m], milestoneSel: m.id })))
-        .catch(() => toast("Impossible d'ajouter le jalon (erreur serveur)"));
+        .catch(() => toast(t("Impossible d'ajouter le jalon (erreur serveur)")));
     } else {
       const id = "M" + Date.now().toString(36);
       setState({ milestones: [...st.milestones, { id, ...draft }], milestoneSel: id });
     }
-    sync("Jalon ajouté");
+    sync(t("Jalon ajouté"));
   }, [setState, sync, toast]);
   const setMilestone = useCallback(
     (id: string, field: string, value: unknown) => {
       setState((s) => ({ milestones: s.milestones.map((m) => (m.id === id ? { ...m, [field]: value } : m)) }));
       const sid = sessionIdRef.current;
-      if (realSessionRef.current && sid) api.updateMilestone(sid, id, { [field]: value }).catch(() => annotFailed("Jalon"));
-      sync("Jalon mis à jour");
+      if (realSessionRef.current && sid) api.updateMilestone(sid, id, { [field]: value }).catch(() => annotFailed(t("Jalon")));
+      sync(t("Jalon mis à jour"));
     },
     [setState, sync, annotFailed],
   );
@@ -611,8 +616,8 @@ export function GanttBoard() {
     (id: string) => {
       setState((s) => ({ milestones: s.milestones.filter((m) => m.id !== id), milestoneSel: null }));
       const sid = sessionIdRef.current;
-      if (realSessionRef.current && sid) api.deleteMilestone(sid, id).catch(() => annotFailed("Suppression du jalon"));
-      sync("Jalon supprimé");
+      if (realSessionRef.current && sid) api.deleteMilestone(sid, id).catch(() => annotFailed(t("Suppression du jalon")));
+      sync(t("Jalon supprimé"));
     },
     [setState, sync, annotFailed],
   );
@@ -620,17 +625,17 @@ export function GanttBoard() {
   // Pose un nouveau flag sur une ligne (plusieurs flags par ligne autorisés).
   const addFlag = useCallback(
     (rowKey: string, iter: number) => {
-      const draft = { rowKey, iter, title: "Flag", color: "#E69F00" };
+      const draft = { rowKey, iter, title: t("Flag"), color: "#E69F00" };
       const sid = sessionIdRef.current;
       if (realSessionRef.current && sid) {
         api.createRowPin(sid, draft)
           .then((p) => setState((s) => ({ rowPins: [...s.rowPins, p], rowPinSel: p.id, milestoneSel: null })))
-          .catch(() => toast("Impossible d'ajouter le flag (erreur serveur)"));
+          .catch(() => toast(t("Impossible d'ajouter le flag (erreur serveur)")));
       } else {
         const id = "F" + Date.now().toString(36);
         setState((s) => ({ rowPins: [...s.rowPins, { id, ...draft }], rowPinSel: id, milestoneSel: null }));
       }
-      sync("Flag ajouté");
+      sync(t("Flag ajouté"));
     },
     [setState, sync],
   );
@@ -638,8 +643,8 @@ export function GanttBoard() {
     (id: string, field: string, value: unknown) => {
       setState((s) => ({ rowPins: s.rowPins.map((p) => (p.id === id ? { ...p, [field]: value } : p)) }));
       const sid = sessionIdRef.current;
-      if (realSessionRef.current && sid) api.updateRowPin(sid, id, { [field]: value }).catch(() => annotFailed("Flag"));
-      sync("Flag mis à jour");
+      if (realSessionRef.current && sid) api.updateRowPin(sid, id, { [field]: value }).catch(() => annotFailed(t("Flag")));
+      sync(t("Flag mis à jour"));
     },
     [setState, sync, annotFailed],
   );
@@ -647,8 +652,8 @@ export function GanttBoard() {
     (id: string) => {
       setState((s) => ({ rowPins: s.rowPins.filter((p) => p.id !== id), rowPinSel: null }));
       const sid = sessionIdRef.current;
-      if (realSessionRef.current && sid) api.deleteRowPin(sid, id).catch(() => annotFailed("Suppression du flag"));
-      sync("Flag supprimé");
+      if (realSessionRef.current && sid) api.deleteRowPin(sid, id).catch(() => annotFailed(t("Suppression du flag")));
+      sync(t("Flag supprimé"));
     },
     [setState, sync, annotFailed],
   );
@@ -681,8 +686,10 @@ export function GanttBoard() {
       emitOp(fid, "startDate", startISO);
       emitOp(fid, "targetDate", endISO);
       moved.forEach((m) => emitOp(m.id, "iter", m.iter));
-      const suffix = moved.length ? ` · ${moved.length} US rapatriée${moved.length > 1 ? "s" : ""}` : "";
-      sync(`${target.ado} replanifié : ${M.iters[s0].short} → ${M.iters[e0].short}${suffix}`);
+      const suffix = moved.length
+        ? t(moved.length > 1 ? " · {n} US rapatriées" : " · {n} US rapatriée", { n: moved.length })
+        : "";
+      sync(t("{ado} replanifié : {from} → {to}{suffix}", { ado: target.ado, from: M.iters[s0].short, to: M.iters[e0].short, suffix }));
     },
     [setState, sync, emitOp],
   );
@@ -762,7 +769,7 @@ export function GanttBoard() {
       if (d.mode === "resize" && !daily) {
         const cols = colsRef.current, vi = cols.indexOf(it.iter);
         const span = Math.max(1, Math.min(cols.length - vi, Math.round((d.os * colwRef.current + d.dx) / colwRef.current)));
-        if (span !== it.span) { it.span = span; changed = true; msg = `${it.ado} étendu sur ${span} itération${span > 1 ? "s" : ""}`; }
+        if (span !== it.span) { it.span = span; changed = true; msg = t(span > 1 ? "{ado} étendu sur {n} itérations" : "{ado} étendu sur {n} itération", { ado: it.ado, n: span }); }
       } else if (d.mode === "move") {
         const idx = hitColIdx(e.clientX);
         const np = hitPerson(e.clientY) || M.people[d.op].id;
@@ -779,8 +786,12 @@ export function GanttBoard() {
         if (movedBucket || movedPerson) {
           changed = true;
           const who = M.people.find((p) => p.id === it.person)!.name.split(" ")[0];
-          if (daily) msg = movedPerson && movedBucket ? `${it.ado} → ${who} · ${it.state}` : movedPerson ? `${it.ado} réassigné à ${who}` : `${it.ado} → ${it.state}`;
-          else msg = movedPerson && movedBucket ? `${it.ado} → ${who} · ${M.iters[it.iter].label}` : movedPerson ? `${it.ado} réassigné à ${who}` : `${it.ado} → ${M.iters[it.iter].label}`;
+          const what = daily ? it.state : M.iters[it.iter].label;
+          msg = movedPerson && movedBucket
+            ? t("{ado} → {who} · {what}", { ado: it.ado, who, what })
+            : movedPerson
+              ? t("{ado} réassigné à {who}", { ado: it.ado, who })
+              : t("{ado} → {what}", { ado: it.ado, what });
           // writeback ADO : itération (ou état en Daily) + assignation
           if (movedBucket) emitOp(it.id, daily ? "state" : "iter", daily ? it.state : it.iter);
           if (movedPerson) emitOp(it.id, "person", it.person);
@@ -915,7 +926,7 @@ export function GanttBoard() {
       const k = e.key.toLowerCase();
       if (k === "c" && st.selectedId) {
         const it = st.items.find((x) => x.id === st.selectedId);
-        if (it) { clip.current = { ...it, tags: it.tags.slice() }; toast(`Ticket copié — ${modLabel}V pour coller`); e.preventDefault(); }
+        if (it) { clip.current = { ...it, tags: it.tags.slice() }; toast(t("Ticket copié — {mod}V pour coller", { mod: modLabel })); e.preventDefault(); }
       } else if (k === "v" && clip.current) {
         pasteCopy(clip.current);
         e.preventDefault();
@@ -1105,8 +1116,8 @@ export function GanttBoard() {
 
     // Libellé/notice du champ de charge : les jauges comparent ce champ à une
     // capacité en jours ouvrés (convention 1 pt ≈ 1 jour pour les Story Points).
-    const loadLabel = prefs.loadField === "points" ? "Story Points" : prefs.loadField === "effortDays" ? "estimation en jours" : prefs.loadField.split(".").pop() || prefs.loadField;
-    const loadNote = prefs.loadField === "points" ? " · convention 1 pt ≈ 1 jour" : "";
+    const loadLabel = prefs.loadField === "points" ? "Story Points" : prefs.loadField === "effortDays" ? t("estimation en jours") : prefs.loadField.split(".").pop() || prefs.loadField;
+    const loadNote = prefs.loadField === "points" ? t(" · convention 1 pt ≈ 1 jour") : "";
     // Champ de charge sans valeur sur tous les tickets du niveau affiché (ex.
     // Story Points en granularité Tâche) : les jauges liraient 0 à tort — signalé.
     const lvlItems = release ? [] : state.items.filter((it) => it.level === lvl && !(state.hideClosed && M.isDone(it.state)));
@@ -1122,7 +1133,7 @@ export function GanttBoard() {
           const left = M.LEFT + ci * COLW, col = M.stateColors[st];
           const count = state.items.filter((it) => it.level === lvl && it.iter === M.CURRENT && it.state === st && !(state.hideClosed && M.isDone(st))).length;
           return {
-            label: st, dates: "", sub: count + " ticket" + (count > 1 ? "s" : ""), tag: "", tagStyle: "display:none",
+            label: st, dates: "", sub: t(count > 1 ? "{n} tickets" : "{n} ticket", { n: count }), tag: "", tagStyle: "display:none",
             showDot: true, dotColor: col, titleColor: col,
             bgStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${TH}px;background:${ci % 2 ? "var(--colalt,#fafafc)" : "transparent"};border-right:1px solid var(--gridline,#ececf1)`,
             headStyle: `position:absolute;top:0;left:${left}px;width:${COLW}px;height:${M.HEADER}px;padding:12px 14px;border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);z-index:47;box-sizing:border-box;box-shadow:inset 0 -2px 0 ${col}`,
@@ -1132,8 +1143,8 @@ export function GanttBoard() {
           const it = M.iters[real], left = M.LEFT + vi * COLW;
           const current = real === M.CURRENT, past = real < M.CURRENT;
           let tag = "", tagStyle = "display:none";
-          if (current) { tag = "courante"; tagStyle = "font-size:10px;font-weight:600;padding:1px 6px;border-radius:var(--r-sm,5px);background:var(--accentsoft,#ececfb);color:var(--accent,#5b5bd6)"; }
-          else if (past) { tag = "passée"; tagStyle = "font-size:10px;font-weight:600;padding:1px 6px;border-radius:var(--r-sm,5px);background:var(--line2,#f1f1f5);color:var(--faint,#71717c)"; }
+          if (current) { tag = t("courante"); tagStyle = "font-size:10px;font-weight:600;padding:1px 6px;border-radius:var(--r-sm,5px);background:var(--accentsoft,#ececfb);color:var(--accent,#5b5bd6)"; }
+          else if (past) { tag = t("passée"); tagStyle = "font-size:10px;font-weight:600;padding:1px 6px;border-radius:var(--r-sm,5px);background:var(--line2,#f1f1f5);color:var(--faint,#71717c)"; }
           return {
             // Release : le sous-titre laisse la place à la bande de charge dans le header.
             label: it.label, dates: it.dates, sub: release ? "" : it.sub, tag, tagStyle, showDot: current, dotColor: "var(--accent,#5b5bd6)",
@@ -1152,7 +1163,7 @@ export function GanttBoard() {
           return {
             id: p.id, name: p.name, role: p.role, initials: p.initials, loadShow: daily && !p.unassigned,
             loadText: `${M.fmt(used)}/${M.fmt(cap)}j · ${Math.round(lp * 100)}%`, loadMark: M.loadMark(lp),
-            loadTitle: `Charge ${M.fmt(used)} (${loadLabel}) / capacité ${M.fmt(cap)} jours ouvrés — ${M.iters[M.CURRENT].label}${loadNote}`,
+            loadTitle: t("Charge {used} ({field}) / capacité {cap} jours ouvrés — {iter}{note}", { used: M.fmt(used), field: loadLabel, cap: M.fmt(cap), iter: M.iters[M.CURRENT].label, note: loadNote }),
             loadTextStyle: `font-size:10px;font-family:${mono};color:${lp > 1 ? "var(--color-error-text,#c62828)" : "var(--muted,#6b6b75)"}`,
             loadFillStyle: `position:absolute;left:0;top:0;height:100%;width:${Math.min(lp, 1) * 100}%;background:${lc};border-radius:3px`,
             avatarStyle: `width:30px;height:30px;border-radius:50%;background:${p.color};color:${M.onColor(p.color)};font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 auto`,
@@ -1181,7 +1192,7 @@ export function GanttBoard() {
             fillStyle: `position:absolute;left:0;top:0;height:100%;width:${Math.min(pct, 1) * 100}%;background:${c};border-radius:3px`,
             text: `${M.fmt(used)}/${M.fmt(cap)}j`,
             textStyle: `font-size:10px;font-family:${mono};color:var(--muted,#6b6b75);white-space:nowrap;flex:0 0 auto`,
-            title: `Charge ${M.fmt(used)} (${loadLabel}) / capacité ${M.fmt(cap)} jours ouvrés${loadNote} — cliquer pour modifier la capacité`,
+            title: t("Charge {used} ({field}) / capacité {cap} jours ouvrés{note} — cliquer pour modifier la capacité", { used: M.fmt(used), field: loadLabel, cap: M.fmt(cap), note: loadNote }),
             pct: Math.round(pct * 100) + "%", pctMark: M.loadMark(pct),
             pctStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${pct > 1 ? "var(--color-error-text,#c62828)" : c};flex:0 0 auto`,
             editing: !!capEdit && capEdit.personId === p.id && capEdit.real === real,
@@ -1254,12 +1265,12 @@ export function GanttBoard() {
     }));
     const presenceSrc = realSession
       ? [
-          { initials: initials(user!.displayName), name: `${user!.displayName} (vous)`, color: myColor, away: false },
+          { initials: initials(user!.displayName), name: t("{name} (vous)", { name: user!.displayName }), color: myColor, away: false },
           ...peers.map((p) => {
             const away = p.action === "away";
             return {
               initials: initials(p.displayName),
-              name: away ? `${p.displayName} (inactif)` : p.displayName,
+              name: away ? t("{name} (inactif)", { name: p.displayName }) : p.displayName,
               color: p.color,
               away,
             };
@@ -1271,7 +1282,7 @@ export function GanttBoard() {
       style: `width:26px;height:26px;border-radius:50%;background:${p.color};color:${M.onColor(p.color)};font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;border:2px solid var(--panel,#fff);margin-left:${i ? -7 : 0}px` +
         (p.away ? ";opacity:.4;filter:grayscale(1)" : ""),
     }));
-    const onlineLabel = realSession ? `${peers.length + 1} en ligne` : "3 en ligne";
+    const onlineLabel = t("{n} en ligne", { n: realSession ? peers.length + 1 : 3 });
 
     // Le minuteur couvre les enregistrements hors tickets (capacité, profil,
     // annotations) ; `pendingWrites` maintient l'indicateur tant qu'une écriture
@@ -1287,14 +1298,17 @@ export function GanttBoard() {
     const levels = M.levelDefs.map((l) => {
       const active = state.level === l.key;
       return {
-        label: l.label, onClick: () => setState({ level: l.key, selectedId: null }),
+        label: t(l.label), onClick: () => setState({ level: l.key, selectedId: null }),
         style: `padding:5px 13px;border-radius:var(--r-md,7px);border:none;font-size:12px;white-space:nowrap;font-weight:${active ? 600 : 500};cursor:pointer;background:${active ? "var(--panel,#fff)" : "transparent"};color:${active ? "var(--ink,#1a1a20)" : "var(--muted,#6b6b75)"};box-shadow:${active ? "0 1px 2px rgba(20,20,40,.12)" : "none"}`,
       };
     });
 
     const rl = state.rangeFrom === state.rangeTo ? M.iters[state.rangeFrom].short : `${M.iters[state.rangeFrom].short} → ${M.iters[state.rangeTo].short}`;
-    const rangeLabel = release ? "Toutes les itérations" : daily ? M.iters[M.CURRENT].short : rl + (state.backlog ? " + Backlog" : "");
-    const iterLabel = (i: number) => M.iters[i].label + (i === M.CURRENT ? " (courante)" : i < M.CURRENT ? " (passée)" : "");
+    const rangeLabel = release ? t("Toutes les itérations") : daily ? M.iters[M.CURRENT].short : rl + (state.backlog ? " + Backlog" : "");
+    const iterLabel = (i: number) =>
+      i === M.CURRENT ? t("{label} (courante)", { label: M.iters[i].label })
+      : i < M.CURRENT ? t("{label} (passée)", { label: M.iters[i].label })
+      : M.iters[i].label;
     const iterOptions = Array.from({ length: M.NITER }, (_, i) => ({ value: String(i), label: iterLabel(i) }));
     const range = {
       showRange: !daily && !release, isRelease: release,
@@ -1367,7 +1381,7 @@ export function GanttBoard() {
         prefFields: inspFieldDefs
           .filter((f) => !f.kinds || f.kinds.includes(witKind(wit)))
           .map((f) => ({
-            label: f.label, checked: tp.fields[f.key] !== false,
+            label: t(f.label), checked: tp.fields[f.key] !== false,
             onToggle: (e: React.ChangeEvent<HTMLInputElement>) => updateTypePrefs(wit, { fields: { [f.key]: e.target.checked } }),
           })),
         onAddField: (e: React.MouseEvent) => { e.stopPropagation(); openFieldPicker(wit); },
@@ -1403,7 +1417,7 @@ export function GanttBoard() {
               // Champ requis dans ADO : saisie vide refusée localement.
               if (f.required && !e.target.value.trim()) {
                 setExtraNonce((n) => n + 1); // remonte l'input → réaffiche la valeur conservée
-                toast(`« ${f.label} » est requis dans Azure DevOps — valeur conservée`);
+                toast(t("« {label} » est requis dans Azure DevOps — valeur conservée", { label: f.label }));
                 return;
               }
               setCustomField(item.id, f.ref, e.target.value);
@@ -1413,7 +1427,7 @@ export function GanttBoard() {
         }),
         onClose: () => { setFieldPicker(null); setState({ selectedId: null, prefsOpen: false }); },
         footDotStyle: syncing ? `width:9px;height:9px;border-radius:50%;border:2px solid var(--accent,#5b5bd6);border-top-color:transparent;animation:ggspin .7s linear infinite` : "width:7px;height:7px;border-radius:50%;background:var(--color-synced,#2bbf73)",
-        footLabel: syncing ? "Écriture dans Azure DevOps…" : "Synchronisé · write-back par champ",
+        footLabel: syncing ? t("Écriture dans Azure DevOps…") : t("Synchronisé · write-back par champ"),
       };
     }
     if (item) insp = buildInsp(item);
@@ -1468,7 +1482,7 @@ export function GanttBoard() {
                   key: i, cap,
                   subText: `${M.fmt(used)}j · ${Math.round(pct * 100)}%`, subMark: M.loadMark(pct),
                   subStyle: `font-size:10px;font-family:${mono};color:${pct > 1 ? "var(--color-error-text,#c62828)" : "var(--faint,#71717c)"}`,
-                  title: `${p.name} — ${M.iters[i].label} : charge ${M.fmt(used)} (${loadLabel}) / capacité ${M.fmt(cap)} jours ouvrés${loadNote}`,
+                  title: t("{name} — {iter} : charge {used} ({field}) / capacité {cap} jours ouvrés{note}", { name: p.name, iter: M.iters[i].label, used: M.fmt(used), field: loadLabel, cap: M.fmt(cap), note: loadNote }),
                   // Même convention que le panneau personne : commit au blur.
                   onCommit: (e: React.FocusEvent<HTMLInputElement>) => {
                     const n = parseFloat(e.target.value.replace(",", "."));
@@ -1543,22 +1557,22 @@ export function GanttBoard() {
         // L'intervalle est déjà lisible sur la barre du board → pas répété ici.
         // Les US sans itération n'ont pas de colonne : signalées ici pour ne pas
         // les perdre (elles comptent bien dans Σ).
-        const unp = ch.unplanned ? ` · ${ch.unplanned} sans itération` : "";
-        const sub = (ch.total > 0 ? `Σ ${M.fmt(ch.total)}` : "aucune US planifiée") + unp;
-        const subTitle = ch.total > 0 ? `charge totale des US : ${M.fmt(ch.total)} (${loadLabel})` : undefined;
+        const unp = ch.unplanned ? t(" · {n} sans itération", { n: ch.unplanned }) : "";
+        const sub = (ch.total > 0 ? `Σ ${M.fmt(ch.total)}` : t("aucune US planifiée")) + unp;
+        const subTitle = ch.total > 0 ? t("charge totale des US : {total} ({field})", { total: M.fmt(ch.total), field: loadLabel }) : undefined;
         // Double-clic sur une epic/feature → pose un flag au début de son sprint.
         const flagIter = rg ? rg[0] : M.CURRENT;
         // Même statut que le tri de l'arbre (M.statusBucket) : le tag explique
         // l'ordre des lignes au lieu de le contredire.
         const bucket = M.statusBucket(rg, r.us || []);
         const tag = STATUS_TAGS[bucket];
-        const statusTag = tag ? tag[0] : "";
+        const statusTag = tag ? t(tag[0]) : "";
         const statusTone = tag && tag[1] ? M.tone(tag[1], theme) : null;
         const statusStyle = tag
           ? `font-size:10px;font-weight:600;padding:1px 6px;border-radius:var(--r-sm,5px);background:${statusTone ? statusTone.bg : "var(--line2,#f1f1f5)"};color:${statusTone ? statusTone.text : "var(--muted,#6b6b75)"};flex:0 0 auto`
           : "display:none";
         const statusTitle = bucket === 1 && rg
-          ? `Des US sont planifiées sur le sprint courant ou à venir, hors de l'intervalle ${M.iters[rg[0]].short} → ${M.iters[rg[1]].short}`
+          ? t("Des US sont planifiées sur le sprint courant ou à venir, hors de l'intervalle {from} → {to}", { from: M.iters[rg[0]].short, to: M.iters[rg[1]].short })
           : undefined;
         const prio = !isFeat && r.item?.priority != null ? `P${r.item.priority}` : "";
         // Epic : effort compté sur l'intervalle de métriques + cumul (ligne de flottaison).
@@ -1570,23 +1584,23 @@ export function GanttBoard() {
           if (intEff > 0) {
             const pct = met.cap ? Math.round((intEff / met.cap) * 100) : 0;
             stat = `${pct}%`;
-            statTitle = `Effort sur ${metShorts} : ${M.fmt(intEff)} (${pct} % de la capacité ${M.fmt(met.cap)}j) · cumul dans l'ordre d'affichage : ${M.fmt(cumEff)}`;
+            statTitle = t("Effort sur {range} : {effort} ({pct} % de la capacité {cap}j) · cumul dans l'ordre d'affichage : {cum}", { range: metShorts, effort: M.fmt(intEff), pct, cap: M.fmt(met.cap), cum: M.fmt(cumEff) });
             if (before < met.cap && cumEff > met.cap) {
               relWaterline = {
                 lineStyle: `position:absolute;left:0;top:${r.top}px;width:${TW}px;height:0;border-top:2px dashed var(--color-error,#ef4444);z-index:44;pointer-events:none`,
                 flagStyle: `position:absolute;left:10px;top:${r.top - 9}px;z-index:44;background:var(--color-error,#ef4444);color:#fff;padding:2px 8px;border-radius:var(--r-sm,5px);font-size:10px;font-weight:600;white-space:nowrap;pointer-events:auto`,
-                label: `Capacité épuisée · ${M.fmt(met.cap)}j (${metShorts})`,
-                title: `Cumul de l'effort des epics dans l'ordre d'affichage : tout ce qui est sous cette ligne ne tient pas dans la capacité de l'intervalle ${metShorts}.`,
+                label: t("Capacité épuisée · {cap}j ({range})", { cap: M.fmt(met.cap), range: metShorts }),
+                title: t("Cumul de l'effort des epics dans l'ordre d'affichage : tout ce qui est sous cette ligne ne tient pas dans la capacité de l'intervalle {range}.", { range: metShorts }),
               };
             }
           }
         }
         return {
           isArea: true, isFeat, key: r.key, hasChildren: r.hasChildren, open: r.open, statusTag, statusStyle, statusTitle, prio, stat, statTitle,
-          hidden, hideTitle: hidden ? "Réafficher (compter dans la charge)" : "Masquer (exclure de la charge)",
+          hidden, hideTitle: hidden ? t("Réafficher (compter dans la charge)") : t("Masquer (exclure de la charge)"),
           onToggleHidden: (e: React.MouseEvent) => { e.stopPropagation(); toggleRowHidden(r.key!); },
           chevron: r.open ? "▾" : r.hasChildren ? "▸" : "", onToggle: (e: React.MouseEvent) => { e.stopPropagation(); if (r.hasChildren) toggleNode(r.key!); },
-          name: isFeat ? r.item!.ado + "  " + r.item!.title : r.epicName || "(Sans epic)",
+          name: isFeat ? r.item!.ado + "  " + r.item!.title : r.epicName || t("(Sans epic)"),
           sub, subTitle, dotColor: r.accent,
           onDoubleClick: () => addFlag(r.key!, flagIter),
           ado: "", badge: "", title: "", adoStyle: "display:none", badgeStyle: "display:none",
@@ -1677,7 +1691,7 @@ export function GanttBoard() {
               fillStyle: "display:none", label: M.fmt(o.val),
               labelStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${M.tone(r.accent || "#0072B2", theme).text};opacity:.85`,
             }],
-            title: `${M.fmt(o.val)} (${loadLabel}) sur ${M.iters[o.real].short}, hors de l'intervalle ${M.iters[sReal].short} → ${M.iters[eReal].short}`,
+            title: t("{val} ({field}) sur {iter}, hors de l'intervalle {from} → {to}", { val: M.fmt(o.val), field: loadLabel, iter: M.iters[o.real].short, from: M.iters[sReal].short, to: M.iters[eReal].short }),
           });
         });
         if (editable) {
@@ -1715,7 +1729,7 @@ export function GanttBoard() {
           title: pin.title,
           lineStyle: `position:absolute;left:${x}px;top:${r.top}px;width:0;height:${r.height}px;border-left:2px solid ${pin.color};z-index:15;pointer-events:none`,
           flagStyle: `position:absolute;left:${x + 3}px;top:${r.top + 6 + off * 20}px;z-index:31;display:flex;align-items:center;gap:4px;background:${pin.color};color:${M.onColor(pin.color)};padding:2px 7px 2px 6px;border-radius:var(--r-sm,5px);font-size:10px;font-weight:600;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.2);max-width:${COLW - 10}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis`,
-          label: `Flag ${pin.title} — ${M.iters[pin.iter]?.short ?? ""}`,
+          label: t("Flag {title} — {iter}", { title: pin.title, iter: M.iters[pin.iter]?.short ?? "" }),
           onClick: (e?: React.MouseEvent) => { e?.stopPropagation(); setAnnotAnchor(e ? { x: e.clientX, y: e.clientY } : null); setState({ rowPinSel: pin.id, milestoneSel: null }); },
         });
       });
@@ -1734,14 +1748,14 @@ export function GanttBoard() {
           // overflow:hidden — les gros nombres sont rognés dans leur colonne au
           // lieu de déborder sur la voisine (tooltip = valeurs complètes).
           wrapStyle: `position:absolute;left:${left}px;top:${M.HEADER - M.RELBAND}px;width:${COLW}px;height:${M.RELBAND}px;padding:4px 12px 8px;border-right:1px solid var(--gridline,#ececf1);box-sizing:border-box;overflow:hidden;z-index:47;background:var(--panel,#fff)${inMet ? ";box-shadow:inset 0 -2px 0 var(--accent,#5b5bd6)" : ""}`,
-          wrapTitle: `Charge ${M.fmt(b.total)}j / capacité ${M.fmt(b.cap)}j · ${delta >= 0 ? "+" : "−"}${M.fmt(Math.abs(delta))}j · ${Math.round((b.total / (b.cap || 1)) * 100)}%`,
+          wrapTitle: t("Charge {total}j / capacité {cap}j · {sign}{delta}j · {pct}%", { total: M.fmt(b.total), cap: M.fmt(b.cap), sign: delta >= 0 ? "+" : "−", delta: M.fmt(Math.abs(delta)), pct: Math.round((b.total / (b.cap || 1)) * 100) }),
           total: `${M.fmt(b.total)}j`, cap: `/ ${M.fmt(b.cap)}j`,
           totalStyle: `font-size:12px;font-weight:600;font-family:${mono};color:${over ? "var(--color-error-text,#c62828)" : "var(--ink,#1a1a20)"};flex:0 0 auto`,
           // La capacité s'efface en premier quand la place manque.
           capStyle: `font-size:10px;font-family:${mono};color:var(--faint,#71717c);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap`,
           delta: (delta >= 0 ? "+" : "−") + M.fmt(Math.abs(delta)),
           deltaStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${delta < 0 ? "var(--color-error-text,#c62828)" : "var(--color-synced-text,#1f8a54)"};flex:0 0 auto`,
-          deltaTitle: `Capacité − effort : ${delta >= 0 ? "+" : "−"}${M.fmt(Math.abs(delta))}j`,
+          deltaTitle: t("Capacité − effort : {sign}{delta}j", { sign: delta >= 0 ? "+" : "−", delta: M.fmt(Math.abs(delta)) }),
           pct: Math.round((b.total / (b.cap || 1)) * 100) + "%", pctMark: M.loadMark(b.total / (b.cap || 1)),
           pctStyle: `font-size:10px;font-weight:600;font-family:${mono};color:${over ? "var(--color-error-text,#c62828)" : "var(--muted,#6b6b75)"};flex:0 0 auto`,
           trackStyle: `margin-top:3px;height:6px;border-radius:var(--r-sm,5px);background:var(--line2,#f1f1f5);overflow:hidden;display:flex;gap:2px;${over ? "box-shadow:0 0 0 1px var(--color-error,#ef4444)" : ""}`,
@@ -1761,7 +1775,7 @@ export function GanttBoard() {
         deltaText: (met.delta >= 0 ? "+" : "−") + M.fmt(Math.abs(met.delta)) + "j",
         deltaStyle: `font-size:12px;font-weight:700;font-family:${mono};color:${met.delta < 0 ? "var(--color-error-text,#c62828)" : "var(--color-synced-text,#1f8a54)"}`,
         pctText: Math.round((met.effort / (met.cap || 1)) * 100) + "%",
-        title: `${metShorts} · capacité ${M.fmt(met.cap)}j − effort ${M.fmt(met.effort)}j (charge en ${loadLabel}${loadNote} · personnes visibles, lignes masquées exclues)`,
+        title: t("{range} · capacité {cap}j − effort {effort}j (charge en {field}{note} · personnes visibles, lignes masquées exclues)", { range: metShorts, cap: M.fmt(met.cap), effort: M.fmt(met.effort), field: loadLabel, note: loadNote }),
       };
 
       state.milestones.forEach((m) => {
@@ -1773,7 +1787,7 @@ export function GanttBoard() {
           title: m.title,
           lineStyle: `position:absolute;left:${x}px;top:${M.HEADER}px;width:0;height:${TH - M.HEADER}px;border-left:2px dashed ${m.color};z-index:14;pointer-events:none`,
           flagStyle: `position:absolute;left:${x + 4}px;top:${M.HEADER + 6}px;z-index:30;display:flex;align-items:center;gap:5px;background:${m.color};color:${M.onColor(m.color)};padding:3px 8px 3px 7px;border-radius:var(--r-md,7px);font-size:11px;font-weight:600;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.18);${selM ? "outline:2px solid var(--panel,#fff);outline-offset:1px" : ""}`,
-          label: `Jalon ${m.title} — ${M.iters[m.iter]?.short ?? ""}`,
+          label: t("Jalon {title} — {iter}", { title: m.title, iter: M.iters[m.iter]?.short ?? "" }),
           onClick: (e?: React.MouseEvent) => { e?.stopPropagation(); setAnnotAnchor(selM || !e ? null : { x: e.clientX, y: e.clientY }); setState({ milestoneSel: selM ? null : m.id, rangeOpen: false, peopleOpen: false }); },
         });
       });
@@ -1787,7 +1801,7 @@ export function GanttBoard() {
           iterOptions: M.iters.slice(0, M.NITER).map((it, i) => ({ value: String(i), label: it.label })),
           colors: ["#D55E00", "#0072B2", "#009E73", "#CC79A7", "#E69F00"].map((c) => ({
             onClick: () => setMilestone(milestoneSelObj.id, "color", c),
-            label: ANNOT_COLORS[c] || c,
+            label: ANNOT_COLORS[c] ? t(ANNOT_COLORS[c]) : c,
             selected: c === milestoneSelObj.color,
             style: `width:24px;height:24px;border-radius:var(--r-md,7px);padding:0;background:${c};cursor:pointer;border:2px solid ${c === milestoneSelObj.color ? "var(--ink,#1a1a20)" : "transparent"}`,
           })),
@@ -1803,7 +1817,7 @@ export function GanttBoard() {
           iterOptions: M.iters.slice(0, M.NITER).map((it, i) => ({ value: String(i), label: it.label })),
           colors: ["#E69F00", "#D55E00", "#0072B2", "#009E73", "#CC79A7"].map((c) => ({
             onClick: () => setFlag(rowPinSrc.id, "color", c),
-            label: ANNOT_COLORS[c] || c,
+            label: ANNOT_COLORS[c] ? t(ANNOT_COLORS[c]) : c,
             selected: c === rowPinSrc.color,
             style: `width:24px;height:24px;border-radius:var(--r-md,7px);padding:0;background:${c};cursor:pointer;border:2px solid ${c === rowPinSrc.color ? "var(--ink,#1a1a20)" : "transparent"}`,
           })),
@@ -1855,8 +1869,8 @@ export function GanttBoard() {
     return {
       rootStyle: { position: "relative" as const, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" as const, fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "var(--canvas)", color: "var(--ink)", overflow: "hidden" },
       totalWidth: TW, totalHeight: TH, columns, personRows, banners, bars, dropGhost, cursors, presence, onlineLabel, emptyAreaStyle,
-      loadWarning: loadFieldDead ? "charge à 0" : null,
-      loadWarningTitle: `Aucun ticket affiché n'a de valeur « ${loadLabel} » : les jauges de charge affichent 0. Choisissez un autre champ dans le menu Charge ou renseignez les valeurs dans Azure DevOps.`,
+      loadWarning: loadFieldDead ? t("charge à 0") : null,
+      loadWarningTitle: t("Aucun ticket affiché n'a de valeur « {field} » : les jauges de charge affichent 0. Choisissez un autre champ dans le menu Charge ou renseignez les valeurs dans Azure DevOps.", { field: loadLabel }),
       // Fond opaque pleine hauteur sous les cellules du panneau gauche : masque les
       // barres qui défilent dessous (les lignes masquées sont en opacity:.45).
       leftPanelStyle: `position:absolute;left:0;top:0;width:${M.LEFT}px;height:${TH}px;background:var(--panel,#fff);border-right:1px solid var(--line,#e8e8ee);box-sizing:border-box`,
@@ -1865,7 +1879,7 @@ export function GanttBoard() {
       levels,
       isDaily: daily,
       sortValue: sortAxis.value,
-      sortOptions: SORT_AXES.map(({ value, label }) => ({ value, label })),
+      sortOptions: SORT_AXES.map(({ value, label }) => ({ value, label: t(label) })),
       onSort: (e: React.ChangeEvent<HTMLSelectElement>) => {
         const ax = SORT_AXES.find((a) => a.value === e.target.value)!;
         if (ax.value === "random") M.resetRandOrder();
@@ -1882,7 +1896,7 @@ export function GanttBoard() {
       loadFieldOptions: (() => {
         const opts = [
           { value: "points", label: "Story Points" },
-          { value: "effortDays", label: "Estimation (jours)" },
+          { value: "effortDays", label: t("Estimation (jours)") },
           ...customLoadFields,
         ];
         // Préférence sauvegardée sur un champ absent des tickets chargés : on la
@@ -1903,10 +1917,10 @@ export function GanttBoard() {
         return { label: t.label, onClick: () => setState({ board: t.key as State["board"], selectedId: null, rangeOpen: false, peopleOpen: false }), style: `padding:6px 14px;border-radius:var(--r-md,7px);border:none;font-size:13px;font-weight:${active ? 600 : 500};cursor:pointer;white-space:nowrap;background:${active ? "var(--panel,#fff)" : "transparent"};color:${active ? "var(--ink,#1a1a20)" : "var(--muted,#6b6b75)"};box-shadow:${active ? "0 1px 2px rgba(20,20,40,.12)" : "none"}` };
       }),
       isRelease: release, showSort: !release, showGranularity: !release, isMe,
-      leftKicker: release ? "Projet" : "Équipe",
-      leftTitle: release ? "Arborescence" : `${visiblePeople} personne${visiblePeople > 1 ? "s" : ""}`,
+      leftKicker: release ? t("Projet") : t("Équipe"),
+      leftTitle: release ? t("Arborescence") : t(visiblePeople > 1 ? "{n} personnes" : "{n} personne", { n: visiblePeople }),
       loadByValue: state.loadBy,
-      loadByOptions: [{ value: "person", label: "Personne" }, { value: "role", label: "Poste" }, { value: "none", label: "Global" }],
+      loadByOptions: [{ value: "person", label: t("Personne") }, { value: "role", label: t("Poste") }, { value: "none", label: t("Global") }],
       onLoadBy: (e: React.ChangeEvent<HTMLSelectElement>) => setState({ loadBy: e.target.value as State["loadBy"] }),
       treeRows, loadBand, milestones, milestoneEditor,
       relCards, relBands, relEpics, relRowPins, rowPinEditor, relMetrics,
@@ -1914,19 +1928,19 @@ export function GanttBoard() {
       relWaterline: relWaterline as Record<string, string> | null,
       onAddMilestone: () => addMilestone(),
       epicSort: state.epicSort,
-      epicSortOptions: [{ value: "priority", label: "Priorité" }, { value: "name", label: "Nom" }, { value: "effort", label: "Somme de l'effort" }, ...epicCustomSorts],
+      epicSortOptions: [{ value: "priority", label: t("Priorité") }, { value: "name", label: t("Nom") }, { value: "effort", label: t("Somme de l'effort") }, ...epicCustomSorts],
       onEpicSort: (e: React.ChangeEvent<HTMLSelectElement>) => setState({ epicSort: e.target.value }),
       epicSortDir: state.epicSortDir,
       onEpicSortDir: () => setState((s) => ({ epicSortDir: s.epicSortDir === "asc" ? "desc" : "asc" })),
       epicFilter: state.epicFilter,
-      epicFilterOptions: [{ value: "all", label: "Tous les epics" }, { value: "hideDone", label: "Masquer terminés" }, { value: "activeOnly", label: "Actifs seulement" }],
+      epicFilterOptions: [{ value: "all", label: t("Tous les epics") }, { value: "hideDone", label: t("Masquer terminés") }, { value: "activeOnly", label: t("Actifs seulement") }],
       onEpicFilter: (e: React.ChangeEvent<HTMLSelectElement>) => setState({ epicFilter: e.target.value as State["epicFilter"] }),
       rangeLabel, range, rangeOpen: state.rangeOpen,
       rangeBtnStyle: `height:30px;padding:0 12px;border-radius:var(--r-md,7px);border:1px solid ${state.rangeOpen ? "var(--accent,#5b5bd6)" : "var(--line,#e8e8ee)"};background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:7px;white-space:nowrap;flex:0 0 auto`,
       onRangeToggle: (e: React.MouseEvent) => { e.stopPropagation(); setState((s) => ({ rangeOpen: !s.rangeOpen, peopleOpen: false, prefsOpen: false })); },
-      syncLabel: syncing ? "Sync…" : "ADO sync.", syncStyle, syncDotStyle,
-      syncTitle: syncing ? "Synchronisation Azure DevOps en cours…" : "Azure DevOps synchronisé",
-      themeTitle: theme === "dark" ? "Passer en thème clair" : "Passer en thème sombre", themeIcon: theme === "dark" ? "☀" : "☾",
+      syncLabel: syncing ? t("Sync…") : t("ADO sync."), syncStyle, syncDotStyle,
+      syncTitle: syncing ? t("Synchronisation Azure DevOps en cours…") : t("Azure DevOps synchronisé"),
+      themeTitle: theme === "dark" ? t("Passer en thème clair") : t("Passer en thème sombre"), themeIcon: theme === "dark" ? "☀" : "☾",
       onToggleTheme: () => toggleTheme(),
       onScrollRef, onCanvasRef,
       onBgClick: () => { setPersonSel(null); setUserMenuOpen(false); setState({ selectedId: null, rangeOpen: false, peopleOpen: false, prefsOpen: false }); },
@@ -1965,12 +1979,12 @@ export function GanttBoard() {
       <div onClick={v.onPeopleClose} style={C("position:fixed;inset:0;z-index:89")} />
       {/* role="dialog" sans aria-modal : le fond reste atteignable au clavier
           (pas de piège de focus), l'annoncer comme modal serait faux. */}
-      <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label="Personnes affichées" style={C("position:absolute;top:38px;right:0;width:266px;background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px);box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:14px 15px;animation:ggdrop .14s ease;outline:none")}>
+      <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label={t("Personnes affichées")} style={C("position:absolute;top:38px;right:0;width:266px;background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px);box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:14px 15px;animation:ggdrop .14s ease;outline:none")}>
         <div style={C("display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px")}>
-          <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c)")}>Personnes affichées</span>
+          <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c)")}>{t("Personnes affichées")}</span>
           <div style={C("display:flex;gap:10px;flex:0 0 auto")}>
-            <button onClick={v.onShowAllPeople} style={C("border:none;background:none;color:var(--accent,#5b5bd6);font-size:11px;font-weight:500;cursor:pointer;padding:0")}>Tout afficher</button>
-            <button onClick={v.onHideAllPeople} style={C("border:none;background:none;color:var(--muted,#6b6b75);font-size:11px;font-weight:500;cursor:pointer;padding:0")}>Tout désélectionner</button>
+            <button onClick={v.onShowAllPeople} style={C("border:none;background:none;color:var(--accent,#5b5bd6);font-size:11px;font-weight:500;cursor:pointer;padding:0")}>{t("Tout afficher")}</button>
+            <button onClick={v.onHideAllPeople} style={C("border:none;background:none;color:var(--muted,#6b6b75);font-size:11px;font-weight:500;cursor:pointer;padding:0")}>{t("Tout désélectionner")}</button>
           </div>
         </div>
         <div style={C("max-height:52vh;overflow-y:auto;margin:0 -15px;padding:0 15px")}>
@@ -1978,7 +1992,7 @@ export function GanttBoard() {
         {v.peopleInactive.length > 0 && (
           <details style={C("margin-top:6px;border-top:1px solid var(--line,#e8e8ee);padding-top:6px")}>
             <summary style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c);cursor:pointer;padding:3px 0;list-style:none")}>
-              Inactifs ({v.peopleInactive.length}) <span style={C("opacity:.6;font-size:9px")}>▾</span>
+              {t("Inactifs ({n})", { n: v.peopleInactive.length })} <span style={C("opacity:.6;font-size:9px")}>▾</span>
             </summary>
             {v.peopleInactive.map(personLine)}
           </details>
@@ -2003,7 +2017,7 @@ export function GanttBoard() {
         <div style={C("display:flex;align-items:center;gap:8px;min-width:0;flex:0 1 auto")}>
           <div style={C("width:7px;height:7px;flex:0 0 auto;border-radius:50%;background:var(--accent,#5b5bd6);box-shadow:0 0 0 3px var(--accentsoft,#ececfb)")} />
           <div style={C("line-height:1.2;min-width:0")}>
-            <div style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c);white-space:nowrap")}>Itération courante</div>
+            <div style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c);white-space:nowrap")}>{t("Itération courante")}</div>
             <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{v.currentLabel} <span style={C("font-weight:400;color:var(--muted,#6b6b75);font-family:'IBM Plex Mono',monospace;font-size:11px")}>· {v.currentDates}</span></div>
           </div>
         </div>
@@ -2015,11 +2029,11 @@ export function GanttBoard() {
             {/* Popover rendu dans le wrapper du bouton : il s'ouvre sous lui. */}
             <div style={C("position:relative;flex:0 0 auto")}>
               <button onClick={v.onPeopleToggle} style={C("height:30px;padding:0 11px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap")}>
-                <span style={C("opacity:.7;display:flex")}><IconUsers size={13} /></span> Personnes {v.peopleLabel} <span style={C("opacity:.5;font-size:9px")}>▾</span>
+                <span style={C("opacity:.7;display:flex")}><IconUsers size={13} /></span> {t("Personnes")} {v.peopleLabel} <span style={C("opacity:.5;font-size:9px")}>▾</span>
               </button>
               {v.peopleOpen && peoplePopover}
             </div>
-            <button onClick={v.onCapMatrixToggle} title="Matrice de capacité — tous les membres × itérations" style={C("height:30px;padding:0 11px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;flex:0 0 auto")}><IconGrid size={13} /> Capacités</button>
+            <button onClick={v.onCapMatrixToggle} title={t("Matrice de capacité — tous les membres × itérations")} style={C("height:30px;padding:0 11px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;flex:0 0 auto")}><IconGrid size={13} /> {t("Capacités")}</button>
             <div style={C("width:1px;height:22px;flex:0 0 auto;background:var(--line,#e8e8ee)")} />
           </>
         )}
@@ -2038,6 +2052,7 @@ export function GanttBoard() {
         </div>
         <div style={C("width:1px;height:22px;flex:0 0 auto;background:var(--line,#e8e8ee)")} />
         <button onClick={v.onToggleTheme} title={v.themeTitle} aria-label={v.themeTitle} style={C("width:30px;height:30px;flex:0 0 auto;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center")}>{v.themeIcon}</button>
+        <LangToggle />
         {user && (
           <div style={C("width:1px;height:22px;background:var(--line,#e8e8ee)")} />
         )}
@@ -2054,22 +2069,22 @@ export function GanttBoard() {
             {userMenuOpen && (
               <>
               <div onClick={() => setUserMenuOpen(false)} style={C("position:fixed;inset:0;z-index:89")} />
-              <div onClick={(e) => e.stopPropagation()} ref={focusPopover} tabIndex={-1} role="dialog" aria-label="Menu du compte" style={C("position:absolute;top:38px;right:0;width:250px;background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px);box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:6px;animation:ggdrop .14s ease;outline:none")}>
+              <div onClick={(e) => e.stopPropagation()} ref={focusPopover} tabIndex={-1} role="dialog" aria-label={t("Menu du compte")} style={C("position:absolute;top:38px;right:0;width:250px;background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px);box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:6px;animation:ggdrop .14s ease;outline:none")}>
                 <div style={C("padding:8px 10px 10px")}>
-                  <div style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c)")}>Connecté en tant que</div>
+                  <div style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c)")}>{t("Connecté en tant que")}</div>
                   <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>{user.displayName}</div>
                 </div>
                 <div style={C("height:1px;background:var(--line,#e8e8ee);margin:2px 0")} />
                 {realSession && (
                   <button onClick={copyInvite} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:var(--r-md,7px);background:transparent;color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
-                    <span style={C("opacity:.7;display:flex")}><IconUsers size={13} /></span> Copier le lien d'invitation
+                    <span style={C("opacity:.7;display:flex")}><IconUsers size={13} /></span> {t("Copier le lien d'invitation")}
                   </button>
                 )}
                 <button onClick={exitSession} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:var(--r-md,7px);background:transparent;color:var(--ink,#1a1a20);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
-                  <span style={C("opacity:.7;display:flex")}><IconSwap size={13} /></span> Changer de projet
+                  <span style={C("opacity:.7;display:flex")}><IconSwap size={13} /></span> {t("Changer de projet")}
                 </button>
                 <button onClick={logout} style={C("width:100%;text-align:left;padding:9px 10px;border:none;border-radius:var(--r-md,7px);background:transparent;color:var(--color-error,#ef4444);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px")}>
-                  <span style={C("opacity:.7;display:flex")}><IconLogout size={13} /></span> Se déconnecter
+                  <span style={C("opacity:.7;display:flex")}><IconLogout size={13} /></span> {t("Se déconnecter")}
                 </button>
               </div>
               </>
@@ -2085,7 +2100,7 @@ export function GanttBoard() {
       <div style={C(`height:46px;flex:0 0 auto;display:${v.isMe ? "none" : "flex"};align-items:center;gap:14px;padding:0 18px;border-bottom:1px solid var(--line,#e8e8ee);background:var(--panel,#fff);position:relative;z-index:60;overflow-x:auto;overflow-y:hidden`)}>
         {v.showGranularity && (
           <>
-            <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c)")}>Granularité</span>
+            <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c)")}>{t("Granularité")}</span>
             <div style={C("display:flex;background:var(--panel2,#fafafc);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-lg,9px);padding:2px;gap:2px")}>
               {v.levels.map((l) => (
                 <button key={l.label} onClick={l.onClick} style={C(l.style)}>{l.label}</button>
@@ -2098,24 +2113,24 @@ export function GanttBoard() {
         {v.isRelease && v.relMetrics && (
           <div title={v.relMetrics.title} style={C("height:30px;display:flex;align-items:center;gap:8px;padding:0 11px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);flex:0 1 auto;min-width:0;overflow:hidden")}>
             <span style={C("font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--muted,#6b6b75);white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis")}>{v.relMetrics.rangeText}</span>
-            <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#71717c)")}>Capa</span>
+            <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#71717c)")}>{t("Capa")}</span>
             <span style={C(`font-size:12px;font-weight:600;font-family:${"'IBM Plex Mono',monospace"};color:var(--ink,#1a1a20)`)}>{v.relMetrics.capText}</span>
-            <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#71717c)")}>Effort</span>
+            <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#71717c)")}>{t("Effort")}</span>
             <span style={C(`font-size:12px;font-weight:600;font-family:${"'IBM Plex Mono',monospace"};color:var(--ink,#1a1a20)`)}>{v.relMetrics.effortText}</span>
             <span style={C(v.relMetrics.deltaStyle)}>{v.relMetrics.deltaText}</span>
             <span style={C("font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--muted,#6b6b75)")}>{v.relMetrics.pctText}</span>
           </div>
         )}
         <div style={{ flex: 1 }} />
-        <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c)")}>Charge</span>
-        <select value={v.loadFieldValue} onChange={v.onLoadField} aria-label="Champ de charge" title="Champ utilisé pour les jauges de charge et le tri « Charge »" style={C("height:30px;padding:0 8px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
+        <span style={C("font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c)")}>{t("Charge")}</span>
+        <select value={v.loadFieldValue} onChange={v.onLoadField} aria-label={t("Champ de charge")} title={t("Champ utilisé pour les jauges de charge et le tri « Charge »")} style={C("height:30px;padding:0 8px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
           {v.loadFieldOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         {v.loadWarning && <span role="img" aria-label={`${v.loadWarning} — ${v.loadWarningTitle}`} title={v.loadWarningTitle} style={C("display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--color-pending-text,#8a5a00);white-space:nowrap;cursor:help")}><IconAlert size={12} />{v.loadWarning}</span>}
         {v.isRelease && (
           <>
             <div style={C("width:1px;height:20px;background:var(--line,#e8e8ee)")} />
-            <button onClick={v.onAddMilestone} style={C("height:30px;padding:0 12px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px")}><IconMilestone size={12} /> Jalon</button>
+            <button onClick={v.onAddMilestone} style={C("height:30px;padding:0 12px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px")}><IconMilestone size={12} /> {t("Jalon")}</button>
           </>
         )}
         {/* Bouton du popover d'affichage, à droite comme le popover qu'il ouvre. */}
@@ -2123,7 +2138,7 @@ export function GanttBoard() {
           <>
             <div style={C("width:1px;height:20px;background:var(--line,#e8e8ee)")} />
             <button onClick={v.onRangeToggle} style={C(v.rangeBtnStyle)}>
-              <span style={C("opacity:.7;display:flex")}>{v.isRelease ? <IconGear size={13} /> : <IconCalendar size={13} />}</span> {v.isRelease ? "Vue" : v.rangeLabel} <span style={C("opacity:.5;font-size:9px")}>▾</span>
+              <span style={C("opacity:.7;display:flex")}>{v.isRelease ? <IconGear size={13} /> : <IconCalendar size={13} />}</span> {v.isRelease ? t("Vue") : v.rangeLabel} <span style={C("opacity:.5;font-size:9px")}>▾</span>
             </button>
           </>
         )}
@@ -2133,72 +2148,72 @@ export function GanttBoard() {
       {v.rangeOpen && (
         <>
         <div onClick={() => setState({ rangeOpen: false })} style={C("position:fixed;inset:0;z-index:89")} />
-        <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label={v.range.isRelease ? "Réglages d'affichage" : "Intervalle d'itérations affiché"} style={C("position:absolute;top:104px;right:18px;width:340px;background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px);box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:15px 16px;animation:ggdrop .14s ease;outline:none")}>
+        <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label={v.range.isRelease ? t("Réglages d'affichage") : t("Intervalle d'itérations affiché")} style={C("position:absolute;top:104px;right:18px;width:340px;background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px);box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:90;padding:15px 16px;animation:ggdrop .14s ease;outline:none")}>
           {v.range.showRange && (
             <>
-              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c);margin-bottom:11px")}>Intervalle d'itérations affiché</div>
+              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c);margin-bottom:11px")}>{t("Intervalle d'itérations affiché")}</div>
               <div style={C("display:flex;flex-direction:column;gap:10px")}>
                 <div>
-                  <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>De</div>
-                  <select value={v.range.from} onChange={v.range.onFrom} aria-label="Première itération affichée" style={C(v.selectCss)}>
+                  <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>{t("De")}</div>
+                  <select value={v.range.from} onChange={v.range.onFrom} aria-label={t("Première itération affichée")} style={C(v.selectCss)}>
                     {v.range.iterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
                 <div>
-                  <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>À</div>
-                  <select value={v.range.to} onChange={v.range.onTo} aria-label="Dernière itération affichée" style={C(v.selectCss)}>
+                  <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>{t("À")}</div>
+                  <select value={v.range.to} onChange={v.range.onTo} aria-label={t("Dernière itération affichée")} style={C(v.selectCss)}>
                     {v.range.iterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
               </div>
               <label style={C("display:flex;align-items:center;gap:8px;margin-top:13px;cursor:pointer;font-size:13px;color:var(--ink,#1a1a20)")}>
                 <input type="checkbox" checked={v.range.backlog} onChange={v.range.onBacklog} style={C("width:15px;height:15px;accent-color:var(--accent,#5b5bd6);cursor:pointer")} />
-                Inclure le backlog
+                {t("Inclure le backlog")}
               </label>
             </>
           )}
           {v.range.isRelease && (
             <>
-              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c);margin-bottom:11px")}>Affichage</div>
+              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c);margin-bottom:11px")}>{t("Affichage")}</div>
               <div style={C("display:flex;flex-direction:column;gap:10px;margin-bottom:13px")}>
                 <div>
-                  <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>Charge par</div>
-                  <select value={v.loadByValue} onChange={v.onLoadBy} aria-label="Regroupement de la charge" style={C(v.selectCss)}>
+                  <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>{t("Charge par")}</div>
+                  <select value={v.loadByValue} onChange={v.onLoadBy} aria-label={t("Regroupement de la charge")} style={C(v.selectCss)}>
                     {v.loadByOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
                 <div>
-                  <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>Filtre epics</div>
-                  <select value={v.epicFilter} onChange={v.onEpicFilter} aria-label="Filtre des epics" style={C(v.selectCss)}>
+                  <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>{t("Filtre epics")}</div>
+                  <select value={v.epicFilter} onChange={v.onEpicFilter} aria-label={t("Filtre des epics")} style={C(v.selectCss)}>
                     {v.epicFilterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
                 {v.relMetrics && (
                   <div>
-                    <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>Intervalle des métriques</div>
+                    <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>{t("Intervalle des métriques")}</div>
                     <div style={C("display:flex;align-items:center;gap:8px")}>
-                      <select value={v.relMetrics.from} onChange={v.relMetrics.onFrom} aria-label="Début de l'intervalle des métriques" style={C(v.selectCss)}>
+                      <select value={v.relMetrics.from} onChange={v.relMetrics.onFrom} aria-label={t("Début de l'intervalle des métriques")} style={C(v.selectCss)}>
                         {v.relMetrics.options.map((o: { value: string; label: string }) => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
                       <span style={C("font-size:11px;color:var(--faint,#71717c);flex:0 0 auto")}>→</span>
-                      <select value={v.relMetrics.to} onChange={v.relMetrics.onTo} aria-label="Fin de l'intervalle des métriques" style={C(v.selectCss)}>
+                      <select value={v.relMetrics.to} onChange={v.relMetrics.onTo} aria-label={t("Fin de l'intervalle des métriques")} style={C(v.selectCss)}>
                         {v.relMetrics.options.map((o: { value: string; label: string }) => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
                     </div>
                   </div>
                 )}
               </div>
-              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c);margin-bottom:9px")}>Vue long terme</div>
-              <div style={C("font-size:12px;line-height:1.45;color:var(--muted,#6b6b75);margin-bottom:11px")}>Toutes les itérations sont affichées. Défilez horizontalement pour naviguer ; la vue démarre sur l'itération courante. Double-cliquez sur une ligne ou une barre pour poser un flag.</div>
-              <button onClick={v.range.onGoCurrent} style={C("width:100%;height:32px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer")}>Aller à l'itération courante</button>
+              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c);margin-bottom:9px")}>{t("Vue long terme")}</div>
+              <div style={C("font-size:12px;line-height:1.45;color:var(--muted,#6b6b75);margin-bottom:11px")}>{t("Toutes les itérations sont affichées. Défilez horizontalement pour naviguer ; la vue démarre sur l'itération courante. Double-cliquez sur une ligne ou une barre pour poser un flag.")}</div>
+              <button onClick={v.range.onGoCurrent} style={C("width:100%;height:32px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;font-weight:500;cursor:pointer")}>{t("Aller à l'itération courante")}</button>
             </>
           )}
           <label style={C("display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;font-size:13px;color:var(--ink,#1a1a20)")}>
             <input type="checkbox" checked={v.range.hideClosed} onChange={v.range.onHideClosed} style={C("width:15px;height:15px;accent-color:var(--accent,#5b5bd6);cursor:pointer")} />
-            Masquer les tickets fermés
+            {t("Masquer les tickets fermés")}
           </label>
           {v.range.hasPast && (
-            <button onClick={v.range.onReset} style={C("margin-top:10px;width:100%;height:32px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--muted,#6b6b75);font-size:12px;font-weight:500;cursor:pointer")}>Revenir à l'itération courante</button>
+            <button onClick={v.range.onReset} style={C("margin-top:10px;width:100%;height:32px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--muted,#6b6b75);font-size:12px;font-weight:500;cursor:pointer")}>{t("Revenir à l'itération courante")}</button>
           )}
         </div>
         </>
@@ -2209,22 +2224,22 @@ export function GanttBoard() {
       {v.rowPinEditor && (
         <>
         <div onClick={() => { setAnnotAnchor(null); v.rowPinEditor!.onClose(); }} style={C("position:fixed;inset:0;z-index:91")} />
-        <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label="Éditer le flag" style={C(annotEditorStyle + ";outline:none")}>
+        <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label={t("Éditer le flag")} style={C(annotEditorStyle + ";outline:none")}>
           <div style={C("display:flex;align-items:center;justify-content:space-between;margin-bottom:11px")}>
-            <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c)")}><IconFlag size={11} /> Flag</span>
-            <button onClick={v.rowPinEditor.onClose} aria-label="Fermer" style={C("width:24px;height:24px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center")}><IconClose size={13} /></button>
+            <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c)")}><IconFlag size={11} /> {t("Flag")}</span>
+            <button onClick={v.rowPinEditor.onClose} aria-label={t("Fermer")} style={C("width:24px;height:24px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center")}><IconClose size={13} /></button>
           </div>
-          <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>Libellé</div>
+          <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>{t("Libellé")}</div>
           <input value={v.rowPinEditor.title} onChange={v.rowPinEditor.onTitle} style={C(v.inputCss)} />
-          <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin:11px 0 5px")}>Sprint</div>
+          <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin:11px 0 5px")}>{t("Sprint")}</div>
           <select value={v.rowPinEditor.iter} onChange={v.rowPinEditor.onIter} style={C(v.selectCss)}>
             {v.rowPinEditor.iterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin:11px 0 6px")}>Couleur</div>
+          <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin:11px 0 6px")}>{t("Couleur")}</div>
           <div style={C("display:flex;gap:8px")}>
             {v.rowPinEditor.colors.map((c, i) => <button key={i} type="button" onClick={c.onClick} aria-label={c.label} aria-pressed={c.selected} style={C(c.style)} />)}
           </div>
-          <button onClick={v.rowPinEditor.onRemove} style={C("margin-top:14px;width:100%;height:32px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--color-error,#ef4444);font-size:12px;font-weight:500;cursor:pointer")}>Supprimer le flag</button>
+          <button onClick={v.rowPinEditor.onRemove} style={C("margin-top:14px;width:100%;height:32px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--color-error,#ef4444);font-size:12px;font-weight:500;cursor:pointer")}>{t("Supprimer le flag")}</button>
         </div>
         </>
       )}
@@ -2233,22 +2248,22 @@ export function GanttBoard() {
       {v.milestoneEditor && (
         <>
         <div onClick={() => { setAnnotAnchor(null); v.milestoneEditor!.onClose(); }} style={C("position:fixed;inset:0;z-index:91")} />
-        <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label="Éditer le jalon" style={C(annotEditorStyle + ";outline:none")}>
+        <div onClick={v.stop} ref={focusPopover} tabIndex={-1} role="dialog" aria-label={t("Éditer le jalon")} style={C(annotEditorStyle + ";outline:none")}>
           <div style={C("display:flex;align-items:center;justify-content:space-between;margin-bottom:11px")}>
-            <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c)")}><IconMilestone size={11} /> Jalon</span>
-            <button onClick={v.milestoneEditor.onClose} aria-label="Fermer" style={C("width:24px;height:24px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center")}><IconClose size={13} /></button>
+            <span style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c)")}><IconMilestone size={11} /> {t("Jalon")}</span>
+            <button onClick={v.milestoneEditor.onClose} aria-label={t("Fermer")} style={C("width:24px;height:24px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center")}><IconClose size={13} /></button>
           </div>
-          <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>Titre</div>
+          <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin-bottom:5px")}>{t("Titre")}</div>
           <input value={v.milestoneEditor.title} onChange={v.milestoneEditor.onTitle} style={C(v.inputCss)} />
-          <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin:11px 0 5px")}>À partir de l'itération</div>
+          <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin:11px 0 5px")}>{t("À partir de l'itération")}</div>
           <select value={v.milestoneEditor.iter} onChange={v.milestoneEditor.onIter} style={C(v.selectCss)}>
             {v.milestoneEditor.iterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin:11px 0 6px")}>Couleur</div>
+          <div style={C("font-size:11px;color:var(--muted,#6b6b75);margin:11px 0 6px")}>{t("Couleur")}</div>
           <div style={C("display:flex;gap:8px")}>
             {v.milestoneEditor.colors.map((c, i) => <button key={i} type="button" onClick={c.onClick} aria-label={c.label} aria-pressed={c.selected} style={C(c.style)} />)}
           </div>
-          <button onClick={v.milestoneEditor.onRemove} style={C("margin-top:14px;width:100%;height:32px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--color-error,#ef4444);font-size:12px;font-weight:500;cursor:pointer")}>Supprimer le jalon</button>
+          <button onClick={v.milestoneEditor.onRemove} style={C("margin-top:14px;width:100%;height:32px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--color-error,#ef4444);font-size:12px;font-weight:500;cursor:pointer")}>{t("Supprimer le jalon")}</button>
         </div>
         </>
       )}
@@ -2284,7 +2299,7 @@ export function GanttBoard() {
                 role={row.onClick ? "button" : undefined} tabIndex={row.onClick ? 0 : undefined}
                 aria-expanded={row.hasChildren ? row.open : undefined}
                 onKeyDown={row.onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); row.onClick(); } } : undefined}
-                title={row.onDoubleClick ? "Cliquer pour ouvrir le panneau · double-clic pour poser un flag" : undefined} style={C(row.leftStyle)}>
+                title={row.onDoubleClick ? t("Cliquer pour ouvrir le panneau · double-clic pour poser un flag") : undefined} style={C(row.leftStyle)}>
                 <span onClick={row.onToggle} style={C(row.chevStyle)}>{row.chevron}</span>
                 {row.isArea && (
                   <>
@@ -2316,9 +2331,9 @@ export function GanttBoard() {
             {v.personRows.map((row, i) => (
               <div key={"pr" + i} style={C(row.leftStyle)} onClick={row.onOpen}
                 role={row.onOpen ? "button" : undefined} tabIndex={row.onOpen ? 0 : undefined}
-                aria-label={row.onOpen ? `${row.name} — capacités par itération` : undefined}
+                aria-label={row.onOpen ? t("{name} — capacités par itération", { name: row.name }) : undefined}
                 onKeyDown={row.onOpen ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); row.onOpen!(e as unknown as React.MouseEvent); } } : undefined}
-                title={row.onOpen ? "Capacités par itération" : undefined}>
+                title={row.onOpen ? t("Capacités par itération") : undefined}>
                 <div style={C(row.avatarStyle)}>{row.initials}</div>
                 <div style={C("line-height:1.25;min-width:0")}>
                   <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{row.name}</div>
@@ -2368,22 +2383,22 @@ export function GanttBoard() {
               <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20);margin-top:3px")}>{v.leftTitle}</div>
               {v.showSort && (
                 <div style={C("display:flex;align-items:center;gap:6px;margin-top:8px")}>
-                  <select value={v.sortValue} onChange={v.onSort} aria-label="Tri des personnes" style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
+                  <select value={v.sortValue} onChange={v.onSort} aria-label={t("Tri des personnes")} style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
                     {v.sortOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                   {v.showSortDir && (
-                    <button onClick={v.onSortDir} aria-label={`Sens du tri : ${v.sortAsc ? "croissant" : "décroissant"}`} title="Inverser le sens du tri" style={C(v.shuffleStyle)}>{v.sortAsc ? "↑" : "↓"}</button>
+                    <button onClick={v.onSortDir} aria-label={t("Sens du tri : {dir}", { dir: v.sortAsc ? t("croissant") : t("décroissant") })} title={t("Inverser le sens du tri")} style={C(v.shuffleStyle)}>{v.sortAsc ? "↑" : "↓"}</button>
                   )}
-                  <button onClick={v.onShuffle} aria-label="Tri aléatoire" title="Tri aléatoire (relance à chaque clic)" style={C(v.shuffleStyle)}>↻</button>
+                  <button onClick={v.onShuffle} aria-label={t("Tri aléatoire")} title={t("Tri aléatoire (relance à chaque clic)")} style={C(v.shuffleStyle)}>↻</button>
                 </div>
               )}
               {v.isRelease && (
                 <div style={C("display:flex;align-items:center;gap:6px;margin-top:9px")}>
-                  <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#71717c);flex:0 0 auto")}>Trier</span>
-                  <select value={v.epicSort} onChange={v.onEpicSort} aria-label="Tri des epics" style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
+                  <span style={C("font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint,#71717c);flex:0 0 auto")}>{t("Trier")}</span>
+                  <select value={v.epicSort} onChange={v.onEpicSort} aria-label={t("Tri des epics")} style={C("flex:1;min-width:0;height:28px;padding:0 6px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:12px;cursor:pointer;outline:none")}>
                     {v.epicSortOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
-                  <button onClick={v.onEpicSortDir} aria-label={`Sens du tri : ${v.epicSortDir === "asc" ? "croissant" : "décroissant"}`} title="Inverser le sens du tri" style={C(v.shuffleStyle)}>{v.epicSortDir === "asc" ? "↑" : "↓"}</button>
+                  <button onClick={v.onEpicSortDir} aria-label={t("Sens du tri : {dir}", { dir: v.epicSortDir === "asc" ? t("croissant") : t("décroissant") })} title={t("Inverser le sens du tri")} style={C(v.shuffleStyle)}>{v.epicSortDir === "asc" ? "↑" : "↓"}</button>
                 </div>
               )}
             </div>
@@ -2391,10 +2406,10 @@ export function GanttBoard() {
 
           {v.banners.map((b, i) => (
             <div key={"bn" + i} style={C(b.style)} onClick={b.onClick} role="button" tabIndex={0}
-              aria-label="Modifier la capacité"
+              aria-label={t("Modifier la capacité")}
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); b.onClick(e as unknown as React.MouseEvent); } }}
               title={b.title}>
-              <span style={C("font-size:10px;color:var(--faint,#71717c);font-weight:500;flex:0 0 auto")}>charge</span>
+              <span style={C("font-size:10px;color:var(--faint,#71717c);font-weight:500;flex:0 0 auto")}>{t("charge")}</span>
               <div style={C("flex:1;height:5px;border-radius:3px;background:var(--line2,#f1f1f5);overflow:hidden;position:relative")}>
                 <div style={C(b.fillStyle)} />
               </div>
@@ -2460,13 +2475,13 @@ export function GanttBoard() {
 
           {(v.relEpics as Record<string, any>[]).map((e, i) => (
             <div key={"re" + i}>
-              <div onPointerDown={e.onDown} onDoubleClick={e.onDoubleClick} title={e.title || (e.onDown ? "Glisser pour déplacer · double-clic pour un flag" : undefined)} style={C(e.containerStyle)}>
+              <div onPointerDown={e.onDown} onDoubleClick={e.onDoubleClick} title={e.title || (e.onDown ? t("Glisser pour déplacer · double-clic pour un flag") : undefined)} style={C(e.containerStyle)}>
                 {(e.segs || []).map((s: any, j: number) => (
                   <div key={j} style={C(s.segStyle)}><div style={C(s.fillStyle)} /><span style={C(s.labelStyle)}>{s.label}</span></div>
                 ))}
               </div>
-              {e.showL && <div onPointerDown={e.onLeftDown} title="Étirer/réduire le début" style={C(e.lHandleStyle)}><span style={C(e.gripStyle)}>{e.gripChar}</span></div>}
-              {e.showR && <div onPointerDown={e.onRightDown} title="Étirer/réduire la fin" style={C(e.rHandleStyle)}><span style={C(e.gripStyle)}>{e.gripChar}</span></div>}
+              {e.showL && <div onPointerDown={e.onLeftDown} title={t("Étirer/réduire le début")} style={C(e.lHandleStyle)}><span style={C(e.gripStyle)}>{e.gripChar}</span></div>}
+              {e.showR && <div onPointerDown={e.onRightDown} title={t("Étirer/réduire la fin")} style={C(e.rHandleStyle)}><span style={C(e.gripStyle)}>{e.gripChar}</span></div>}
             </div>
           ))}
 
@@ -2526,20 +2541,20 @@ export function GanttBoard() {
               <span style={C(`font-size:12px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:${v.insp.accent}`)}>{v.insp.ado}</span>
               <span style={C(v.insp.badgeStyle)}>{v.insp.typeLabel}</span>
               <div style={{ flex: 1 }} />
-              <button onClick={v.insp.onPrefsToggle} title="Personnaliser les champs affichés" aria-label="Personnaliser les champs affichés" style={C(`width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:${v.insp.prefsOpen ? "var(--accentsoft,#ececfb)" : "var(--line2,#f1f1f5)"};color:${v.insp.prefsOpen ? "var(--accent,#5b5bd6)" : "var(--muted,#6b6b75)"};cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center`)}><IconGear size={13} /></button>
+              <button onClick={v.insp.onPrefsToggle} title={t("Personnaliser les champs affichés")} aria-label={t("Personnaliser les champs affichés")} style={C(`width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:${v.insp.prefsOpen ? "var(--accentsoft,#ececfb)" : "var(--line2,#f1f1f5)"};color:${v.insp.prefsOpen ? "var(--accent,#5b5bd6)" : "var(--muted,#6b6b75)"};cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center`)}><IconGear size={13} /></button>
               {v.insp.adoHref && (
-                <a href={v.insp.adoHref} target="_blank" rel="noreferrer" title="Ouvrir dans Azure DevOps" aria-label="Ouvrir dans Azure DevOps" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;text-decoration:none")}>↗</a>
+                <a href={v.insp.adoHref} target="_blank" rel="noreferrer" title={t("Ouvrir dans Azure DevOps")} aria-label={t("Ouvrir dans Azure DevOps")} style={C("width:26px;height:26px;border-radius:var(--r-md,7px);background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;text-decoration:none")}>↗</a>
               )}
-              <button onClick={v.insp.onDup} title={`Dupliquer (${modLabel}D)`} aria-label="Dupliquer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center")}><IconCopy size={13} /></button>
-              <button onClick={v.insp.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center")}><IconClose size={13} /></button>
+              <button onClick={v.insp.onDup} title={t("Dupliquer ({mod}D)", { mod: modLabel })} aria-label={t("Dupliquer")} style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center")}><IconCopy size={13} /></button>
+              <button onClick={v.insp.onClose} aria-label={t("Fermer")} style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center")}><IconClose size={13} /></button>
             </div>
-            <textarea key={"title" + v.insp.ado + ":" + v.insp.title} aria-label="Titre du ticket" defaultValue={v.insp.title} onBlur={v.insp.onTitle}
+            <textarea key={"title" + v.insp.ado + ":" + v.insp.title} aria-label={t("Titre du ticket")} defaultValue={v.insp.title} onBlur={v.insp.onTitle}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); } }}
               rows={2} style={C("margin-top:11px;width:100%;border:none;background:transparent;resize:none;font-size:16px;font-weight:600;line-height:1.3;color:var(--ink,#1a1a20);outline:none;padding:0")} />
             {v.insp.parents.length > 0 && (
               <div style={C("margin-top:6px;display:flex;flex-direction:column;gap:2px")}>
                 {v.insp.parents.map((p) => (
-                  <button key={p.id} onClick={p.onClick} title={`${p.typeLabel} — ouvrir son panneau`}
+                  <button key={p.id} onClick={p.onClick} title={t("{type} — ouvrir son panneau", { type: p.typeLabel })}
                     style={C(`margin-left:${p.indent}px;border:none;background:transparent;padding:0;text-align:left;font-size:11px;color:var(--muted,#6b6b75);cursor:pointer;display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis`)}>
                     <span style={C("flex:0 0 auto")}>↳</span>
                     <span style={C("overflow:hidden;text-overflow:ellipsis")}>{p.label}</span>
@@ -2551,8 +2566,8 @@ export function GanttBoard() {
           {/* Popover personnalisation des champs — réglage par type de work item */}
           {v.insp.prefsOpen && (
             <div onClick={v.stop} ref={focusPopover} tabIndex={-1} style={C("position:absolute;top:46px;left:12px;right:12px;background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px);box-shadow:0 12px 34px rgba(20,20,40,.16);z-index:20;padding:14px 16px;animation:ggdrop .14s ease;max-height:72%;overflow:auto;outline:none")}>
-              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c)")}>Champs affichés — {v.insp.wit}</div>
-              <div style={C("font-size:11px;line-height:1.4;color:var(--muted,#6b6b75);margin:4px 0 9px")}>S'applique à tous les tickets « {v.insp.wit} ».</div>
+              <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c)")}>{t("Champs affichés — {wit}", { wit: v.insp.wit })}</div>
+              <div style={C("font-size:11px;line-height:1.4;color:var(--muted,#6b6b75);margin:4px 0 9px")}>{t("S'applique à tous les tickets « {wit} ».", { wit: v.insp.wit })}</div>
               {v.insp.prefFields.map((f) => (
                 <label key={f.label} style={C(`display:flex;align-items:center;gap:9px;padding:4px 0;cursor:pointer;font-size:13px;font-family:${sans};color:var(--ink,#1a1a20)`)}>
                   <input type="checkbox" checked={f.checked} onChange={f.onToggle} style={C("width:15px;height:15px;accent-color:var(--accent,#5b5bd6);cursor:pointer")} />
@@ -2561,22 +2576,22 @@ export function GanttBoard() {
               ))}
               {v.insp.extraFields.length > 0 && (
                 <>
-                  <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c);margin:13px 0 5px")}>Champs supplémentaires</div>
+                  <div style={C("font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#71717c);margin:13px 0 5px")}>{t("Champs supplémentaires")}</div>
                   {v.insp.extraFields.map((f) => (
                     <div key={f.ref} title={f.ref} style={C(`display:flex;align-items:center;justify-content:space-between;gap:8px;padding:3px 0;font-size:13px;font-family:${sans};color:var(--ink,#1a1a20)`)}>
                       <span style={C("white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{f.label}</span>
-                      <button onClick={f.onRemove} title="Retirer ce champ" aria-label={`Retirer le champ ${f.label}`} style={C("border:none;background:none;color:var(--faint,#71717c);cursor:pointer;font-size:14px;line-height:1;padding:0")}>×</button>
+                      <button onClick={f.onRemove} title={t("Retirer ce champ")} aria-label={t("Retirer le champ {label}", { label: f.label })} style={C("border:none;background:none;color:var(--faint,#71717c);cursor:pointer;font-size:14px;line-height:1;padding:0")}>×</button>
                     </div>
                   ))}
                 </>
               )}
               {v.insp.picker ? (
                 <div style={C("margin-top:12px")}>
-                  <input autoFocus value={v.insp.picker.q} onChange={v.insp.picker.onQ} placeholder="Rechercher un champ ADO…" style={C(v.inputCss)} />
+                  <input autoFocus value={v.insp.picker.q} onChange={v.insp.picker.onQ} placeholder={t("Rechercher un champ ADO…")} style={C(v.inputCss)} />
                   {v.insp.picker.loading ? (
-                    <div style={C("font-size:12px;color:var(--muted,#6b6b75);padding:9px 2px")}>Chargement des champs ADO…</div>
+                    <div style={C("font-size:12px;color:var(--muted,#6b6b75);padding:9px 2px")}>{t("Chargement des champs ADO…")}</div>
                   ) : v.insp.picker.options.length === 0 ? (
-                    <div style={C("font-size:12px;color:var(--muted,#6b6b75);padding:9px 2px")}>Aucun champ disponible</div>
+                    <div style={C("font-size:12px;color:var(--muted,#6b6b75);padding:9px 2px")}>{t("Aucun champ disponible")}</div>
                   ) : (
                     <div style={C("max-height:170px;overflow:auto;margin-top:6px")}>
                       {v.insp.picker.options.map((o) => (
@@ -2586,17 +2601,17 @@ export function GanttBoard() {
                       ))}
                     </div>
                   )}
-                  <button onClick={v.insp.picker.onClose} style={C("margin-top:8px;width:100%;height:28px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--muted,#6b6b75);font-size:11px;font-weight:500;cursor:pointer")}>Annuler</button>
+                  <button onClick={v.insp.picker.onClose} style={C("margin-top:8px;width:100%;height:28px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--muted,#6b6b75);font-size:11px;font-weight:500;cursor:pointer")}>{t("Annuler")}</button>
                 </div>
               ) : (
-                <button onClick={v.insp.onAddField} style={C("margin-top:12px;width:100%;height:32px;border-radius:var(--r-md,7px);border:1px dashed var(--line,#e8e8ee);background:transparent;color:var(--accent,#5b5bd6);font-size:12px;font-weight:500;cursor:pointer")}>+ Ajouter un champ supplémentaire</button>
+                <button onClick={v.insp.onAddField} style={C("margin-top:12px;width:100%;height:32px;border-radius:var(--r-md,7px);border:1px dashed var(--line,#e8e8ee);background:transparent;color:var(--accent,#5b5bd6);font-size:12px;font-weight:500;cursor:pointer")}>{t("+ Ajouter un champ supplémentaire")}</button>
               )}
             </div>
           )}
           <div style={C("flex:1;overflow:auto;padding:16px 18px;display:flex;flex-direction:column;gap:17px")}>
             {v.insp.show.state && (
               <div>
-                <div style={C(v.labelCss)}>État</div>
+                <div style={C(v.labelCss)}>{t("État")}</div>
                 {/* Grille (2 colonnes au-delà de 3 états) : évite un dernier bouton
                     orphelin pleine largeur qui ressemble à une action à part. */}
                 <div style={C(`display:grid;grid-template-columns:repeat(${v.insp.states.length <= 3 ? Math.max(v.insp.states.length, 1) : 2},1fr);gap:5px`)}>
@@ -2606,7 +2621,7 @@ export function GanttBoard() {
             )}
             {v.insp.show.assignee && (
               <div>
-                <div style={C(v.labelCss)}>Assigné à</div>
+                <div style={C(v.labelCss)}>{t("Assigné à")}</div>
                 <select value={v.insp.assignee} onChange={v.insp.onAssignee} style={C(v.selectCss)}>
                   {v.insp.people.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
@@ -2614,7 +2629,7 @@ export function GanttBoard() {
             )}
             {v.insp.show.iter && (
               <div>
-                <div style={C(v.labelCss)}>Itération</div>
+                <div style={C(v.labelCss)}>{t("Itération")}</div>
                 <select value={v.insp.iter} onChange={v.insp.onIter} style={C(v.selectCss)}>
                   {v.insp.iterOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
@@ -2622,7 +2637,7 @@ export function GanttBoard() {
             )}
             {v.insp.show.area && (
               <div>
-                <div style={C(v.labelCss)}>Area Path</div>
+                <div style={C(v.labelCss)}>{t("Area Path")}</div>
                 <select value={v.insp.area} onChange={v.insp.onArea} style={C(v.selectCss)}>
                   {v.insp.areaOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
@@ -2632,34 +2647,34 @@ export function GanttBoard() {
               <div>
                 <div style={C(v.labelCss)}>Story Points</div>
                 <div style={C(v.stepperCss)}>
-                  <button onClick={v.insp.decPoints} aria-label="Diminuer les story points" style={C(v.stepBtnCss)}>−</button>
-                  <input type="text" inputMode="decimal" aria-label="Story points" key={"pts" + v.insp.ado + ":" + v.insp.points} defaultValue={String(v.insp.points)}
+                  <button onClick={v.insp.decPoints} aria-label={t("Diminuer les story points")} style={C(v.stepBtnCss)}>−</button>
+                  <input type="text" inputMode="decimal" aria-label={t("Story points")} key={"pts" + v.insp.ado + ":" + v.insp.points} defaultValue={String(v.insp.points)}
                     onBlur={v.insp.onPoints} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} style={C(v.stepInputCss)} />
-                  <button onClick={v.insp.incPoints} aria-label="Augmenter les story points" style={C(v.stepBtnCss)}>+</button>
+                  <button onClick={v.insp.incPoints} aria-label={t("Augmenter les story points")} style={C(v.stepBtnCss)}>+</button>
                 </div>
               </div>
             )}
             {v.insp.isTask && v.insp.show.effort && (
               <div>
-                <div style={C(v.labelCss)}>Estimation (jours)</div>
+                <div style={C(v.labelCss)}>{t("Estimation (jours)")}</div>
                 <div style={C(v.stepperCss)}>
-                  <button onClick={v.insp.decEffort} aria-label="Diminuer l'estimation" style={C(v.stepBtnCss)}>−</button>
-                  <input type="text" inputMode="decimal" aria-label="Estimation en jours" key={"eff" + v.insp.ado + ":" + v.insp.effort} defaultValue={String(v.insp.effort)}
+                  <button onClick={v.insp.decEffort} aria-label={t("Diminuer l'estimation")} style={C(v.stepBtnCss)}>−</button>
+                  <input type="text" inputMode="decimal" aria-label={t("Estimation en jours")} key={"eff" + v.insp.ado + ":" + v.insp.effort} defaultValue={String(v.insp.effort)}
                     onBlur={v.insp.onEffort} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} style={C(v.stepInputCss)} />
-                  <button onClick={v.insp.incEffort} aria-label="Augmenter l'estimation" style={C(v.stepBtnCss)}>+</button>
+                  <button onClick={v.insp.incEffort} aria-label={t("Augmenter l'estimation")} style={C(v.stepBtnCss)}>+</button>
                 </div>
               </div>
             )}
             {v.insp.show.priority && (
               <div>
-                <div style={C(v.labelCss)}>Priorité</div>
+                <div style={C(v.labelCss)}>{t("Priorité")}</div>
                 <input type="number" min={1} step={1} key={"prio" + v.insp.ado + ":" + v.insp.priority} defaultValue={String(v.insp.priority)}
                   onBlur={v.insp.onPriority} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} placeholder="—" style={C(v.inputCss)} />
               </div>
             )}
             {v.insp.show.dates && (
               <div>
-                <div style={C(v.labelCss)}>Dates (début → fin)</div>
+                <div style={C(v.labelCss)}>{t("Dates (début → fin)")}</div>
                 <div style={C(`font-size:13px;font-family:${mono};color:var(--ink,#1a1a20)`)}>{v.insp.dates}</div>
               </div>
             )}
@@ -2695,18 +2710,18 @@ export function GanttBoard() {
               <div style={C("font-size:14px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{v.personPanel.name}</div>
               {v.personPanel.poste && <div style={C("font-size:11px;color:var(--muted,#6b6b75)")}>{v.personPanel.poste}</div>}
             </div>
-            <button onClick={v.personPanel.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;flex:0 0 auto")}><IconClose size={13} /></button>
+            <button onClick={v.personPanel.onClose} aria-label={t("Fermer")} style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;flex:0 0 auto")}><IconClose size={13} /></button>
           </div>
           <div style={C("padding:14px 18px;border-bottom:1px solid var(--line2,#f1f1f5);display:flex;flex-direction:column;gap:11px")}>
             <div>
-              <div style={C(v.labelCss)}>Poste</div>
+              <div style={C(v.labelCss)}>{t("Poste")}</div>
               <input type="text" key={"poste:" + v.personPanel.name + ":" + (v.personPanel.poste || "")}
                 defaultValue={v.personPanel.poste || ""} placeholder="—" onBlur={v.personPanel.onCommitPoste}
                 onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
                 style={C("width:100%;height:34px;padding:0 10px;border-radius:var(--r-lg,9px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--ink,#1a1a20);font-size:13px;outline:none;box-sizing:border-box")} />
             </div>
             <div>
-              <div style={C(v.labelCss)}>Rôle</div>
+              <div style={C(v.labelCss)}>{t("Rôle")}</div>
               <input type="text" key={"role:" + v.personPanel.name + ":" + (v.personPanel.teamRole || "")}
                 defaultValue={v.personPanel.teamRole || ""} placeholder="—" onBlur={v.personPanel.onCommitRole}
                 onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
@@ -2714,14 +2729,14 @@ export function GanttBoard() {
             </div>
           </div>
           <div style={C("flex:1;overflow-y:auto;padding:14px 18px")}>
-            <div style={C(v.labelCss)}>Capacité par itération</div>
+            <div style={C(v.labelCss)}>{t("Capacité par itération")}</div>
             {v.personPanel.rows.map((r) => (
               <div key={r.key} style={C("display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--line2,#f1f1f5)")}>
                 <div style={C("flex:1;min-width:0")}>
                   <div style={C(`font-size:13px;font-weight:${r.current ? 600 : 500};color:${r.current ? "var(--accent,#5b5bd6)" : "var(--ink,#1a1a20)"};white-space:nowrap;overflow:hidden;text-overflow:ellipsis`)}>{r.label}</div>
                   <div style={C(`font-size:10px;color:var(--faint,#71717c);font-family:${mono}`)}>{r.dates}</div>
                 </div>
-                <span title="Charge planifiée" style={C(`font-size:11px;color:var(--muted,#6b6b75);font-family:${mono};flex:0 0 auto`)}>{r.usedText}</span>
+                <span title={t("Charge planifiée")} style={C(`font-size:11px;color:var(--muted,#6b6b75);font-family:${mono};flex:0 0 auto`)}>{r.usedText}</span>
                 <input type="text" inputMode="decimal" key={"cap" + r.key + ":" + r.cap} defaultValue={String(r.cap)}
                   onBlur={r.onCommit} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
                   style={C(`width:52px;height:30px;text-align:center;border:1px solid var(--line,#e8e8ee);border-radius:var(--r-md,7px);background:var(--panel2,#fafafc);font-size:13px;font-weight:600;font-family:${mono};color:var(--ink,#1a1a20);outline:none;flex:0 0 auto;box-sizing:border-box`)} />
@@ -2738,16 +2753,16 @@ export function GanttBoard() {
           <div onClick={v.capMatrix.onClose} style={C("position:absolute;inset:0;z-index:84;background:rgba(20,20,40,.25)")} />
           <div onClick={v.stop} ref={focusPopover} tabIndex={-1} style={C("position:absolute;left:50%;top:76px;transform:translateX(-50%);max-width:calc(100% - 56px);max-height:calc(100% - 132px);background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px);box-shadow:0 18px 50px rgba(20,20,40,.22);z-index:85;display:flex;flex-direction:column;animation:ggpop .16s ease;outline:none")}>
             <div style={C("padding:14px 18px 12px;border-bottom:1px solid var(--line2,#f1f1f5);display:flex;align-items:center;gap:12px;flex:0 0 auto")}>
-              <div style={C("font-size:14px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap")}>Matrice de capacité</div>
-              <div style={C("font-size:11px;color:var(--muted,#6b6b75);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>capacité en jours ouvrés par membre et par itération · Tab pour passer à la cellule suivante · collage d'une plage Excel pris en charge</div>
+              <div style={C("font-size:14px;font-weight:600;color:var(--ink,#1a1a20);white-space:nowrap")}>{t("Matrice de capacité")}</div>
+              <div style={C("font-size:11px;color:var(--muted,#6b6b75);white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{t("capacité en jours ouvrés par membre et par itération · Tab pour passer à la cellule suivante · collage d'une plage Excel pris en charge")}</div>
               <div style={{ flex: 1 }} />
-              <button onClick={v.capMatrix.onClose} aria-label="Fermer" style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;flex:0 0 auto")}><IconClose size={13} /></button>
+              <button onClick={v.capMatrix.onClose} aria-label={t("Fermer")} style={C("width:26px;height:26px;border-radius:var(--r-md,7px);border:none;background:var(--line2,#f1f1f5);color:var(--muted,#6b6b75);cursor:pointer;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;flex:0 0 auto")}><IconClose size={13} /></button>
             </div>
             <div style={C("overflow:auto;flex:1 1 auto")}>
               <table style={{ borderCollapse: "separate", borderSpacing: 0 }}>
                 <thead>
                   <tr>
-                    <th style={C("position:sticky;left:0;top:0;z-index:3;background:var(--panel,#fff);border-bottom:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line2,#f1f1f5);padding:10px 14px;text-align:left;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c)")}>Membre</th>
+                    <th style={C("position:sticky;left:0;top:0;z-index:3;background:var(--panel,#fff);border-bottom:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line2,#f1f1f5);padding:10px 14px;text-align:left;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c)")}>{t("Membre")}</th>
                     {v.capMatrix.cols.map((c) => (
                       <th key={c.key} style={C(`position:sticky;top:0;z-index:2;background:var(--panel,#fff);border-bottom:1px solid var(--line,#e8e8ee);padding:10px 12px;text-align:center;min-width:96px${c.current ? ";box-shadow:inset 0 -2px 0 var(--accent,#5b5bd6)" : ""}`)}>
                         <div style={C(`font-size:12px;font-weight:600;color:${c.current ? "var(--accent,#5b5bd6)" : "var(--ink,#1a1a20)"};white-space:nowrap`)}>{c.label}</div>
@@ -2771,7 +2786,7 @@ export function GanttBoard() {
                       {r.cells.map((cell) => (
                         <td key={cell.key} title={cell.title} style={C("border-bottom:1px solid var(--line2,#f1f1f5);padding:7px 12px;text-align:center;vertical-align:middle")}>
                           <input type="text" inputMode="decimal" key={"mcap" + r.key + ":" + cell.key + ":" + cell.cap} defaultValue={String(cell.cap)}
-                            aria-label={`Capacité de ${r.name} — ${v.capMatrix!.cols.find((c) => c.key === cell.key)?.label}`}
+                            aria-label={t("Capacité de {name} — {iter}", { name: r.name, iter: v.capMatrix!.cols.find((c) => c.key === cell.key)?.label ?? "" })}
                             onBlur={cell.onCommit} onPaste={cell.onPaste} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} onFocus={(e) => e.target.select()}
                             style={C(`width:52px;height:30px;text-align:center;border:1px solid var(--line,#e8e8ee);border-radius:var(--r-md,7px);background:var(--panel2,#fafafc);font-size:13px;font-weight:600;font-family:${mono};color:var(--ink,#1a1a20);outline:none;box-sizing:border-box`)} />
                           <div style={C(cell.subStyle)}><LoadMark mark={cell.subMark} />{cell.subText}</div>
@@ -2780,7 +2795,7 @@ export function GanttBoard() {
                     </tr>
                   ))}
                   <tr>
-                    <td style={C("position:sticky;left:0;bottom:0;z-index:1;background:var(--panel,#fff);border-top:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line2,#f1f1f5);padding:9px 14px;font-size:11px;font-weight:600;color:var(--muted,#6b6b75);white-space:nowrap")}>Σ équipe · charge / capa</td>
+                    <td style={C("position:sticky;left:0;bottom:0;z-index:1;background:var(--panel,#fff);border-top:1px solid var(--line,#e8e8ee);border-right:1px solid var(--line2,#f1f1f5);padding:9px 14px;font-size:11px;font-weight:600;color:var(--muted,#6b6b75);white-space:nowrap")}>{t("Σ équipe · charge / capa")}</td>
                     {v.capMatrix.totals.map((t) => (
                       <td key={t.key} style={C("position:sticky;bottom:0;background:var(--panel,#fff);border-top:1px solid var(--line,#e8e8ee);padding:9px 12px;text-align:center")}>
                         <div style={C(`font-size:11px;font-family:${mono};color:var(--ink,#1a1a20);white-space:nowrap`)}>{t.text}</div>

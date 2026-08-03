@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { MoiresMark } from "../Brand";
+import { t, useLang, LangToggle } from "../../i18n";
 
 export function LoginButton() {
+  useLang();
   const [org, setOrg] = useState("");
   const [pat, setPat] = useState("");
   const [showPat, setShowPat] = useState(false);
@@ -27,15 +29,15 @@ export function LoginButton() {
       }
       setError(
         res.status === 401
-          ? "PAT ou organisation invalide. Vérifiez le nom de l'organisation, le jeton et ses autorisations."
+          ? t("PAT ou organisation invalide. Vérifiez le nom de l'organisation, le jeton et ses autorisations.")
           // 429 : verrou anti-brute-force (10 échecs / 15 min). « Réessayez »
           // serait contre-productif — chaque tentative prolonge l'attente.
           : res.status === 429
-            ? "Trop de tentatives échouées. Attendez 15 minutes avant de réessayer."
-            : "La connexion a échoué. Réessayez.",
+            ? t("Trop de tentatives échouées. Attendez 15 minutes avant de réessayer.")
+            : t("La connexion a échoué. Réessayez."),
       );
     } catch {
-      setError("La connexion a échoué. Réessayez.");
+      setError(t("La connexion a échoué. Réessayez."));
     } finally {
       setLoading(false);
     }
@@ -70,6 +72,7 @@ export function LoginButton() {
       background: "var(--canvas)",
       padding: "0 24px",
     }}>
+      <div style={{ position: "fixed", top: 16, right: 16 }}><LangToggle /></div>
       <form
         onSubmit={submit}
         style={{
@@ -94,7 +97,7 @@ export function LoginButton() {
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.01em", color: "var(--ink)" }}>Moires</h1>
           <p style={{ color: "var(--muted)", fontSize: 14, lineHeight: 1.5 }}>
-            Planification collaborative de sprint sur Azure DevOps
+            {t("Planification collaborative de sprint sur Azure DevOps")}
           </p>
         </div>
         {error && (
@@ -116,13 +119,13 @@ export function LoginButton() {
           </div>
         )}
         <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 7, textAlign: "left" }}>
-          <span style={labelStyle}>Organisation ADO</span>
+          <span style={labelStyle}>{t("Organisation ADO")}</span>
           <input
             type="text"
             value={org}
             onChange={(e) => setOrg(e.target.value)}
-            placeholder="ex. monorganisation"
-            aria-label="Organisation Azure DevOps"
+            placeholder={t("ex. monorganisation")}
+            aria-label={t("Organisation Azure DevOps")}
             autoComplete="off"
             style={inputStyle}
           />
@@ -134,15 +137,15 @@ export function LoginButton() {
             type={showPat ? "text" : "password"}
             value={pat}
             onChange={(e) => setPat(e.target.value)}
-            placeholder="Collez votre jeton"
-            aria-label="Personal Access Token Azure DevOps"
+            placeholder={t("Collez votre jeton")}
+            aria-label={t("Personal Access Token Azure DevOps")}
             autoComplete="off"
             style={{ ...inputStyle, paddingRight: 78 }}
           />
           <button
             type="button"
             onClick={() => setShowPat((s) => !s)}
-            aria-label={showPat ? "Masquer le jeton" : "Afficher le jeton"}
+            aria-label={showPat ? t("Masquer le jeton") : t("Afficher le jeton")}
             style={{
               position: "absolute",
               top: 0,
@@ -159,7 +162,7 @@ export function LoginButton() {
               cursor: "pointer",
             }}
           >
-            {showPat ? "Masquer" : "Afficher"}
+            {showPat ? t("Masquer") : t("Afficher")}
           </button>
           </div>
         </div>
@@ -180,7 +183,7 @@ export function LoginButton() {
             onChange={(e) => setRemember(e.target.checked)}
             style={{ accentColor: "var(--accent)" }}
           />
-          Se souvenir de moi (30 jours)
+          {t("Se souvenir de moi (30 jours)")}
         </label>
         <button
           type="submit"
@@ -201,32 +204,32 @@ export function LoginButton() {
             opacity: loading || missing ? 0.55 : 1,
           }}
         >
-          {loading ? "Connexion…" : "Se connecter"}
+          {loading ? t("Connexion…") : t("Se connecter")}
         </button>
         {!loading && missing && (
           <p style={{ color: "var(--faint)", fontSize: 12, marginTop: -14 }}>
-            Renseignez l'organisation et le jeton pour activer la connexion.
+            {t("Renseignez l'organisation et le jeton pour activer la connexion.")}
           </p>
         )}
         {/* ponytail: <details> natif — pas d'état, la notice reste repliée par défaut. */}
         <details style={{ width: "100%", textAlign: "left", color: "var(--muted)", fontSize: 12 }}>
           <summary style={{ cursor: "pointer", textDecoration: "underline" }}>
-            Comment créer un PAT ?
+            {t("Comment créer un PAT ?")}
           </summary>
           <ol style={{ margin: "10px 0 0", paddingLeft: 18, lineHeight: 1.7 }}>
             <li>
-              Dans Azure DevOps : avatar en haut à droite → <em>User settings</em> →{" "}
+              {t("Dans Azure DevOps : avatar en haut à droite →")} <em>User settings</em> →{" "}
               <em>Personal access tokens</em>.
             </li>
-            <li><strong>+ New Token</strong> : un nom (ex. « Moires »), l'organisation ci-dessus, une expiration.</li>
+            <li><strong>+ New Token</strong>{t(": un nom (ex. « Moires »), l'organisation ci-dessus, une expiration.")}</li>
             <li>
-              <strong>Scopes</strong> → <em>Custom defined</em>, puis cocher exactement :
+              <strong>Scopes</strong> → <em>Custom defined</em>{t(", puis cocher exactement :")}
               <ul style={{ margin: "4px 0 0", paddingLeft: 16 }}>
-                <li><strong>Work Items</strong> → <em>Read &amp; write</em> (lecture des sprints/boards, écriture des tickets)</li>
-                <li><strong>Project and Team</strong> → <em>Read</em> (liste des projets et des membres d'équipe)</li>
+                <li><strong>Work Items</strong> → <em>Read &amp; write</em> {t("(lecture des sprints/boards, écriture des tickets)")}</li>
+                <li><strong>Project and Team</strong> → <em>Read</em> {t("(liste des projets et des membres d'équipe)")}</li>
               </ul>
             </li>
-            <li><strong>Create</strong>, puis copier le jeton — il n'est affiché qu'une fois — et le coller ci-dessus.</li>
+            <li><strong>Create</strong>{t(", puis copier le jeton — il n'est affiché qu'une fois — et le coller ci-dessus.")}</li>
           </ol>
         </details>
       </form>

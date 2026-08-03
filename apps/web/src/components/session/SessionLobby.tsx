@@ -3,8 +3,10 @@ import { api } from "../../services/rest.client";
 import { applySnapshot } from "../../stores/session.store";
 import { Brand } from "../Brand";
 import { LoadingScreen } from "../LoadingScreen";
+import { t, useLang, LangToggle } from "../../i18n";
 
 export function SessionLobby() {
+  useLang();
   const [org, setOrg] = useState("");
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
 
@@ -61,7 +63,7 @@ export function SessionLobby() {
 
   // L'ouverture de session déclenche un sync ADO : plusieurs secondes pendant
   // lesquelles le lobby paraissait figé.
-  if (loading) return <LoadingScreen label="Ouverture de la session…" />;
+  if (loading) return <LoadingScreen label={t("Ouverture de la session…")} />;
 
   return (
     <div style={{
@@ -72,6 +74,7 @@ export function SessionLobby() {
       background: "var(--canvas)",
       padding: "0 24px",
     }}>
+      <div style={{ position: "fixed", top: 16, right: 16 }}><LangToggle /></div>
       <div style={{
         width: "100%",
         maxWidth: 440,
@@ -87,10 +90,10 @@ export function SessionLobby() {
         <Brand size={30} />
 
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={labelStyle}>Planification collaborative</span>
-          <h2 style={{ fontSize: 22, fontWeight: 600, color: "var(--ink)" }}>Nouvelle session</h2>
+          <span style={labelStyle}>{t("Planification collaborative")}</span>
+          <h2 style={{ fontSize: 22, fontWeight: 600, color: "var(--ink)" }}>{t("Nouvelle session")}</h2>
           <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
-            Sélectionnez le projet Azure DevOps à planifier.
+            {t("Sélectionnez le projet Azure DevOps à planifier.")}
           </p>
         </div>
 
@@ -110,21 +113,21 @@ export function SessionLobby() {
 
         {/* Lecture seule (choisie à la connexion) : texte simple, pas un faux champ. */}
         <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-          <span style={labelStyle}>Organisation ADO</span>
+          <span style={labelStyle}>{t("Organisation ADO")}</span>
           <div style={{ fontSize: 14, fontWeight: 500, padding: "2px 0", color: org ? "var(--ink)" : "var(--muted)" }}>
-            {org || "Chargement…"}
+            {org || t("Chargement…")}
           </div>
         </div>
 
         <label style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-          <span style={labelStyle}>Projet ADO</span>
+          <span style={labelStyle}>{t("Projet ADO")}</span>
           <select
             style={{ ...selectStyle, opacity: !projectsLoading ? 1 : 0.5 }}
             value={selectedProject}
             disabled={projectsLoading}
             onChange={(e) => setSelectedProject(e.target.value)}
           >
-            <option value="">{projectsLoading ? "Chargement…" : "Sélectionner…"}</option>
+            <option value="">{projectsLoading ? t("Chargement…") : t("Sélectionner…")}</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
@@ -148,11 +151,11 @@ export function SessionLobby() {
             transition: "opacity .15s",
           }}
         >
-          Entrer dans la session
+          {t("Entrer dans la session")}
         </button>
         {!projectsLoading && !selectedProject && (
           <p style={{ fontSize: 12, color: "var(--faint)", textAlign: "center", marginTop: -12 }}>
-            Sélectionnez un projet pour entrer dans la session.
+            {t("Sélectionnez un projet pour entrer dans la session.")}
           </p>
         )}
       </div>

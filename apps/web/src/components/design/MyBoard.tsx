@@ -2,6 +2,7 @@ import { css } from "./css";
 import * as M from "./ganttModel";
 import type { Item, Iter, Person, Theme } from "./ganttModel";
 import type { TicketComment } from "@moires/shared";
+import { t, useLang, locale } from "../../i18n";
 
 const C = css;
 const mono = "'IBM Plex Mono',monospace";
@@ -77,14 +78,14 @@ function Field({ label, text }: { label: string; text: string }) {
 function Discussion({ comments }: { comments: TicketComment[] }) {
   return (
     <div>
-      <div style={C(`${KICKER};margin-bottom:7px`)}>Discussion ({comments.length})</div>
+      <div style={C(`${KICKER};margin-bottom:7px`)}>{t("Discussion")} ({comments.length})</div>
       <div style={C("display:flex;flex-direction:column;gap:9px")}>
         {comments.map((c) => (
           <div key={c.id} style={C("border-left:2px solid var(--line,#e8e8ee);padding-left:9px")}>
             <div style={C("display:flex;align-items:baseline;gap:7px")}>
               <span style={C("font-size:11.5px;font-weight:600;color:var(--ink,#1a1a20)")}>{c.author}</span>
               <span style={C(`font-family:${mono};font-size:10.5px;color:var(--faint,#71717c)`)}>
-                {c.date ? new Date(c.date).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : ""}
+                {c.date ? new Date(c.date).toLocaleString(locale(), { dateStyle: "short", timeStyle: "short" }) : ""}
               </span>
             </div>
             <div style={C("font-size:12.5px;line-height:1.5;color:var(--muted,#6b6b75);white-space:pre-wrap")}>{htmlToText(c.text)}</div>
@@ -123,8 +124,8 @@ function Card({ item, theme, selected, onSelect, adoUrl, comments }: {
       <div style={C("font-size:14px;font-weight:600;line-height:1.35;color:var(--ink,#1a1a20)")}>{item.title}</div>
       {(desc || ac || comments?.length) && (
         <div style={C("display:flex;flex-direction:column;gap:11px;padding-top:2px")}>
-          <Field label="Description" text={desc} />
-          <Field label="Critères d'acceptation" text={ac} />
+          <Field label={t("Description")} text={desc} />
+          <Field label={t("Critères d'acceptation")} text={ac} />
           {!!comments?.length && <Discussion comments={comments} />}
         </div>
       )}
@@ -146,6 +147,7 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
   /** Discussions ADO par id de ticket (chargées à la demande par le parent). */
   comments?: Record<string, TicketComment[]>;
 }) {
+  useLang();
   const me = people.find((p) => p.id === myId);
   const mine = items.filter((it) => it.person === myId);
   const ofIter = (i: number) => mine.filter((it) => it.iter === i).sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
@@ -171,16 +173,16 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
           </div>
           <div style={C("min-width:0")}>
             <div style={C("font-size:15px;font-weight:600;color:var(--ink,#1a1a20)")}>{me?.name || userName}</div>
-            <div style={C("font-size:12px;color:var(--muted,#6b6b75)")}>{me?.role || me?.teamRole || "Mes tickets du sprint"}</div>
+            <div style={C("font-size:12px;color:var(--muted,#6b6b75)")}>{me?.role || me?.teamRole || t("Mes tickets du sprint")}</div>
           </div>
           <div style={C("width:1px;height:32px;background:var(--line,#e8e8ee)")} />
-          {stat(String(cur.length), "Tickets")}
-          {stat(String(points), "Points")}
-          {stat(`${done}/${cur.length}`, "Terminés")}
+          {stat(String(cur.length), t("Tickets"))}
+          {stat(String(points), t("Points"))}
+          {stat(`${done}/${cur.length}`, t("Terminés"))}
           <div style={{ flex: 1 }} />
           {iters[current] && (
             <div style={C("text-align:right")}>
-              <div style={C(KICKER)}>Sprint en cours</div>
+              <div style={C(KICKER)}>{t("Sprint en cours")}</div>
               <div style={C("font-size:13px;font-weight:600;color:var(--ink,#1a1a20)")}>
                 {iters[current].label} <span style={C(`font-weight:400;color:var(--muted,#6b6b75);font-family:${mono};font-size:11px`)}>· {iters[current].dates}</span>
               </div>
@@ -193,7 +195,7 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
           <div style={C("flex:1 1 560px;min-width:0;display:flex;flex-direction:column;gap:12px")}>
             {cur.length === 0 ? (
               <div style={C(`${PANEL};padding:22px;text-align:center;font-size:13px;color:var(--muted,#6b6b75)`)}>
-                {myId ? "Aucun ticket ne vous est assigné sur ce sprint." : "Votre compte n'est rattaché à aucun membre de l'équipe."}
+                {myId ? t("Aucun ticket ne vous est assigné sur ce sprint.") : t("Votre compte n'est rattaché à aucun membre de l'équipe.")}
               </div>
             ) : (
               cur.map((it) => (
@@ -205,13 +207,13 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
           {/* Sprint suivant — aperçu compact */}
           <div style={C("flex:0 1 320px;min-width:260px;display:flex;flex-direction:column;gap:10px")}>
             <div style={C("display:flex;align-items:baseline;gap:8px;padding:0 2px")}>
-              <span style={C(KICKER)}>Sprint suivant</span>
+              <span style={C(KICKER)}>{t("Sprint suivant")}</span>
               <span style={C("font-size:12px;font-weight:600;color:var(--ink,#1a1a20)")}>{iters[current + 1]?.label ?? "—"}</span>
             </div>
             <div style={C(`${PANEL};padding:6px`)}>
               {!iters[current + 1] || next.length === 0 ? (
                 <div style={C("padding:16px;text-align:center;font-size:12.5px;color:var(--muted,#6b6b75)")}>
-                  {iters[current + 1] ? "Rien de prévu pour vous." : "Aucun sprint planifié après celui-ci."}
+                  {iters[current + 1] ? t("Rien de prévu pour vous.") : t("Aucun sprint planifié après celui-ci.")}
                 </div>
               ) : (
                 next.map((it) => (
