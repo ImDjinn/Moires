@@ -199,6 +199,13 @@ export class SessionsService {
     return this.ado.getTypeFields(session.adoOrg, session.adoProjectId, type, token);
   }
 
+  /** Champs ADO désignant une personne (sections de la vue @me). */
+  async getIdentityFields(sessionId: string, token: string) {
+    const session = await this.prisma.planningSession.findUnique({ where: { id: sessionId } });
+    if (!session) throw new Error(`Session ${sessionId} not found`);
+    return this.ado.getIdentityFields(session.adoOrg, session.adoProjectId, token);
+  }
+
   /** Discussion ADO d'un ticket (lecture seule, à la demande). */
   async getComments(sessionId: string, ticketId: string, token: string) {
     const session = await this.prisma.planningSession.findUnique({ where: { id: sessionId } });

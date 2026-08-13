@@ -202,13 +202,13 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
     items: items.filter((it) => it.iter === current && it.person !== myId && fieldIsMe(it, me, ref)).sort(byPriority),
   }));
   const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? id;
-  // Champs proposables : les champs identité du process (seuls à désigner une
-  // personne). Tant qu'ils ne sont pas chargés — ou hors session réelle —, repli
-  // sur les champs custom réellement portés par les tickets du board.
+  // Champs proposables : les champs personne du projet. Tant que le parent ne
+  // les a pas chargés (ou hors session réelle), repli sur les champs custom des
+  // tickets ; une fois chargés, on s'y tient — liste vide comprise, sinon on
+  // reproposerait des champs qui ne désignent personne.
   const fieldLabel = (ref: string) => identityFields?.[ref] || ref.split(".").pop() || ref;
   const customRefs = [...new Set(items.flatMap((it) => Object.keys(it.custom ?? {})))];
-  const identityRefs = Object.keys(identityFields ?? {});
-  const pickable = (identityRefs.length ? identityRefs : customRefs)
+  const pickable = (identityFields ? Object.keys(identityFields) : customRefs)
     .filter((ref) => !fields.includes(ref))
     .sort((a, b) => fieldLabel(a).localeCompare(fieldLabel(b)));
   const points = cur.reduce((s, it) => s + it.points, 0);

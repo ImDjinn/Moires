@@ -146,6 +146,16 @@ describe("MyBoard", () => {
     expect([...select.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Ajouter une section…", "Demandeur"]);
   });
 
+  it("projet sans champ personne : aucun champ proposé (pas de repli sur les champs custom)", () => {
+    render(
+      <MyBoard items={[item({ custom: { "Custom.Demandeur": "Bob" } })]} people={people} iters={iters} current={0} theme="light"
+        userName="Alice Beaumont" myId="alice@corp.com" selectedId={null} onSelect={() => {}}
+        onFields={() => {}} identityFields={{}} />,
+    );
+    const select = screen.getByLabelText("Ajouter une section");
+    expect([...select.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Ajouter une section…"]);
+  });
+
   it("sans onFields (mock), pas de sélecteur", () => {
     view();
     expect(screen.queryByLabelText("Ajouter une section")).not.toBeInTheDocument();

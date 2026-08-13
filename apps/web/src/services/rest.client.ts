@@ -54,9 +54,11 @@ export const api = {
       body: JSON.stringify(meta),
     }),
   getTypeFields: (sessionId: string, type: string) =>
-    request<{ referenceName: string; name: string; type?: string; defaultValue: string | number | boolean | null; alwaysRequired?: boolean; allowedValues?: string[] }[]>(
+    request<{ referenceName: string; name: string; defaultValue: string | number | boolean | null; alwaysRequired?: boolean; allowedValues?: string[] }[]>(
       `/sessions/${sessionId}/field-defs/${encodeURIComponent(type)}`,
     ),
+  getIdentityFields: (sessionId: string) =>
+    request<{ referenceName: string; name: string }[]>(`/sessions/${sessionId}/identity-fields`),
   getComments: (sessionId: string, ticketId: string) =>
     request<TicketComment[]>(`/sessions/${sessionId}/tickets/${ticketId}/comments`),
   duplicateTicket: (sessionId: string, ticketId: string) =>

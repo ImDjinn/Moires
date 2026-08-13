@@ -160,17 +160,31 @@ describe("AdoService", () => {
         { referenceName: "System.Title", name: "Title" },
         { referenceName: "WEF_ABC_Kanban.Column", name: "Board Column" },
         { referenceName: "Microsoft.VSTS.Scheduling.StoryPoints", name: "Story Points" },
-        { referenceName: "Custom.WorkType", name: "Work Type", type: "string", defaultValue: "Implementation", alwaysRequired: true, allowedValues: ["Implementation", "Design"] },
+        { referenceName: "Custom.WorkType", name: "Work Type", defaultValue: "Implementation", alwaysRequired: true, allowedValues: ["Implementation", "Design"] },
         { referenceName: "Custom.Risque", name: "Risque", defaultValue: { odd: true } },
       ] }),
     );
     const res = await service.getTypeFields("org", "p1", "User Story", "tkn");
     expect(res).toEqual([
-      { referenceName: "Custom.WorkType", name: "Work Type", type: "string", defaultValue: "Implementation", alwaysRequired: true, allowedValues: ["Implementation", "Design"] },
-      { referenceName: "Custom.Risque", name: "Risque", type: "", defaultValue: null, alwaysRequired: false, allowedValues: [] },
+      { referenceName: "Custom.WorkType", name: "Work Type", defaultValue: "Implementation", alwaysRequired: true, allowedValues: ["Implementation", "Design"] },
+      { referenceName: "Custom.Risque", name: "Risque", defaultValue: null, alwaysRequired: false, allowedValues: [] },
     ]);
     expect(fetchMock.mock.calls[0][0]).toContain("/workitemtypes/User%20Story/fields");
     expect(fetchMock.mock.calls[0][0]).toContain("$expand=allowedValues");
+  });
+
+  it("getIdentityFields ne garde que les champs personne custom (isIdentity, hors System.*/WEF_*)", async () => {
+    fetchMock.mockResolvedValue(
+      ok({ value: [
+        // Un champ identité a le type "string" : seul isIdentity le distingue.
+        { referenceName: "Custom.Relecteur", name: "Relecteur", type: "string", isIdentity: true },
+        { referenceName: "System.AssignedTo", name: "Assigned To", type: "string", isIdentity: true },
+        { referenceName: "Custom.Risque", name: "Risque", type: "string" },
+      ] }),
+    );
+    const res = await service.getIdentityFields("org", "p1", "tkn");
+    expect(res).toEqual([{ referenceName: "Custom.Relecteur", name: "Relecteur" }]);
+    expect(fetchMock.mock.calls[0][0]).toContain("/_apis/wit/fields");
   });
 
   it("patchWorkItem envoie un JSON Patch et renvoie la nouvelle révision", async () => {

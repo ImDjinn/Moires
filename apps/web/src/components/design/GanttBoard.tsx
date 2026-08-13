@@ -318,29 +318,23 @@ export function GanttBoard() {
     })();
   }, [state.board, state.items, snapshot?.sessionId, myPersonId, prefs.meFields]);
 
-  // Champs identité (referenceName → nom ADO) des types du board : les seuls
-  // candidats au rôle de relecteur, affichés sous leur vrai nom (« Relecteur »
-  // et non « Custom.RelecteurPrincipal »). Une requête par type, refaite
-  // seulement si la liste des types change.
-  const [identityFields, setIdentityFields] = useState<Record<string, string>>({});
+  // Champs personne du projet (referenceName → nom ADO) : les seuls candidats
+  // aux sections de la vue @me, affichés sous leur vrai nom (« Relecteur » et
+  // non « Custom.RelecteurPrincipal »). Chargés une fois par session.
+  const [identityFields, setIdentityFields] = useState<Record<string, string>>();
   const askedIdentityFields = useRef("");
   useEffect(() => {
     const sid = snapshot?.sessionId;
-    if (state.board !== "me" || !realSessionRef.current || !sid) return;
-    const wits = [...new Set(state.items.map(witOf))].sort();
-    const key = wits.join("|");
-    if (!wits.length || key === askedIdentityFields.current) return;
-    askedIdentityFields.current = key;
-    Promise.all(wits.map((w) => api.getTypeFields(sid, w).catch(() => [])))
-      .then((all) => {
-        const found = Object.fromEntries(all.flat().filter((f) => f.type === "identity").map((f) => [f.referenceName, f.name]));
-        setIdentityFields(found);
-        // Première ouverture : on propose la section relecteur du process, que
-        // l'utilisateur reste libre de retirer (le retrait persiste un []).
-        const auto = detectReviewField(Object.keys(found));
-        setPrefs((p) => (p.meFields ? p : savePrefs({ ...p, meFields: auto ? [auto] : [] })));
-      });
-  }, [state.board, state.items, snapshot?.sessionId]);
+    if (state.board !== "me" || !realSessionRef.current || !sid || sid === askedIdentityFields.current) return;
+    askedIdentityFields.current = sid;
+    api.getIdentityFields(sid).then((fields) => {
+      setIdentityFields(Object.fromEntries(fields.map((f) => [f.referenceName, f.name])));
+      // Première ouverture : on propose la section relecteur du process, que
+      // l'utilisateur reste libre de retirer (le retrait persiste un []).
+      const auto = detectReviewField(fields.map((f) => f.referenceName));
+      setPrefs((p) => (p.meFields ? p : savePrefs({ ...p, meFields: auto ? [auto] : [] })));
+    }).catch(() => { askedIdentityFields.current = ""; });
+  }, [state.board, snapshot?.sessionId]);
 
   // Sélecteur de champ ADO supplémentaire (popover ⚙ du panneau ticket).
   // list === null : chargement en cours.

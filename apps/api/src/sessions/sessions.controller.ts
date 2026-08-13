@@ -87,6 +87,12 @@ export class SessionsController {
     return this.sessions.getTypeFields(id, type, await this.getToken(user.id));
   }
 
+  @Get(":id/identity-fields")
+  @UseGuards(SessionMemberGuard)
+  async getIdentityFields(@Param("id") id: string, @User() user: AuthenticatedUser) {
+    return this.sessions.getIdentityFields(id, await this.getToken(user.id));
+  }
+
   @Put(":id/capacities")
   @UseGuards(SessionMemberGuard)
   setCapacity(@Param("id") id: string, @Body() body: Capacity) {

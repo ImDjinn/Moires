@@ -392,7 +392,7 @@ export class AdoService {
     projectId: string,
     type: string,
     token: string,
-  ): Promise<{ referenceName: string; name: string; type: string; defaultValue: string | number | boolean | null; alwaysRequired: boolean; allowedValues: string[] }[]> {
+  ): Promise<{ referenceName: string; name: string; defaultValue: string | number | boolean | null; alwaysRequired: boolean; allowedValues: string[] }[]> {
     const data = await this.adoFetch(
       `${this.projectUrl(org, projectId)}/_apis/wit/workitemtypes/${encodeURIComponent(type)}/fields?$expand=allowedValues&api-version=7.1`,
       token,
@@ -401,9 +401,6 @@ export class AdoService {
       .map((f: any) => ({
         referenceName: f.referenceName as string,
         name: f.name as string,
-        // Type ADO du champ ("string", "integer", "identity"…) : sert à ne
-        // proposer que des champs de personne là où on attend une identité.
-        type: typeof f.type === "string" ? f.type : "",
         // Valeur par défaut du process : affichée (comme dans ADO) tant que le
         // work item n'a pas de valeur stockée pour ce champ.
         defaultValue: ["string", "number", "boolean"].includes(typeof f.defaultValue) ? f.defaultValue : null,
@@ -412,6 +409,24 @@ export class AdoService {
         allowedValues: Array.isArray(f.allowedValues) ? f.allowedValues.map(String) : [],
       }))
       .filter((f) => f.referenceName && !f.referenceName.startsWith("System.") && !f.referenceName.startsWith("WEF_") && !KNOWN_FIELDS.has(f.referenceName));
+  }
+
+  /**
+   * Champs custom désignant une personne (relecteur, approbateur…).
+   *
+   * C'est la liste des champs du projet qui porte l'information : le type d'un
+   * champ identité est "string", seul `isIdentity` les distingue — et
+   * workitemtypes/{type}/fields ne renvoie ni l'un ni l'autre.
+   */
+  async getIdentityFields(
+    org: string,
+    projectId: string,
+    token: string,
+  ): Promise<{ referenceName: string; name: string }[]> {
+    const data = await this.adoFetch(`${this.projectUrl(org, projectId)}/_apis/wit/fields?api-version=7.1`, token);
+    return ((data.value as any[]) ?? [])
+      .filter((f: any) => f.isIdentity && f.referenceName && !f.referenceName.startsWith("System.") && !f.referenceName.startsWith("WEF_"))
+      .map((f: any) => ({ referenceName: f.referenceName as string, name: f.name as string }));
   }
 
   /**
