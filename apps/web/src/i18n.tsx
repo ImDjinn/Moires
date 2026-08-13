@@ -160,6 +160,10 @@ const EN: Record<string, string> = {
   "Votre compte n'est rattaché à aucun membre de l'équipe.":
     "Your account is not linked to any team member.",
   "Rien de prévu pour vous.": "Nothing planned for you.",
+  "À relire": "To review",
+  "Mes tickets": "My work items",
+  "Champ ADO du relecteur": "ADO reviewer field",
+  "Détection auto": "Auto-detect",
   "Aucun sprint planifié après celui-ci.": "No sprint planned after this one.",
 
   // ---- Itérations / modèle ----

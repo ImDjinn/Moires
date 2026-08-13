@@ -43,6 +43,25 @@ export function htmlToText(html?: string): string {
   return text.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+/**
+ * ADO n'a pas de champ « reviewer » : c'est un champ custom de type identité
+ * (Reviewed By, Relecteur, Approbateur…) dont le referenceName varie d'un
+ * process à l'autre. `field` fixe lequel lire ; sans lui, on retombe sur le nom
+ * du champ — suffisant tant qu'un seul champ « review » existe dans le process.
+ *
+ * La valeur est comparée à l'email comme au nom affiché : selon le format
+ * renvoyé, un champ identité arrive en « Prénom Nom » ou « Prénom Nom <email> ».
+ */
+const REVIEW_FIELD = /review|relect/i;
+
+export function isMyReview(item: Item, me?: { id: string; name: string }, field?: string): boolean {
+  if (!me || !item.custom) return false;
+  const keys = [me.id, me.name].map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const holds = (val: unknown) => val != null && keys.some((k) => String(val).toLowerCase().includes(k));
+  if (field) return holds(item.custom[field]);
+  return Object.entries(item.custom).some(([ref, val]) => REVIEW_FIELD.test(ref) && holds(val));
+}
+
 const KICKER = "font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c)";
 const PANEL = "background:var(--panel,#fff);border:1px solid var(--line,#e8e8ee);border-radius:var(--r-xl,11px)";
 
@@ -96,9 +115,11 @@ function Discussion({ comments }: { comments: TicketComment[] }) {
   );
 }
 
-function Card({ item, theme, selected, onSelect, adoUrl, comments }: {
+function Card({ item, theme, selected, onSelect, adoUrl, comments, note }: {
   item: Item; theme: Theme; selected: boolean; onSelect: (id: string) => void; adoUrl?: string;
   comments?: TicketComment[];
+  /** Mention secondaire en tête de carte (l'assigné, sur une relecture). */
+  note?: string;
 }) {
   const cm = M.colorMap(item.type, theme);
   const desc = htmlToText(item.description);
@@ -115,6 +136,7 @@ function Card({ item, theme, selected, onSelect, adoUrl, comments }: {
         ) : (
           <span style={C(`font-family:${mono};font-size:11px;color:var(--faint,#71717c)`)}>{item.ado}</span>
         )}
+        {note && <span style={C(`font-size:11px;color:var(--faint,#71717c)`)}>{note}</span>}
         <div style={{ flex: 1 }} />
         <StatePill state={item.state} />
         {item.points > 0 && (
@@ -133,7 +155,18 @@ function Card({ item, theme, selected, onSelect, adoUrl, comments }: {
   );
 }
 
-export function MyBoard({ items, people, iters, current, theme, userName, myId, selectedId, onSelect, adoUrl, comments }: {
+/** Intitulé de section de la colonne principale (affiché dès qu'il y en a deux). */
+function SectionHead({ label, count }: { label: string; count: number }) {
+  return (
+    <div style={C("display:flex;align-items:baseline;gap:8px;padding:6px 2px 0")}>
+      <span style={C(KICKER)}>{label}</span>
+      <span style={C(`font-family:${mono};font-size:11px;color:var(--faint,#71717c)`)}>{count}</span>
+      <div style={C("flex:1;height:1px;background:var(--line,#e8e8ee)")} />
+    </div>
+  );
+}
+
+export function MyBoard({ items, people, iters, current, theme, userName, myId, selectedId, onSelect, adoUrl, comments, reviewField, onReviewField }: {
   items: Item[];
   people: Person[];
   iters: Iter[];
@@ -146,6 +179,9 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
   adoUrl?: string;
   /** Discussions ADO par id de ticket (chargées à la demande par le parent). */
   comments?: Record<string, TicketComment[]>;
+  /** Champ ADO portant le relecteur ("" = détection sur le nom du champ). */
+  reviewField?: string;
+  onReviewField?: (ref: string) => void;
 }) {
   useLang();
   const me = people.find((p) => p.id === myId);
@@ -153,6 +189,15 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
   const ofIter = (i: number) => mine.filter((it) => it.iter === i).sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
   const cur = ofIter(current);
   const next = ofIter(current + 1);
+  // Relectures du sprint courant : mes tickets assignés en sont exclus (ils sont
+  // déjà dans la colonne principale).
+  const reviews = items
+    .filter((it) => it.iter === current && it.person !== myId && isMyReview(it, me, reviewField))
+    .sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+  const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? id;
+  // Champs ADO proposables : ceux réellement portés par les tickets du board. Un
+  // champ vide partout n'aurait de toute façon aucune relecture à afficher.
+  const customRefs = [...new Set(items.flatMap((it) => Object.keys(it.custom ?? {})))].sort();
   const points = cur.reduce((s, it) => s + it.points, 0);
   const done = cur.filter((it) => M.stateProgress(it.state) >= 1).length;
 
@@ -165,7 +210,7 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
 
   return (
     <div style={C("flex:1;overflow:auto;background:var(--canvas,#f4f4f7)")}>
-      <div style={C("max-width:1180px;margin:0 auto;padding:20px 18px 40px;display:flex;flex-direction:column;gap:16px")}>
+      <div style={C("max-width:1680px;margin:0 auto;padding:20px 18px 40px;display:flex;flex-direction:column;gap:16px")}>
         {/* Bandeau identité + compteurs — même langage visuel que les jauges du board */}
         <div style={C(`${PANEL};padding:15px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap`)}>
           <div style={C(`width:38px;height:38px;border-radius:50%;flex:0 0 auto;background:${me?.color || "var(--accent,#5b5bd6)"};color:${me?.color ? M.onColor(me.color) : "#fff"};font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center`)}>
@@ -179,6 +224,24 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
           {stat(String(cur.length), t("Tickets"))}
           {stat(String(points), t("Points"))}
           {stat(`${done}/${cur.length}`, t("Terminés"))}
+          {stat(String(reviews.length), t("À relire"))}
+          {/* Source des relectures : « Reviewed By » est un champ custom, son
+              referenceName dépend du process ADO. Toujours accessible ici, même
+              quand la détection automatique ne trouve rien. */}
+          {onReviewField && (
+            <select
+              value={reviewField ?? ""}
+              onChange={(e) => onReviewField(e.target.value)}
+              aria-label={t("Champ ADO du relecteur")}
+              title={reviewField || t("Champ ADO du relecteur")}
+              style={C("align-self:center;max-width:160px;height:26px;padding:0 6px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--muted,#6b6b75);font-size:11px;cursor:pointer")}
+            >
+              <option value="">{t("Détection auto")}</option>
+              {customRefs.map((ref) => (
+                <option key={ref} value={ref}>{ref.split(".").pop()}</option>
+              ))}
+            </select>
+          )}
           <div style={{ flex: 1 }} />
           {iters[current] && (
             <div style={C("text-align:right")}>
@@ -191,16 +254,26 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
         </div>
 
         <div style={C("display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap")}>
-          {/* Sprint en cours — détail complet */}
+          {/* Sprint en cours — détail complet. Assignés puis relectures : deux
+              sections du même flux, intitulées seulement quand les deux existent
+              (un chef de projet n'a que des relectures, un dev que des assignés). */}
           <div style={C("flex:1 1 560px;min-width:0;display:flex;flex-direction:column;gap:12px")}>
-            {cur.length === 0 ? (
+            {cur.length === 0 && reviews.length === 0 ? (
               <div style={C(`${PANEL};padding:22px;text-align:center;font-size:13px;color:var(--muted,#6b6b75)`)}>
                 {myId ? t("Aucun ticket ne vous est assigné sur ce sprint.") : t("Votre compte n'est rattaché à aucun membre de l'équipe.")}
               </div>
             ) : (
-              cur.map((it) => (
-                <Card key={it.id} item={it} theme={theme} selected={selectedId === it.id} onSelect={onSelect} adoUrl={adoUrl} comments={comments?.[it.id]} />
-              ))
+              <>
+                {cur.length > 0 && reviews.length > 0 && <SectionHead label={t("Mes tickets")} count={cur.length} />}
+                {cur.map((it) => (
+                  <Card key={it.id} item={it} theme={theme} selected={selectedId === it.id} onSelect={onSelect} adoUrl={adoUrl} comments={comments?.[it.id]} />
+                ))}
+                {cur.length > 0 && reviews.length > 0 && <SectionHead label={t("À relire")} count={reviews.length} />}
+                {reviews.map((it) => (
+                  <Card key={it.id} item={it} theme={theme} selected={selectedId === it.id} onSelect={onSelect} adoUrl={adoUrl} comments={comments?.[it.id]}
+                    note={`${t("Assigné à")} ${nameOf(it.person)}`} />
+                ))}
+              </>
             )}
           </div>
 

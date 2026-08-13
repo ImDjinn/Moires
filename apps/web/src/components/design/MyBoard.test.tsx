@@ -1,11 +1,13 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { MyBoard, resolveMyPersonId, htmlToText } from "./MyBoard";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { MyBoard, resolveMyPersonId, htmlToText, isMyReview } from "./MyBoard";
 import type { Item, Iter, Person } from "./ganttModel";
 
 const people: Person[] = [
   { id: "alice@corp.com", name: "Alice Beaumont", role: "Backend", initials: "AB", color: "#6366f1", cap: [5, 5] },
   { id: "bob@corp.com", name: "Bob Martin", role: "", initials: "BM", color: "#14b8a6", cap: [5, 5] },
+  // Chef de projet : relit, n'est assigné à rien.
+  { id: "chloe@corp.com", name: "Chloé Dupont", role: "PO", initials: "CD", color: "#f59e0b", cap: [0, 0] },
 ];
 
 const iters: Iter[] = [
@@ -24,7 +26,8 @@ function item(p: Partial<Item>): Item {
 const items: Item[] = [
   item({ id: "1", title: "Mon US du sprint", description: "<p>Le but</p>", acceptanceCriteria: "<ul><li>Vert</li></ul>" }),
   item({ id: "2", title: "Ma tâche du sprint suivant", iter: 1 }),
-  item({ id: "3", title: "US de Bob", person: "bob@corp.com" }),
+  item({ id: "3", title: "US de Bob", person: "bob@corp.com", custom: { "Custom.Reviewer": "Chloé Dupont" } }),
+  item({ id: "4", title: "US à relire", person: "bob@corp.com", custom: { "Custom.Reviewer": "Alice Beaumont" } }),
 ];
 
 describe("resolveMyPersonId", () => {
@@ -54,6 +57,31 @@ describe("htmlToText", () => {
   });
 });
 
+describe("isMyReview", () => {
+  const me = people[0];
+
+  it("reconnaît le champ custom identité quel que soit son referenceName", () => {
+    expect(isMyReview(item({ custom: { "Custom.Reviewer": "Alice Beaumont" } }), me)).toBe(true);
+    expect(isMyReview(item({ custom: { "Custom.Relecteur": "alice@corp.com" } }), me)).toBe(true);
+    // Format « Nom <email> » de certains champs identité.
+    expect(isMyReview(item({ custom: { "Custom.CodeReview": "Alice Beaumont <alice@corp.com>" } }), me)).toBe(true);
+  });
+
+  it("champ explicite : ne lit que celui-là, l'heuristique ne s'applique plus", () => {
+    const it4 = item({ custom: { "Custom.Reviewer": "Alice Beaumont", "Custom.Approbateur": "Bob Martin" } });
+    expect(isMyReview(it4, me, "Custom.Reviewer")).toBe(true);
+    expect(isMyReview(it4, me, "Custom.Approbateur")).toBe(false);
+    expect(isMyReview(it4, me, "Custom.Absent")).toBe(false);
+  });
+
+  it("ignore un autre relecteur, un autre champ, ou l'absence de champ", () => {
+    expect(isMyReview(item({ custom: { "Custom.Reviewer": "Bob Martin" } }), me)).toBe(false);
+    expect(isMyReview(item({ custom: { "Custom.Demandeur": "Alice Beaumont" } }), me)).toBe(false);
+    expect(isMyReview(item({}), me)).toBe(false);
+    expect(isMyReview(item({ custom: { "Custom.Reviewer": "Alice Beaumont" } }), undefined)).toBe(false);
+  });
+});
+
 describe("MyBoard", () => {
   const view = () =>
     render(
@@ -66,6 +94,45 @@ describe("MyBoard", () => {
     expect(screen.getByText("Mon US du sprint")).toBeInTheDocument();
     expect(screen.getByText("Ma tâche du sprint suivant")).toBeInTheDocument();
     expect(screen.queryByText("US de Bob")).not.toBeInTheDocument();
+  });
+
+  it("liste les tickets des autres où je suis reviewer, avec leur assigné", () => {
+    view();
+    expect(screen.getByText("US à relire")).toBeInTheDocument();
+    expect(screen.getByText("Assigné à Bob Martin")).toBeInTheDocument();
+    // Les deux sections coexistent → intitulés affichés ("À relire" est aussi un
+    // compteur du bandeau, d'où les deux occurrences).
+    expect(screen.getByText("Mes tickets")).toBeInTheDocument();
+    expect(screen.getAllByText("À relire")).toHaveLength(2);
+  });
+
+  it("propose les champs ADO présents sur les tickets et remonte le choix", () => {
+    const onReviewField = vi.fn();
+    render(
+      <MyBoard items={items} people={people} iters={iters} current={0} theme="light"
+        userName="Alice Beaumont" myId="alice@corp.com" selectedId={null} onSelect={() => {}}
+        reviewField="" onReviewField={onReviewField} />,
+    );
+    const select = screen.getByLabelText("Champ ADO du relecteur");
+    expect([...select.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Détection auto", "Reviewer"]);
+    fireEvent.change(select, { target: { value: "Custom.Reviewer" } });
+    expect(onReviewField).toHaveBeenCalledWith("Custom.Reviewer");
+  });
+
+  it("sans onReviewField (mock), pas de sélecteur", () => {
+    view();
+    expect(screen.queryByLabelText("Champ ADO du relecteur")).not.toBeInTheDocument();
+  });
+
+  it("chef de projet (relectures seules) : pas de message de vide, pas d'intitulés de section", () => {
+    render(
+      <MyBoard items={items} people={people} iters={iters} current={0} theme="light"
+        userName="Chloé Dupont" myId="chloe@corp.com" selectedId={null} onSelect={() => {}} />,
+    );
+    expect(screen.getByText("US de Bob")).toBeInTheDocument();
+    expect(screen.queryByText(/assigné sur ce sprint/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Mes tickets")).not.toBeInTheDocument();
+    expect(screen.getAllByText("À relire")).toHaveLength(1); // le compteur du bandeau seul
   });
 
   it("affiche description et critères d'acceptation en texte", () => {

@@ -13,7 +13,7 @@ import { api } from "../../services/rest.client";
 import { buildDataset, UNASSIGNED_ID, initials } from "./adapter";
 import { Brand } from "../Brand";
 import { IconEye, IconEyeOff, IconGear, IconCopy, IconSwap, IconLogout, IconUsers, IconCalendar, IconGrid, IconMilestone, IconFlag, IconClose, IconAlert, IconNear } from "./icons";
-import { MyBoard, resolveMyPersonId } from "./MyBoard";
+import { MyBoard, resolveMyPersonId, isMyReview } from "./MyBoard";
 import * as M from "./ganttModel";
 import type { Drag, Item, Presence, State, Theme } from "./ganttModel";
 import type { OperationField, TicketComment } from "@moires/shared";
@@ -54,6 +54,8 @@ interface UiPrefs {
   v?: 2;
   types: Record<string, TypePrefs>;
   loadField: M.LoadField;
+  /** Champ ADO portant le relecteur (vue @me). "" = détection automatique. */
+  reviewField: string;
 }
 // Champs de base par type ADO (process Agile), comme le formulaire ADO :
 // Story Points sur les US/Bugs, Estimation (Original Estimate) sur les Tasks,
@@ -78,9 +80,12 @@ function loadPrefs(): UiPrefs {
     // Migration : l'ancien mode "auto" n'existe plus (champ ADO réel exigé).
     const lf = saved.loadField && saved.loadField !== "auto" ? saved.loadField : "points";
     // v2 : défauts par type ADO (Effort sur Epic/Feature) — prefs v1 réinitialisées.
-    return { v: 2, types: saved.v === 2 ? saved.types || {} : {}, loadField: lf };
+    return {
+      v: 2, types: saved.v === 2 ? saved.types || {} : {}, loadField: lf,
+      reviewField: typeof saved.reviewField === "string" ? saved.reviewField : "",
+    };
   } catch {
-    return { v: 2, types: {}, loadField: "points" };
+    return { v: 2, types: {}, loadField: "points", reviewField: "" };
   }
 }
 // Personnes masquées du board (sélection des utilisateurs) — persistée entre sessions.
@@ -236,29 +241,6 @@ export function GanttBoard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Discussions ADO des cartes de la vue @me (mes tickets du sprint courant) :
-  // hors snapshot, une requête par ticket, mémorisées le temps de la session.
-  const [comments, setComments] = useState<Record<string, TicketComment[]>>({});
-  // Ids déjà demandés : borne à une requête par ticket, même si le board
-  // re-rend pendant le chargement.
-  const askedComments = useRef(new Set<string>());
-  useEffect(() => {
-    const sid = snapshot?.sessionId;
-    if (state.board !== "me" || !sid || !myPersonId) return;
-    const todo = state.items
-      .filter((it) => it.person === myPersonId && it.iter === M.CURRENT && !askedComments.current.has(it.id))
-      .map((it) => it.id);
-    if (!todo.length) return;
-    todo.forEach((id) => askedComments.current.add(id));
-    (async () => {
-      // Séquentiel : pas de rafale d'appels ADO à l'ouverture du board.
-      for (const id of todo) {
-        const list = await api.getComments(sid, id).catch(() => [] as TicketComment[]);
-        if (list.length) setComments((c) => ({ ...c, [id]: list }));
-      }
-    })();
-  }, [state.board, state.items, snapshot?.sessionId, myPersonId]);
-
   // Édition inline de la capacité (bandeau personne × sprint).
   const [capEdit, setCapEdit] = useState<{ personId: string; real: number } | null>(null);
   // Position (viewport) du dernier jalon/flag cliqué : ancre l'éditeur près de sa cible.
@@ -305,6 +287,31 @@ export function GanttBoard() {
       return savePrefs({ ...p, types: { ...p.types, [wit]: next } });
     });
   }, []);
+
+  // Discussions ADO des cartes de la vue @me (tickets du sprint courant qui me
+  // sont assignés ou que je relis) :
+  // hors snapshot, une requête par ticket, mémorisées le temps de la session.
+  const [comments, setComments] = useState<Record<string, TicketComment[]>>({});
+  // Ids déjà demandés : borne à une requête par ticket, même si le board
+  // re-rend pendant le chargement.
+  const askedComments = useRef(new Set<string>());
+  useEffect(() => {
+    const sid = snapshot?.sessionId;
+    if (state.board !== "me" || !sid || !myPersonId) return;
+    const me = M.people.find((p) => p.id === myPersonId);
+    const todo = state.items
+      .filter((it) => it.iter === M.CURRENT && (it.person === myPersonId || isMyReview(it, me, prefs.reviewField)) && !askedComments.current.has(it.id))
+      .map((it) => it.id);
+    if (!todo.length) return;
+    todo.forEach((id) => askedComments.current.add(id));
+    (async () => {
+      // Séquentiel : pas de rafale d'appels ADO à l'ouverture du board.
+      for (const id of todo) {
+        const list = await api.getComments(sid, id).catch(() => [] as TicketComment[]);
+        if (list.length) setComments((c) => ({ ...c, [id]: list }));
+      }
+    })();
+  }, [state.board, state.items, snapshot?.sessionId, myPersonId, prefs.reviewField]);
 
   // Sélecteur de champ ADO supplémentaire (popover ⚙ du panneau ticket).
   // list === null : chargement en cours.
@@ -2275,6 +2282,7 @@ export function GanttBoard() {
           userName={user?.displayName ?? ""} myId={myPersonId} selectedId={state.selectedId}
           onSelect={(id) => setState({ selectedId: id })} adoUrl={snapshot?.adoUrl}
           comments={comments}
+          reviewField={prefs.reviewField} onReviewField={(ref) => updatePrefs({ reviewField: ref })}
         />
       )}
 
@@ -2456,7 +2464,7 @@ export function GanttBoard() {
                   <div style={C(bar.epicDotStyle)} />
                   <span title={bar.epicName} style={C(bar.epicLabelStyle)}>{bar.epicName}</span>
                   <div style={C("flex:1;min-width:6px")} />
-                  <span title={bar.area} style={C("font-size:10px;color:var(--muted,#6b6b75);font-family:'IBM Plex Mono',monospace;flex:0 0 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:3px")}><span style={C("opacity:.7")}>▤</span>{bar.areaLeaf}</span>
+                  <span title={bar.area} style={C("font-size:10px;color:var(--muted,#6b6b75);font-family:'IBM Plex Mono',monospace;flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:3px")}><span style={C("opacity:.7;flex:0 0 auto")}>▤</span><span style={C("white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0")}>{bar.areaLeaf}</span></span>
                 </div>
               )}
               <div style={C("position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--line2,#f1f1f5)")}>
