@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { css } from "./css";
 import * as M from "./ganttModel";
 import type { Item, Iter, Person, Theme } from "./ganttModel";
@@ -156,17 +157,18 @@ function Card({ item, theme, selected, onSelect, adoUrl, comments, note }: {
 }
 
 /** Intitulé de section de la colonne principale (affiché dès qu'il y en a deux). */
-function SectionHead({ label, count }: { label: string; count: number }) {
+function SectionHead({ label, count, right }: { label: string; count: number; right?: ReactNode }) {
   return (
-    <div style={C("display:flex;align-items:baseline;gap:8px;padding:6px 2px 0")}>
+    <div style={C("display:flex;align-items:center;gap:8px;padding:6px 2px 0")}>
       <span style={C(KICKER)}>{label}</span>
       <span style={C(`font-family:${mono};font-size:11px;color:var(--faint,#71717c)`)}>{count}</span>
       <div style={C("flex:1;height:1px;background:var(--line,#e8e8ee)")} />
+      {right}
     </div>
   );
 }
 
-export function MyBoard({ items, people, iters, current, theme, userName, myId, selectedId, onSelect, adoUrl, comments, reviewField, onReviewField }: {
+export function MyBoard({ items, people, iters, current, theme, userName, myId, selectedId, onSelect, adoUrl, comments, reviewField, onReviewField, identityFields }: {
   items: Item[];
   people: Person[];
   iters: Iter[];
@@ -182,6 +184,8 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
   /** Champ ADO portant le relecteur ("" = détection sur le nom du champ). */
   reviewField?: string;
   onReviewField?: (ref: string) => void;
+  /** Champs identité du process (referenceName → nom ADO), chargés par le parent. */
+  identityFields?: Record<string, string>;
 }) {
   useLang();
   const me = people.find((p) => p.id === myId);
@@ -195,11 +199,40 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
     .filter((it) => it.iter === current && it.person !== myId && isMyReview(it, me, reviewField))
     .sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
   const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? id;
-  // Champs ADO proposables : ceux réellement portés par les tickets du board. Un
-  // champ vide partout n'aurait de toute façon aucune relecture à afficher.
-  const customRefs = [...new Set(items.flatMap((it) => Object.keys(it.custom ?? {})))].sort();
+  // Champs proposables : les champs identité du process (seuls à pouvoir porter
+  // un relecteur). Tant qu'ils ne sont pas chargés — ou hors session réelle —,
+  // repli sur les champs custom réellement portés par les tickets du board.
+  const fieldLabel = (ref: string) => identityFields?.[ref] || ref.split(".").pop() || ref;
+  const customRefs = [...new Set(items.flatMap((it) => Object.keys(it.custom ?? {})))];
+  const pickable = (Object.keys(identityFields ?? {}).length ? Object.keys(identityFields!) : customRefs)
+    .sort((a, b) => fieldLabel(a).localeCompare(fieldLabel(b)));
+  // Ce que la détection auto trouvera : elle lit les champs portés par les
+  // tickets (comme isMyReview), pas la définition du process.
+  const autoRef = customRefs.find((ref) => REVIEW_FIELD.test(ref));
   const points = cur.reduce((s, it) => s + it.points, 0);
   const done = cur.filter((it) => M.stateProgress(it.state) >= 1).length;
+
+  // Source des relectures : « Reviewed By » est un champ custom, son
+  // referenceName dépend du process ADO. Posé dans le bandeau « À relire », donc
+  // affiché même sans relecture détectée — c'est là qu'on vient corriger le champ.
+  const fieldPicker = onReviewField && (
+    <select
+      value={reviewField ?? ""}
+      onChange={(e) => onReviewField(e.target.value)}
+      aria-label={t("Champ ADO du relecteur")}
+      title={reviewField || autoRef || t("Champ ADO du relecteur")}
+      style={C("max-width:180px;height:24px;padding:0 6px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--muted,#6b6b75);font-size:11px;cursor:pointer")}
+    >
+      {/* Détection auto : on montre le champ qu'elle a trouvé, pas le mot
+          « auto » — c'est l'info utile pour savoir si on lit le bon champ. */}
+      <option value="">{autoRef ? fieldLabel(autoRef) : t("Détection auto")}</option>
+      {pickable.map((ref) => (
+        <option key={ref} value={ref}>{fieldLabel(ref)}</option>
+      ))}
+    </select>
+  );
+  const showReviewHead = !!onReviewField || (cur.length > 0 && reviews.length > 0);
+  const showMineHead = cur.length > 0 && showReviewHead;
 
   const stat = (value: string, label: string) => (
     <div style={C("display:flex;flex-direction:column;gap:2px")}>
@@ -225,23 +258,6 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
           {stat(String(points), t("Points"))}
           {stat(`${done}/${cur.length}`, t("Terminés"))}
           {stat(String(reviews.length), t("À relire"))}
-          {/* Source des relectures : « Reviewed By » est un champ custom, son
-              referenceName dépend du process ADO. Toujours accessible ici, même
-              quand la détection automatique ne trouve rien. */}
-          {onReviewField && (
-            <select
-              value={reviewField ?? ""}
-              onChange={(e) => onReviewField(e.target.value)}
-              aria-label={t("Champ ADO du relecteur")}
-              title={reviewField || t("Champ ADO du relecteur")}
-              style={C("align-self:center;max-width:160px;height:26px;padding:0 6px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--muted,#6b6b75);font-size:11px;cursor:pointer")}
-            >
-              <option value="">{t("Détection auto")}</option>
-              {customRefs.map((ref) => (
-                <option key={ref} value={ref}>{ref.split(".").pop()}</option>
-              ))}
-            </select>
-          )}
           <div style={{ flex: 1 }} />
           {iters[current] && (
             <div style={C("text-align:right")}>
@@ -258,23 +274,20 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
               sections du même flux, intitulées seulement quand les deux existent
               (un chef de projet n'a que des relectures, un dev que des assignés). */}
           <div style={C("flex:1 1 560px;min-width:0;display:flex;flex-direction:column;gap:12px")}>
-            {cur.length === 0 && reviews.length === 0 ? (
+            {cur.length === 0 && reviews.length === 0 && (
               <div style={C(`${PANEL};padding:22px;text-align:center;font-size:13px;color:var(--muted,#6b6b75)`)}>
                 {myId ? t("Aucun ticket ne vous est assigné sur ce sprint.") : t("Votre compte n'est rattaché à aucun membre de l'équipe.")}
               </div>
-            ) : (
-              <>
-                {cur.length > 0 && reviews.length > 0 && <SectionHead label={t("Mes tickets")} count={cur.length} />}
-                {cur.map((it) => (
-                  <Card key={it.id} item={it} theme={theme} selected={selectedId === it.id} onSelect={onSelect} adoUrl={adoUrl} comments={comments?.[it.id]} />
-                ))}
-                {cur.length > 0 && reviews.length > 0 && <SectionHead label={t("À relire")} count={reviews.length} />}
-                {reviews.map((it) => (
-                  <Card key={it.id} item={it} theme={theme} selected={selectedId === it.id} onSelect={onSelect} adoUrl={adoUrl} comments={comments?.[it.id]}
-                    note={`${t("Assigné à")} ${nameOf(it.person)}`} />
-                ))}
-              </>
             )}
+            {showMineHead && <SectionHead label={t("Mes tickets")} count={cur.length} />}
+            {cur.map((it) => (
+              <Card key={it.id} item={it} theme={theme} selected={selectedId === it.id} onSelect={onSelect} adoUrl={adoUrl} comments={comments?.[it.id]} />
+            ))}
+            {showReviewHead && <SectionHead label={t("À relire")} count={reviews.length} right={fieldPicker} />}
+            {reviews.map((it) => (
+              <Card key={it.id} item={it} theme={theme} selected={selectedId === it.id} onSelect={onSelect} adoUrl={adoUrl} comments={comments?.[it.id]}
+                note={`${t("Assigné à")} ${nameOf(it.person)}`} />
+            ))}
           </div>
 
           {/* Sprint suivant — aperçu compact */}

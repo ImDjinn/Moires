@@ -111,12 +111,24 @@ describe("MyBoard", () => {
     render(
       <MyBoard items={items} people={people} iters={iters} current={0} theme="light"
         userName="Alice Beaumont" myId="alice@corp.com" selectedId={null} onSelect={() => {}}
-        reviewField="" onReviewField={onReviewField} />,
+        reviewField="" onReviewField={onReviewField}
+        identityFields={{ "Custom.Reviewer": "Relecteur", "Custom.Approbateur": "Approbateur" }} />,
     );
     const select = screen.getByLabelText("Champ ADO du relecteur");
-    expect([...select.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Détection auto", "Reviewer"]);
+    // Champs identité sous leur nom ADO ; la détection auto affiche celui qu'elle a trouvé.
+    expect([...select.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Relecteur", "Approbateur", "Relecteur"]);
     fireEvent.change(select, { target: { value: "Custom.Reviewer" } });
     expect(onReviewField).toHaveBeenCalledWith("Custom.Reviewer");
+  });
+
+  it("sans libellé chargé, repli sur la fin du referenceName ; sans champ détecté, « Détection auto »", () => {
+    render(
+      <MyBoard items={[item({ custom: { "Custom.Demandeur": "Bob" } })]} people={people} iters={iters} current={0} theme="light"
+        userName="Alice Beaumont" myId="alice@corp.com" selectedId={null} onSelect={() => {}}
+        reviewField="" onReviewField={() => {}} />,
+    );
+    const select = screen.getByLabelText("Champ ADO du relecteur");
+    expect([...select.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Détection auto", "Demandeur"]);
   });
 
   it("sans onReviewField (mock), pas de sélecteur", () => {

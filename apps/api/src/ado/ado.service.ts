@@ -392,7 +392,7 @@ export class AdoService {
     projectId: string,
     type: string,
     token: string,
-  ): Promise<{ referenceName: string; name: string; defaultValue: string | number | boolean | null; alwaysRequired: boolean; allowedValues: string[] }[]> {
+  ): Promise<{ referenceName: string; name: string; type: string; defaultValue: string | number | boolean | null; alwaysRequired: boolean; allowedValues: string[] }[]> {
     const data = await this.adoFetch(
       `${this.projectUrl(org, projectId)}/_apis/wit/workitemtypes/${encodeURIComponent(type)}/fields?$expand=allowedValues&api-version=7.1`,
       token,
@@ -401,6 +401,9 @@ export class AdoService {
       .map((f: any) => ({
         referenceName: f.referenceName as string,
         name: f.name as string,
+        // Type ADO du champ ("string", "integer", "identity"…) : sert à ne
+        // proposer que des champs de personne là où on attend une identité.
+        type: typeof f.type === "string" ? f.type : "",
         // Valeur par défaut du process : affichée (comme dans ADO) tant que le
         // work item n'a pas de valeur stockée pour ce champ.
         defaultValue: ["string", "number", "boolean"].includes(typeof f.defaultValue) ? f.defaultValue : null,

@@ -313,6 +313,25 @@ export function GanttBoard() {
     })();
   }, [state.board, state.items, snapshot?.sessionId, myPersonId, prefs.reviewField]);
 
+  // Champs identité (referenceName → nom ADO) des types du board : les seuls
+  // candidats au rôle de relecteur, affichés sous leur vrai nom (« Relecteur »
+  // et non « Custom.RelecteurPrincipal »). Une requête par type, refaite
+  // seulement si la liste des types change.
+  const [identityFields, setIdentityFields] = useState<Record<string, string>>({});
+  const askedIdentityFields = useRef("");
+  useEffect(() => {
+    const sid = snapshot?.sessionId;
+    if (state.board !== "me" || !realSessionRef.current || !sid) return;
+    const wits = [...new Set(state.items.map(witOf))].sort();
+    const key = wits.join("|");
+    if (!wits.length || key === askedIdentityFields.current) return;
+    askedIdentityFields.current = key;
+    Promise.all(wits.map((w) => api.getTypeFields(sid, w).catch(() => [])))
+      .then((all) => setIdentityFields(Object.fromEntries(
+        all.flat().filter((f) => f.type === "identity").map((f) => [f.referenceName, f.name]),
+      )));
+  }, [state.board, state.items, snapshot?.sessionId]);
+
   // Sélecteur de champ ADO supplémentaire (popover ⚙ du panneau ticket).
   // list === null : chargement en cours.
   type PickerField = { ref: string; label: string; def?: string | number | boolean | null; required?: boolean; allowed?: string[] };
@@ -2283,6 +2302,7 @@ export function GanttBoard() {
           onSelect={(id) => setState({ selectedId: id })} adoUrl={snapshot?.adoUrl}
           comments={comments}
           reviewField={prefs.reviewField} onReviewField={(ref) => updatePrefs({ reviewField: ref })}
+          identityFields={identityFields}
         />
       )}
 

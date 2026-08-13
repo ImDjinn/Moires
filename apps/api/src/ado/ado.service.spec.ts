@@ -160,14 +160,14 @@ describe("AdoService", () => {
         { referenceName: "System.Title", name: "Title" },
         { referenceName: "WEF_ABC_Kanban.Column", name: "Board Column" },
         { referenceName: "Microsoft.VSTS.Scheduling.StoryPoints", name: "Story Points" },
-        { referenceName: "Custom.WorkType", name: "Work Type", defaultValue: "Implementation", alwaysRequired: true, allowedValues: ["Implementation", "Design"] },
+        { referenceName: "Custom.WorkType", name: "Work Type", type: "string", defaultValue: "Implementation", alwaysRequired: true, allowedValues: ["Implementation", "Design"] },
         { referenceName: "Custom.Risque", name: "Risque", defaultValue: { odd: true } },
       ] }),
     );
     const res = await service.getTypeFields("org", "p1", "User Story", "tkn");
     expect(res).toEqual([
-      { referenceName: "Custom.WorkType", name: "Work Type", defaultValue: "Implementation", alwaysRequired: true, allowedValues: ["Implementation", "Design"] },
-      { referenceName: "Custom.Risque", name: "Risque", defaultValue: null, alwaysRequired: false, allowedValues: [] },
+      { referenceName: "Custom.WorkType", name: "Work Type", type: "string", defaultValue: "Implementation", alwaysRequired: true, allowedValues: ["Implementation", "Design"] },
+      { referenceName: "Custom.Risque", name: "Risque", type: "", defaultValue: null, alwaysRequired: false, allowedValues: [] },
     ]);
     expect(fetchMock.mock.calls[0][0]).toContain("/workitemtypes/User%20Story/fields");
     expect(fetchMock.mock.calls[0][0]).toContain("$expand=allowedValues");
