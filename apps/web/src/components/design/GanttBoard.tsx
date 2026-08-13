@@ -13,7 +13,7 @@ import { api } from "../../services/rest.client";
 import { buildDataset, UNASSIGNED_ID, initials } from "./adapter";
 import { Brand } from "../Brand";
 import { IconEye, IconEyeOff, IconGear, IconCopy, IconSwap, IconLogout, IconUsers, IconCalendar, IconGrid, IconMilestone, IconFlag, IconClose, IconAlert, IconNear } from "./icons";
-import { MyBoard, resolveMyPersonId, isMyReview } from "./MyBoard";
+import { MyBoard, resolveMyPersonId, fieldIsMe, detectReviewField } from "./MyBoard";
 import * as M from "./ganttModel";
 import type { Drag, Item, Presence, State, Theme } from "./ganttModel";
 import type { OperationField, TicketComment } from "@moires/shared";
@@ -54,8 +54,11 @@ interface UiPrefs {
   v?: 2;
   types: Record<string, TypePrefs>;
   loadField: M.LoadField;
-  /** Champ ADO portant le relecteur (vue @me). "" = détection automatique. */
-  reviewField: string;
+  /**
+   * Champs identité affichés en sections dans la vue @me. `undefined` = jamais
+   * choisi : la première ouverture y met le champ « relecteur » du process.
+   */
+  meFields?: string[];
 }
 // Champs de base par type ADO (process Agile), comme le formulaire ADO :
 // Story Points sur les US/Bugs, Estimation (Original Estimate) sur les Tasks,
@@ -82,10 +85,12 @@ function loadPrefs(): UiPrefs {
     // v2 : défauts par type ADO (Effort sur Epic/Feature) — prefs v1 réinitialisées.
     return {
       v: 2, types: saved.v === 2 ? saved.types || {} : {}, loadField: lf,
-      reviewField: typeof saved.reviewField === "string" ? saved.reviewField : "",
+      // Migration : l'ancien champ relecteur unique devient la première section.
+      meFields: Array.isArray(saved.meFields) ? saved.meFields.filter((f: unknown) => typeof f === "string")
+        : saved.reviewField ? [saved.reviewField] : undefined,
     };
   } catch {
-    return { v: 2, types: {}, loadField: "points", reviewField: "" };
+    return { v: 2, types: {}, loadField: "points" };
   }
 }
 // Personnes masquées du board (sélection des utilisateurs) — persistée entre sessions.
@@ -300,7 +305,7 @@ export function GanttBoard() {
     if (state.board !== "me" || !sid || !myPersonId) return;
     const me = M.people.find((p) => p.id === myPersonId);
     const todo = state.items
-      .filter((it) => it.iter === M.CURRENT && (it.person === myPersonId || isMyReview(it, me, prefs.reviewField)) && !askedComments.current.has(it.id))
+      .filter((it) => it.iter === M.CURRENT && (it.person === myPersonId || (prefs.meFields ?? []).some((f) => fieldIsMe(it, me, f))) && !askedComments.current.has(it.id))
       .map((it) => it.id);
     if (!todo.length) return;
     todo.forEach((id) => askedComments.current.add(id));
@@ -311,7 +316,7 @@ export function GanttBoard() {
         if (list.length) setComments((c) => ({ ...c, [id]: list }));
       }
     })();
-  }, [state.board, state.items, snapshot?.sessionId, myPersonId, prefs.reviewField]);
+  }, [state.board, state.items, snapshot?.sessionId, myPersonId, prefs.meFields]);
 
   // Champs identité (referenceName → nom ADO) des types du board : les seuls
   // candidats au rôle de relecteur, affichés sous leur vrai nom (« Relecteur »
@@ -327,9 +332,14 @@ export function GanttBoard() {
     if (!wits.length || key === askedIdentityFields.current) return;
     askedIdentityFields.current = key;
     Promise.all(wits.map((w) => api.getTypeFields(sid, w).catch(() => [])))
-      .then((all) => setIdentityFields(Object.fromEntries(
-        all.flat().filter((f) => f.type === "identity").map((f) => [f.referenceName, f.name]),
-      )));
+      .then((all) => {
+        const found = Object.fromEntries(all.flat().filter((f) => f.type === "identity").map((f) => [f.referenceName, f.name]));
+        setIdentityFields(found);
+        // Première ouverture : on propose la section relecteur du process, que
+        // l'utilisateur reste libre de retirer (le retrait persiste un []).
+        const auto = detectReviewField(Object.keys(found));
+        setPrefs((p) => (p.meFields ? p : savePrefs({ ...p, meFields: auto ? [auto] : [] })));
+      });
   }, [state.board, state.items, snapshot?.sessionId]);
 
   // Sélecteur de champ ADO supplémentaire (popover ⚙ du panneau ticket).
@@ -2301,7 +2311,7 @@ export function GanttBoard() {
           userName={user?.displayName ?? ""} myId={myPersonId} selectedId={state.selectedId}
           onSelect={(id) => setState({ selectedId: id })} adoUrl={snapshot?.adoUrl}
           comments={comments}
-          reviewField={prefs.reviewField} onReviewField={(ref) => updatePrefs({ reviewField: ref })}
+          fields={prefs.meFields} onFields={(refs) => updatePrefs({ meFields: refs })}
           identityFields={identityFields}
         />
       )}

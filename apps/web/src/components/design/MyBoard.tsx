@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { css } from "./css";
 import * as M from "./ganttModel";
 import type { Item, Iter, Person, Theme } from "./ganttModel";
@@ -45,22 +45,23 @@ export function htmlToText(html?: string): string {
 }
 
 /**
- * ADO n'a pas de champ « reviewer » : c'est un champ custom de type identité
- * (Reviewed By, Relecteur, Approbateur…) dont le referenceName varie d'un
- * process à l'autre. `field` fixe lequel lire ; sans lui, on retombe sur le nom
- * du champ — suffisant tant qu'un seul champ « review » existe dans le process.
+ * Un champ ADO de type identité (Relecteur, Approbateur, Demandeur…) me
+ * désigne-t-il ? Le referenceName de ces champs varie d'un process à l'autre :
+ * c'est l'utilisateur qui choisit ceux dont il veut une section.
  *
  * La valeur est comparée à l'email comme au nom affiché : selon le format
  * renvoyé, un champ identité arrive en « Prénom Nom » ou « Prénom Nom <email> ».
  */
-const REVIEW_FIELD = /review|relect/i;
-
-export function isMyReview(item: Item, me?: { id: string; name: string }, field?: string): boolean {
-  if (!me || !item.custom) return false;
+export function fieldIsMe(item: Item, me: { id: string; name: string } | undefined, field: string): boolean {
+  const val = item.custom?.[field];
+  if (!me || val == null) return false;
   const keys = [me.id, me.name].map((s) => s.trim().toLowerCase()).filter(Boolean);
-  const holds = (val: unknown) => val != null && keys.some((k) => String(val).toLowerCase().includes(k));
-  if (field) return holds(item.custom[field]);
-  return Object.entries(item.custom).some(([ref, val]) => REVIEW_FIELD.test(ref) && holds(val));
+  return keys.some((k) => String(val).toLowerCase().includes(k));
+}
+
+/** Champ identité « relecteur » d'un process — section proposée par défaut. */
+export function detectReviewField(refs: string[]): string | undefined {
+  return refs.find((ref) => /review|relect/i.test(ref));
 }
 
 const KICKER = "font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#71717c)";
@@ -168,7 +169,7 @@ function SectionHead({ label, count, right }: { label: string; count: number; ri
   );
 }
 
-export function MyBoard({ items, people, iters, current, theme, userName, myId, selectedId, onSelect, adoUrl, comments, reviewField, onReviewField, identityFields }: {
+export function MyBoard({ items, people, iters, current, theme, userName, myId, selectedId, onSelect, adoUrl, comments, fields = [], onFields, identityFields }: {
   items: Item[];
   people: Person[];
   iters: Iter[];
@@ -181,58 +182,63 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
   adoUrl?: string;
   /** Discussions ADO par id de ticket (chargées à la demande par le parent). */
   comments?: Record<string, TicketComment[]>;
-  /** Champ ADO portant le relecteur ("" = détection sur le nom du champ). */
-  reviewField?: string;
-  onReviewField?: (ref: string) => void;
+  /** Champs identité affichés en sections, dans l'ordre d'ajout. */
+  fields?: string[];
+  onFields?: (refs: string[]) => void;
   /** Champs identité du process (referenceName → nom ADO), chargés par le parent. */
   identityFields?: Record<string, string>;
 }) {
   useLang();
   const me = people.find((p) => p.id === myId);
+  const byPriority = (a: Item, b: Item) => (a.priority ?? 99) - (b.priority ?? 99);
   const mine = items.filter((it) => it.person === myId);
-  const ofIter = (i: number) => mine.filter((it) => it.iter === i).sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+  const ofIter = (i: number) => mine.filter((it) => it.iter === i).sort(byPriority);
   const cur = ofIter(current);
   const next = ofIter(current + 1);
-  // Relectures du sprint courant : mes tickets assignés en sont exclus (ils sont
-  // déjà dans la colonne principale).
-  const reviews = items
-    .filter((it) => it.iter === current && it.person !== myId && isMyReview(it, me, reviewField))
-    .sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+  // Une section par champ identité choisi : mes tickets assignés en sont exclus
+  // (ils sont déjà dans la section principale).
+  const sections = fields.map((ref) => ({
+    ref,
+    items: items.filter((it) => it.iter === current && it.person !== myId && fieldIsMe(it, me, ref)).sort(byPriority),
+  }));
   const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? id;
-  // Champs proposables : les champs identité du process (seuls à pouvoir porter
-  // un relecteur). Tant qu'ils ne sont pas chargés — ou hors session réelle —,
-  // repli sur les champs custom réellement portés par les tickets du board.
+  // Champs proposables : les champs identité du process (seuls à désigner une
+  // personne). Tant qu'ils ne sont pas chargés — ou hors session réelle —, repli
+  // sur les champs custom réellement portés par les tickets du board.
   const fieldLabel = (ref: string) => identityFields?.[ref] || ref.split(".").pop() || ref;
   const customRefs = [...new Set(items.flatMap((it) => Object.keys(it.custom ?? {})))];
-  const pickable = (Object.keys(identityFields ?? {}).length ? Object.keys(identityFields!) : customRefs)
+  const identityRefs = Object.keys(identityFields ?? {});
+  const pickable = (identityRefs.length ? identityRefs : customRefs)
+    .filter((ref) => !fields.includes(ref))
     .sort((a, b) => fieldLabel(a).localeCompare(fieldLabel(b)));
-  // Ce que la détection auto trouvera : elle lit les champs portés par les
-  // tickets (comme isMyReview), pas la définition du process.
-  const autoRef = customRefs.find((ref) => REVIEW_FIELD.test(ref));
   const points = cur.reduce((s, it) => s + it.points, 0);
   const done = cur.filter((it) => M.stateProgress(it.state) >= 1).length;
 
-  // Source des relectures : « Reviewed By » est un champ custom, son
-  // referenceName dépend du process ADO. Posé dans le bandeau « À relire », donc
-  // affiché même sans relecture détectée — c'est là qu'on vient corriger le champ.
-  const fieldPicker = onReviewField && (
+  // Ajout d'une section : le select retombe sur son intitulé après chaque choix
+  // (c'est une action, pas un état) ; le retrait se fait sur la section elle-même.
+  const addPicker = onFields && (
     <select
-      value={reviewField ?? ""}
-      onChange={(e) => onReviewField(e.target.value)}
-      aria-label={t("Champ ADO du relecteur")}
-      title={reviewField || autoRef || t("Champ ADO du relecteur")}
+      value=""
+      onChange={(e) => e.target.value && onFields([...fields, e.target.value])}
+      aria-label={t("Ajouter une section")}
       style={C("max-width:180px;height:24px;padding:0 6px;border-radius:var(--r-md,7px);border:1px solid var(--line,#e8e8ee);background:var(--panel2,#fafafc);color:var(--muted,#6b6b75);font-size:11px;cursor:pointer")}
     >
-      {/* Détection auto : on montre le champ qu'elle a trouvé, pas le mot
-          « auto » — c'est l'info utile pour savoir si on lit le bon champ. */}
-      <option value="">{autoRef ? fieldLabel(autoRef) : t("Détection auto")}</option>
+      <option value="">{t("Ajouter une section…")}</option>
       {pickable.map((ref) => (
         <option key={ref} value={ref}>{fieldLabel(ref)}</option>
       ))}
     </select>
   );
-  const showReviewHead = !!onReviewField || (cur.length > 0 && reviews.length > 0);
-  const showMineHead = cur.length > 0 && showReviewHead;
+  const dropSection = (ref: string) => onFields && (
+    <button
+      onClick={() => onFields(fields.filter((f) => f !== ref))}
+      aria-label={`${t("Retirer la section")} ${fieldLabel(ref)}`}
+      style={C("width:20px;height:20px;padding:0;border:0;background:none;color:var(--faint,#71717c);font-size:14px;line-height:1;cursor:pointer")}
+    >
+      ×
+    </button>
+  );
+  const showMineHead = !!onFields || (cur.length > 0 && sections.length > 0);
 
   const stat = (value: string, label: string) => (
     <div style={C("display:flex;flex-direction:column;gap:2px")}>
@@ -257,7 +263,6 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
           {stat(String(cur.length), t("Tickets"))}
           {stat(String(points), t("Points"))}
           {stat(`${done}/${cur.length}`, t("Terminés"))}
-          {stat(String(reviews.length), t("À relire"))}
           <div style={{ flex: 1 }} />
           {iters[current] && (
             <div style={C("text-align:right")}>
@@ -270,23 +275,27 @@ export function MyBoard({ items, people, iters, current, theme, userName, myId, 
         </div>
 
         <div style={C("display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap")}>
-          {/* Sprint en cours — détail complet. Assignés puis relectures : deux
-              sections du même flux, intitulées seulement quand les deux existent
-              (un chef de projet n'a que des relectures, un dev que des assignés). */}
+          {/* Sprint en cours — détail complet. Mes tickets assignés, puis une
+              section par champ identité choisi (relecteur, approbateur…), chacune
+              sous le nom ADO du champ. */}
           <div style={C("flex:1 1 560px;min-width:0;display:flex;flex-direction:column;gap:12px")}>
-            {cur.length === 0 && reviews.length === 0 && (
+            {cur.length === 0 && sections.every((s) => s.items.length === 0) && (
               <div style={C(`${PANEL};padding:22px;text-align:center;font-size:13px;color:var(--muted,#6b6b75)`)}>
                 {myId ? t("Aucun ticket ne vous est assigné sur ce sprint.") : t("Votre compte n'est rattaché à aucun membre de l'équipe.")}
               </div>
             )}
-            {showMineHead && <SectionHead label={t("Mes tickets")} count={cur.length} />}
+            {showMineHead && <SectionHead label={t("Mes tickets")} count={cur.length} right={addPicker} />}
             {cur.map((it) => (
               <Card key={it.id} item={it} theme={theme} selected={selectedId === it.id} onSelect={onSelect} adoUrl={adoUrl} comments={comments?.[it.id]} />
             ))}
-            {showReviewHead && <SectionHead label={t("À relire")} count={reviews.length} right={fieldPicker} />}
-            {reviews.map((it) => (
-              <Card key={it.id} item={it} theme={theme} selected={selectedId === it.id} onSelect={onSelect} adoUrl={adoUrl} comments={comments?.[it.id]}
-                note={`${t("Assigné à")} ${nameOf(it.person)}`} />
+            {sections.map((s) => (
+              <Fragment key={s.ref}>
+                <SectionHead label={fieldLabel(s.ref)} count={s.items.length} right={dropSection(s.ref)} />
+                {s.items.map((it) => (
+                  <Card key={it.id} item={it} theme={theme} selected={selectedId === it.id} onSelect={onSelect} adoUrl={adoUrl} comments={comments?.[it.id]}
+                    note={`${t("Assigné à")} ${nameOf(it.person)}`} />
+                ))}
+              </Fragment>
             ))}
           </div>
 

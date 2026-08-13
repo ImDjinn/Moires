@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { MyBoard, resolveMyPersonId, htmlToText, isMyReview } from "./MyBoard";
+import { MyBoard, resolveMyPersonId, htmlToText, fieldIsMe, detectReviewField } from "./MyBoard";
 import type { Item, Iter, Person } from "./ganttModel";
 
 const people: Person[] = [
@@ -57,28 +57,34 @@ describe("htmlToText", () => {
   });
 });
 
-describe("isMyReview", () => {
+describe("fieldIsMe", () => {
   const me = people[0];
 
-  it("reconnaît le champ custom identité quel que soit son referenceName", () => {
-    expect(isMyReview(item({ custom: { "Custom.Reviewer": "Alice Beaumont" } }), me)).toBe(true);
-    expect(isMyReview(item({ custom: { "Custom.Relecteur": "alice@corp.com" } }), me)).toBe(true);
+  it("reconnaît l'identité par email comme par nom affiché", () => {
+    expect(fieldIsMe(item({ custom: { "Custom.Reviewer": "Alice Beaumont" } }), me, "Custom.Reviewer")).toBe(true);
+    expect(fieldIsMe(item({ custom: { "Custom.Reviewer": "alice@corp.com" } }), me, "Custom.Reviewer")).toBe(true);
     // Format « Nom <email> » de certains champs identité.
-    expect(isMyReview(item({ custom: { "Custom.CodeReview": "Alice Beaumont <alice@corp.com>" } }), me)).toBe(true);
+    expect(fieldIsMe(item({ custom: { "Custom.Reviewer": "Alice Beaumont <alice@corp.com>" } }), me, "Custom.Reviewer")).toBe(true);
   });
 
-  it("champ explicite : ne lit que celui-là, l'heuristique ne s'applique plus", () => {
+  it("ne lit que le champ demandé", () => {
     const it4 = item({ custom: { "Custom.Reviewer": "Alice Beaumont", "Custom.Approbateur": "Bob Martin" } });
-    expect(isMyReview(it4, me, "Custom.Reviewer")).toBe(true);
-    expect(isMyReview(it4, me, "Custom.Approbateur")).toBe(false);
-    expect(isMyReview(it4, me, "Custom.Absent")).toBe(false);
+    expect(fieldIsMe(it4, me, "Custom.Approbateur")).toBe(false);
+    expect(fieldIsMe(it4, me, "Custom.Absent")).toBe(false);
   });
 
-  it("ignore un autre relecteur, un autre champ, ou l'absence de champ", () => {
-    expect(isMyReview(item({ custom: { "Custom.Reviewer": "Bob Martin" } }), me)).toBe(false);
-    expect(isMyReview(item({ custom: { "Custom.Demandeur": "Alice Beaumont" } }), me)).toBe(false);
-    expect(isMyReview(item({}), me)).toBe(false);
-    expect(isMyReview(item({ custom: { "Custom.Reviewer": "Alice Beaumont" } }), undefined)).toBe(false);
+  it("ignore une autre personne, l'absence de champ ou de session", () => {
+    expect(fieldIsMe(item({ custom: { "Custom.Reviewer": "Bob Martin" } }), me, "Custom.Reviewer")).toBe(false);
+    expect(fieldIsMe(item({}), me, "Custom.Reviewer")).toBe(false);
+    expect(fieldIsMe(item({ custom: { "Custom.Reviewer": "Alice Beaumont" } }), undefined, "Custom.Reviewer")).toBe(false);
+  });
+});
+
+describe("detectReviewField", () => {
+  it("repère le champ relecteur du process, sinon rien", () => {
+    expect(detectReviewField(["Custom.Demandeur", "Custom.CodeReviewer"])).toBe("Custom.CodeReviewer");
+    expect(detectReviewField(["Custom.Relecteur"])).toBe("Custom.Relecteur");
+    expect(detectReviewField(["Custom.Demandeur"])).toBeUndefined();
   });
 });
 
@@ -86,7 +92,8 @@ describe("MyBoard", () => {
   const view = () =>
     render(
       <MyBoard items={items} people={people} iters={iters} current={0} theme="light"
-        userName="Alice Beaumont" myId="alice@corp.com" selectedId={null} onSelect={() => {}} />,
+        userName="Alice Beaumont" myId="alice@corp.com" selectedId={null} onSelect={() => {}}
+        fields={["Custom.Reviewer"]} identityFields={{ "Custom.Reviewer": "Relecteur" }} />,
     );
 
   it("sépare mes tickets du sprint courant et du suivant, et ignore ceux des autres", () => {
@@ -96,55 +103,63 @@ describe("MyBoard", () => {
     expect(screen.queryByText("US de Bob")).not.toBeInTheDocument();
   });
 
-  it("liste les tickets des autres où je suis reviewer, avec leur assigné", () => {
-    view();
-    expect(screen.getByText("US à relire")).toBeInTheDocument();
-    expect(screen.getByText("Assigné à Bob Martin")).toBeInTheDocument();
-    // Les deux sections coexistent → intitulés affichés ("À relire" est aussi un
-    // compteur du bandeau, d'où les deux occurrences).
-    expect(screen.getByText("Mes tickets")).toBeInTheDocument();
-    expect(screen.getAllByText("À relire")).toHaveLength(2);
-  });
-
-  it("propose les champs ADO présents sur les tickets et remonte le choix", () => {
-    const onReviewField = vi.fn();
+  it("une section par champ identité choisi, sous le nom ADO du champ", () => {
     render(
       <MyBoard items={items} people={people} iters={iters} current={0} theme="light"
         userName="Alice Beaumont" myId="alice@corp.com" selectedId={null} onSelect={() => {}}
-        reviewField="" onReviewField={onReviewField}
+        fields={["Custom.Reviewer", "Custom.Approbateur"]}
         identityFields={{ "Custom.Reviewer": "Relecteur", "Custom.Approbateur": "Approbateur" }} />,
     );
-    const select = screen.getByLabelText("Champ ADO du relecteur");
-    // Champs identité sous leur nom ADO ; la détection auto affiche celui qu'elle a trouvé.
-    expect([...select.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Relecteur", "Approbateur", "Relecteur"]);
-    fireEvent.change(select, { target: { value: "Custom.Reviewer" } });
-    expect(onReviewField).toHaveBeenCalledWith("Custom.Reviewer");
+    expect(screen.getByText("US à relire")).toBeInTheDocument();
+    expect(screen.getByText("Assigné à Bob Martin")).toBeInTheDocument();
+    expect(screen.getByText("Mes tickets")).toBeInTheDocument();
+    expect(screen.getByText("Relecteur")).toBeInTheDocument();
+    // Section vide : intitulée quand même, elle porte le sélecteur de retrait.
+    expect(screen.getByText("Approbateur")).toBeInTheDocument();
   });
 
-  it("sans libellé chargé, repli sur la fin du referenceName ; sans champ détecté, « Détection auto »", () => {
+  it("ajoute et retire une section, en remontant la liste complète", () => {
+    const onFields = vi.fn();
+    render(
+      <MyBoard items={items} people={people} iters={iters} current={0} theme="light"
+        userName="Alice Beaumont" myId="alice@corp.com" selectedId={null} onSelect={() => {}}
+        fields={["Custom.Reviewer"]} onFields={onFields}
+        identityFields={{ "Custom.Reviewer": "Relecteur", "Custom.Approbateur": "Approbateur" }} />,
+    );
+    // Les champs déjà en section ne sont plus proposés à l'ajout.
+    const select = screen.getByLabelText("Ajouter une section");
+    expect([...select.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Ajouter une section…", "Approbateur"]);
+    fireEvent.change(select, { target: { value: "Custom.Approbateur" } });
+    expect(onFields).toHaveBeenCalledWith(["Custom.Reviewer", "Custom.Approbateur"]);
+
+    fireEvent.click(screen.getByLabelText("Retirer la section Relecteur"));
+    expect(onFields).toHaveBeenLastCalledWith([]);
+  });
+
+  it("sans champs identité chargés, repli sur les champs custom des tickets", () => {
     render(
       <MyBoard items={[item({ custom: { "Custom.Demandeur": "Bob" } })]} people={people} iters={iters} current={0} theme="light"
         userName="Alice Beaumont" myId="alice@corp.com" selectedId={null} onSelect={() => {}}
-        reviewField="" onReviewField={() => {}} />,
+        onFields={() => {}} />,
     );
-    const select = screen.getByLabelText("Champ ADO du relecteur");
-    expect([...select.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Détection auto", "Demandeur"]);
+    const select = screen.getByLabelText("Ajouter une section");
+    expect([...select.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Ajouter une section…", "Demandeur"]);
   });
 
-  it("sans onReviewField (mock), pas de sélecteur", () => {
+  it("sans onFields (mock), pas de sélecteur", () => {
     view();
-    expect(screen.queryByLabelText("Champ ADO du relecteur")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Ajouter une section")).not.toBeInTheDocument();
   });
 
-  it("chef de projet (relectures seules) : pas de message de vide, pas d'intitulés de section", () => {
+  it("chef de projet (relectures seules) : pas de message de vide, pas d'intitulé « Mes tickets »", () => {
     render(
       <MyBoard items={items} people={people} iters={iters} current={0} theme="light"
-        userName="Chloé Dupont" myId="chloe@corp.com" selectedId={null} onSelect={() => {}} />,
+        userName="Chloé Dupont" myId="chloe@corp.com" selectedId={null} onSelect={() => {}}
+        fields={["Custom.Reviewer"]} identityFields={{ "Custom.Reviewer": "Relecteur" }} />,
     );
     expect(screen.getByText("US de Bob")).toBeInTheDocument();
     expect(screen.queryByText(/assigné sur ce sprint/)).not.toBeInTheDocument();
     expect(screen.queryByText("Mes tickets")).not.toBeInTheDocument();
-    expect(screen.getAllByText("À relire")).toHaveLength(1); // le compteur du bandeau seul
   });
 
   it("affiche description et critères d'acceptation en texte", () => {
